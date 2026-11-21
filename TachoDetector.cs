@@ -7,7 +7,6 @@ internal enum DetectorState
 {
     WaitingForBlueZone,
     Armed,
-    AwaitFeedback,
     Cooldown
 }
 
@@ -16,13 +15,15 @@ internal enum TachoFeedback
     None,
     OptimalBlue,
     TooEarlyGreen,
-    TooLateRed
+    TooLateRed,
+    WayTooEarlyWhite
 }
 
 internal sealed class TachoDetector : IDisposable
 {
     private Bitmap? _bitmap;
     private Graphics? _graphics;
+    private Bitmap? _flashSnapshot;
     private int _size;
     private bool[] _lastGreenNow = Array.Empty<bool>();
     private bool[] _lastWhiteNow = Array.Empty<bool>();
@@ -34,18 +35,26 @@ internal sealed class TachoDetector : IDisposable
     public double LastTargetEndDeg => _greenEndDeg;
     public double LastWhiteFrontDeg { get; private set; }
     public bool JustArmed { get; private set; }
-    public TachoFeedback LastFeedback { get; private set; } = TachoFeedback.None;
 
-    private TachoFeedback _pendingFeedback = TachoFeedback.None;
+    public TachoFeedback LastFeedback { get; private set; } = TachoFeedback.None;
+    public int LastPeakRed { get; private set; }
+    public int LastPeakGreen { get; private set; }
+    public int LastPeakBlue { get; private set; }
+    public int LastPeakWhite { get; private set; }
+    public double LastCorrectionDelta { get; set; }
+    public double LastSpeedDegPerSec => _smoothedSpeedDegPerMs * 1000.0;
+    public double LastEffectiveLeadDeg { get; private set; }
+
+    private const double ReferenceSpeedDegPerMs = 0.45; // 450 deg/sec nominal reference speed
+    private double _smoothedSpeedDegPerMs;
+    private double _speedSampleRemDeg = 360.0;
+    private DateTime _speedSampleTime = DateTime.MinValue;
+
     private double _greenEndDeg;
+    private double _prevRemainingDeg = 360.0;
     private int _zeroGreenFrames;
     private DateTime _armedSince = DateTime.MinValue;
-    private DateTime _clickTime = DateTime.MinValue;
     private DateTime _cooldownUntil = DateTime.MinValue;
-
-    private int _voteRed;
-    private int _voteGreen;
-    private int _voteBlue;
 
     public void Reset()
     {
@@ -57,23 +66,10 @@ internal sealed class TachoDetector : IDisposable
         LastRemainingDeg = 360.0;
         JustArmed = false;
         _zeroGreenFrames = 0;
-        _pendingFeedback = TachoFeedback.None;
-        _voteRed = 0;
-        _voteGreen = 0;
-        _voteBlue = 0;
-    }
-
-    public bool ConsumeFeedback(out TachoFeedback feedback)
-    {
-        if (_pendingFeedback != TachoFeedback.None)
-        {
-            feedback = _pendingFeedback;
-            _pendingFeedback = TachoFeedback.None;
-            return true;
-        }
-
-        feedback = TachoFeedback.None;
-        return false;
+        _prevRemainingDeg = 360.0;
+        _smoothedSpeedDegPerMs = 0;
+        _speedSampleRemDeg = 360.0;
+        _speedSampleTime = DateTime.MinValue;
     }
 
     public bool Update(int centerX, int centerY, double leadAngleDeg, AppConfig cfg)
@@ -102,12 +98,6 @@ internal sealed class TachoDetector : IDisposable
         double minRSq = minR * minR;
         double maxRSq = maxR * maxR;
 
-        if (State == DetectorState.AwaitFeedback)
-        {
-            UpdateFeedbackAfterClick(left, top, half, minRSq, maxRSq);
-            return false;
-        }
-
         _graphics!.CopyFromScreen(left, top, 0, 0, new Size(_size, _size), CopyPixelOperation.SourceCopy);
 
         var rect = new Rectangle(0, 0, _size, _size);
@@ -115,6 +105,7 @@ internal sealed class TachoDetector : IDisposable
 
         int greenCount = 0;
         int whiteCount = 0;
+        int bottomWhiteCount = 0;
 
         double greenSinSum = 0;
         double greenCosSum = 0;
@@ -177,6 +168,8 @@ internal sealed class TachoDetector : IDisposable
                         if (isWhite)
                         {
                             whiteCount++;
+                            if (dy > 15) bottomWhiteCount++;
+
                             if (State == DetectorState.Armed)
                             {
                                 double whiteDeg = Math.Atan2(dy, dx) * (180.0 / Math.PI);
@@ -184,8 +177,10 @@ internal sealed class TachoDetector : IDisposable
 
                                 // Counter-clockwise in screen coords = decreasing angle toward _greenEndDeg
                                 double rem = (whiteDeg - _greenEndDeg + 360.0) % 360.0;
-                                // Treat up to 18 degrees past _greenEndDeg as negative (-18..0) so overshoots still trigger
-                                if (rem >= 342.0) rem -= 360.0;
+                                // Only treat 342..360 as negative overshoot if the white front was already close (< 55°)
+                                // so the 11 o'clock starting tail never triggers at the beginning of the spin!
+                                if (rem >= 342.0 && _prevRemainingDeg < 55.0)
+                                    rem -= 360.0;
 
                                 if (rem < minRemainingDeg)
                                 {
@@ -215,7 +210,14 @@ internal sealed class TachoDetector : IDisposable
             {
                 _greenEndDeg = endDeg;
                 _zeroGreenFrames = 0;
+                _prevRemainingDeg = 360.0;
                 _armedSince = DateTime.UtcNow;
+                _smoothedSpeedDegPerMs = 0;
+                _speedSampleRemDeg = 360.0;
+                _speedSampleTime = DateTime.MinValue;
+                LastEffectiveLeadDeg = leadAngleDeg;
+                _flashSnapshot?.Dispose();
+                _flashSnapshot = null;
                 State = DetectorState.Armed;
                 JustArmed = true;
             }
@@ -235,15 +237,47 @@ internal sealed class TachoDetector : IDisposable
 
         LastRemainingDeg = minRemainingDeg;
 
-        // Trigger as soon as the moving white front reaches leadAngleDeg before (or up to 18° past) the end of the green zone
-        if (whiteCount >= 8 && minRemainingDeg <= leadAngleDeg)
+        // Measure live angular velocity (deg/ms) of the white bar during the current spin
+        if (whiteCount >= 12 && minRemainingDeg < 275.0 && minRemainingDeg > 5.0)
         {
-            State = DetectorState.AwaitFeedback;
-            _clickTime = DateTime.UtcNow;
-            _cooldownUntil = _clickTime.AddMilliseconds(cfg.CooldownMs);
-            _voteRed = 0;
-            _voteGreen = 0;
-            _voteBlue = 0;
+            var now = DateTime.UtcNow;
+            if (_speedSampleTime == DateTime.MinValue || minRemainingDeg > _speedSampleRemDeg + 5.0)
+            {
+                _speedSampleRemDeg = minRemainingDeg;
+                _speedSampleTime = now;
+            }
+            else
+            {
+                double dtMs = (now - _speedSampleTime).TotalMilliseconds;
+                double dDeg = _speedSampleRemDeg - minRemainingDeg;
+                if (dtMs >= 10.0 && dDeg >= 3.5)
+                {
+                    if (dtMs <= 160.0 && dDeg <= 80.0)
+                    {
+                        double instSpeed = Math.Clamp(dDeg / dtMs, 0.15, 1.60);
+                        _smoothedSpeedDegPerMs = _smoothedSpeedDegPerMs <= 0.01
+                            ? instSpeed
+                            : (0.60 * _smoothedSpeedDegPerMs + 0.40 * instSpeed);
+                    }
+                    _speedSampleRemDeg = minRemainingDeg;
+                    _speedSampleTime = now;
+                }
+            }
+        }
+
+        // Scale the lead angle dynamically with the live measured speed of this enemy's tacho
+        double speedFactor = _smoothedSpeedDegPerMs > 0.05
+            ? Math.Clamp(_smoothedSpeedDegPerMs / ReferenceSpeedDegPerMs, 0.60, 2.30)
+            : 1.0;
+        double effectiveLeadDeg = Math.Clamp(leadAngleDeg * speedFactor, -15.0, 65.0);
+        LastEffectiveLeadDeg = effectiveLeadDeg;
+        _prevRemainingDeg = minRemainingDeg;
+
+        // Trigger as soon as the moving white front has passed the bottom of the ring and reaches effectiveLeadDeg before the end of the green zone
+        if (whiteCount >= 20 && bottomWhiteCount >= 6 && minRemainingDeg <= effectiveLeadDeg)
+        {
+            State = DetectorState.Cooldown;
+            _cooldownUntil = DateTime.UtcNow.AddMilliseconds(cfg.CooldownMs);
             return true;
         }
 
@@ -257,104 +291,157 @@ internal sealed class TachoDetector : IDisposable
         return false;
     }
 
-    private void UpdateFeedbackAfterClick(int left, int top, int half, double minRSq, double maxRSq)
+    /// <summary>
+    /// Called ONLY immediately after the button click for this specific Tacho.
+    /// Measures the brief full-tacho color flash (Blue = optimal, Green = slightly early, Red = too late)
+    /// over ~20..220 ms right after the click and freezes the peak flash image for the Live-Inspektor.
+    /// </summary>
+    public TachoFeedback MeasureFeedbackRightAfterClick(int centerX, int centerY, AppConfig cfg)
     {
-        double elapsedMs = (DateTime.UtcNow - _clickTime).TotalMilliseconds;
+        EnsureBitmap(cfg.TachoBoxSize);
 
-        // Wait 40 ms so ClickHoldMs (15 ms) has completed and the game rendered the feedback flash
-        if (elapsedMs < 40.0)
-            return;
+        int half = _size / 2;
+        int left = Math.Max(0, centerX - half);
+        int top = Math.Max(0, centerY - half);
 
-        if (elapsedMs > 360.0)
+        double minR = _size * 0.12;
+        double maxR = _size * 0.47;
+        double minRSq = minR * minR;
+        double maxRSq = maxR * maxR;
+
+        int peakRed = 0;
+        int peakGreen = 0;
+        int peakBlue = 0;
+        int peakFullWhite = 0;
+        int bestOverallPeak = 0;
+
+        DateTime start = DateTime.UtcNow;
+
+        // Short pause after ClickAt so the game renders the post-click color flash on the tacho
+        Thread.Sleep(20);
+
+        while ((DateTime.UtcNow - start).TotalMilliseconds <= 230.0)
         {
-            FinalizeFeedbackVote();
-            State = DetectorState.Cooldown;
-            return;
-        }
+            _graphics!.CopyFromScreen(left, top, 0, 0, new Size(_size, _size), CopyPixelOperation.SourceCopy);
 
-        _graphics!.CopyFromScreen(left, top, 0, 0, new Size(_size, _size), CopyPixelOperation.SourceCopy);
+            var rect = new Rectangle(0, 0, _size, _size);
+            BitmapData data = _bitmap!.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
 
-        var rect = new Rectangle(0, 0, _size, _size);
-        BitmapData data = _bitmap!.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+            int redCount = 0;
+            int greenCount = 0;
+            int blueCount = 0;
+            int leftGreenCount = 0;
+            int whiteCount = 0;
+            int rightWhiteCount = 0;
 
-        int redCount = 0;
-        int greenCount = 0;
-        int blueCount = 0;
-        int whiteCount = 0;
-
-        try
-        {
-            unsafe
+            try
             {
-                byte* ptr = (byte*)data.Scan0;
-                int stride = data.Stride;
-
-                for (int y = 0; y < _size; y++)
+                unsafe
                 {
-                    byte* row = ptr + (y * stride);
-                    double dy = y - half;
-                    double dySq = dy * dy;
+                    byte* ptr = (byte*)data.Scan0;
+                    int stride = data.Stride;
 
-                    for (int x = 0; x < _size; x++)
+                    for (int y = 0; y < _size; y++)
                     {
-                        double dx = x - half;
-                        double distSq = dx * dx + dySq;
-                        if (distSq < minRSq || distSq > maxRSq)
-                            continue;
+                        byte* row = ptr + (y * stride);
+                        double dy = y - half;
+                        double dySq = dy * dy;
 
-                        byte b = row[x * 4 + 0];
-                        byte g = row[x * 4 + 1];
-                        byte r = row[x * 4 + 2];
+                        for (int x = 0; x < _size; x++)
+                        {
+                            double dx = x - half;
+                            double distSq = dx * dx + dySq;
+                            if (distSq < minRSq || distSq > maxRSq)
+                                continue;
 
-                        if (IsTachoWhite(r, g, b)) whiteCount++;
-                        else if (IsFeedbackRed(r, g, b)) redCount++;
-                        else if (IsFeedbackBlue(r, g, b)) blueCount++;
-                        else if (IsTachoGreen(r, g, b)) greenCount++;
+                            byte b = row[x * 4 + 0];
+                            byte g = row[x * 4 + 1];
+                            byte r = row[x * 4 + 2];
+
+                            if (IsTachoWhite(r, g, b))
+                            {
+                                whiteCount++;
+                                if (dx > 6) rightWhiteCount++;
+                                continue;
+                            }
+
+                            if (IsFeedbackRed(r, g, b))
+                            {
+                                redCount++;
+                            }
+                            else if (IsFeedbackGreen(r, g, b))
+                            {
+                                greenCount++;
+                                if (dx < -4) leftGreenCount++;
+                            }
+                            else if (IsFeedbackBlue(r, g, b))
+                            {
+                                blueCount++;
+                            }
+                        }
                     }
                 }
             }
-        }
-        finally
-        {
-            _bitmap.UnlockBits(data);
+            finally
+            {
+                _bitmap.UnlockBits(data);
+            }
+
+            // For Green, require that the whole tacho flashed green (left half also has green, or green > white)
+            // so we never count the small pre-click green target arc on the right!
+            int validGreen = (leftGreenCount >= 25 || greenCount > whiteCount) ? greenCount : 0;
+
+            // For White (way too early), the whole tacho jumps to white (including the right half where green was, so green disappears)
+            int validFullWhite = (greenCount < 15 && rightWhiteCount >= 40 && whiteCount >= 120) ? whiteCount : 0;
+
+            if (redCount > peakRed) peakRed = redCount;
+            if (validGreen > peakGreen) peakGreen = validGreen;
+            if (blueCount > peakBlue) peakBlue = blueCount;
+            if (validFullWhite > peakFullWhite) peakFullWhite = validFullWhite;
+
+            int currentColorMax = Math.Max(redCount, Math.Max(validGreen, blueCount));
+            int currentMax = Math.Max(currentColorMax, validFullWhite);
+            if (currentMax > bestOverallPeak && currentMax >= 60)
+            {
+                bestOverallPeak = currentMax;
+                _flashSnapshot?.Dispose();
+                _flashSnapshot = (Bitmap)_bitmap.Clone();
+            }
+
+            // Once we have captured a strong color flash peak (>= 120 px) and it starts fading, finish immediately
+            if (currentColorMax >= 120 && currentColorMax < bestOverallPeak / 2)
+                break;
+
+            Thread.Sleep(10);
         }
 
-        // The post-click flash colors the whole tacho ring, so the feedback color dominates over white
-        int maxColor = Math.Max(redCount, Math.Max(greenCount, blueCount));
-        if (maxColor >= 45 && maxColor > whiteCount)
+        LastPeakRed = peakRed;
+        LastPeakGreen = peakGreen;
+        LastPeakBlue = peakBlue;
+        LastPeakWhite = peakFullWhite;
+
+        int maxColorPeak = Math.Max(peakRed, Math.Max(peakGreen, peakBlue));
+        if (maxColorPeak >= 60)
         {
-            if (redCount == maxColor) _voteRed++;
-            else if (blueCount == maxColor) _voteBlue++;
-            else if (greenCount == maxColor && greenCount >= 65) _voteGreen++;
+            if (peakRed == maxColorPeak)
+                LastFeedback = TachoFeedback.TooLateRed;
+            else if (peakBlue == maxColorPeak)
+                LastFeedback = TachoFeedback.OptimalBlue;
+            else
+                LastFeedback = TachoFeedback.TooEarlyGreen;
+
+            return LastFeedback;
         }
 
-        if (_voteRed >= 2 || _voteBlue >= 2 || _voteGreen >= 2)
+        if (peakFullWhite >= 120)
         {
-            FinalizeFeedbackVote();
-            State = DetectorState.Cooldown;
+            LastFeedback = TachoFeedback.WayTooEarlyWhite;
+            return LastFeedback;
         }
+
+        return TachoFeedback.None;
     }
 
-    private void FinalizeFeedbackVote()
-    {
-        int best = Math.Max(_voteRed, Math.Max(_voteGreen, _voteBlue));
-        if (best <= 0)
-            return;
-
-        if (_voteRed == best)
-            _pendingFeedback = TachoFeedback.TooLateRed;
-        else if (_voteBlue == best)
-            _pendingFeedback = TachoFeedback.OptimalBlue;
-        else if (_voteGreen == best)
-            _pendingFeedback = TachoFeedback.TooEarlyGreen;
-
-        if (_pendingFeedback != TachoFeedback.None)
-            LastFeedback = _pendingFeedback;
-    }
-
-    /// <summary>
-    /// Finds the counter-clockwise end angle (minimum angle in screen coordinates) of the green arc.
-    /// </summary>
     private static bool TryComputeGreenEndDeg(double sinSum, double cosSum, ReadOnlySpan<int> bins, out double endDeg)
     {
         double meanDeg = Math.Atan2(sinSum, cosSum) * (180.0 / Math.PI);
@@ -364,7 +451,6 @@ internal sealed class TachoDetector : IDisposable
         int minOffset = 0;
         bool found = false;
 
-        // Search counter-clockwise (negative offset in screen coords) up to 100° from the green centroid
         for (int offset = -100; offset <= 20; offset++)
         {
             int bin = (centerBin + offset + 360) % 360;
@@ -388,6 +474,12 @@ internal sealed class TachoDetector : IDisposable
 
     public Bitmap? CreateDiagnosticBitmap(double leadAngleDeg)
     {
+        // While in Cooldown right after a click, show the frozen post-click flash image if captured!
+        if (State == DetectorState.Cooldown && _flashSnapshot != null)
+        {
+            return (Bitmap)_flashSnapshot.Clone();
+        }
+
         if (_bitmap == null || _size <= 0)
             return null;
 
@@ -415,17 +507,15 @@ internal sealed class TachoDetector : IDisposable
                         int idx = rowOffset + x;
                         if (_lastGreenNow[idx])
                         {
-                            // Highlight detected green zone pixels in bright Magenta
                             row[x * 4 + 0] = 255;
                             row[x * 4 + 1] = 0;
                             row[x * 4 + 2] = 255;
                         }
                         else if (_lastWhiteNow[idx])
                         {
-                            // Highlight detected white progress pixels in bright Cyan
-                            row[x * 4 + 0] = 255;
+                            row[x * 4 + 0] = 40;
                             row[x * 4 + 1] = 255;
-                            row[x * 4 + 2] = 40;
+                            row[x * 4 + 2] = 255;
                         }
                     }
                 }
@@ -448,7 +538,6 @@ internal sealed class TachoDetector : IDisposable
 
             if (LastBlueCount > 0 || State == DetectorState.Armed)
             {
-                // Draw green end angle ray (Lime) and trigger lead angle ray (Red)
                 double endRad = _greenEndDeg * (Math.PI / 180.0);
                 double triggerRad = (_greenEndDeg + leadAngleDeg) * (Math.PI / 180.0);
 
@@ -475,12 +564,17 @@ internal sealed class TachoDetector : IDisposable
 
     private static bool IsFeedbackRed(byte r, byte g, byte b)
     {
-        return r >= 140 && g <= 90 && b <= 90 && (r - g) >= 55 && (r - b) >= 55;
+        return r >= 115 && (r - g) >= 35 && (r - b) >= 35;
+    }
+
+    private static bool IsFeedbackGreen(byte r, byte g, byte b)
+    {
+        return g >= 105 && (g - r) >= 30 && (g - b) >= 25;
     }
 
     private static bool IsFeedbackBlue(byte r, byte g, byte b)
     {
-        return b >= 135 && r <= 125 && (b - r) >= 45;
+        return b >= 120 && (b - r) >= 35 && b >= (g - 25);
     }
 
     private static bool IsTachoWhite(byte r, byte g, byte b)
@@ -505,6 +599,7 @@ internal sealed class TachoDetector : IDisposable
 
     public void Dispose()
     {
+        _flashSnapshot?.Dispose();
         _graphics?.Dispose();
         _bitmap?.Dispose();
     }

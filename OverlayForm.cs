@@ -7,8 +7,6 @@ internal sealed class OverlaySnapshot
 {
     public bool Running { get; init; }
     public int ActiveProfile { get; init; }
-    public double LeadAngleDeg { get; init; }
-    public double ExtraLeadPerTachoDeg { get; init; }
     public Bitmap? BlueButtonPreview { get; init; }
     public Bitmap? GreenButtonPreview { get; init; }
     public List<TachoOverlayItem> Tachos { get; init; } = new();
@@ -25,7 +23,14 @@ internal sealed class TachoOverlayItem
     public int WhiteCount { get; init; }
     public double RemainingDeg { get; init; }
     public double TachoLeadDeg { get; init; }
+    public double EffectiveLeadDeg { get; init; }
+    public double SpeedDegPerSec { get; init; }
     public TachoFeedback LastFeedback { get; init; }
+    public int PeakRed { get; init; }
+    public int PeakGreen { get; init; }
+    public int PeakBlue { get; init; }
+    public int PeakWhite { get; init; }
+    public double LastDelta { get; init; }
     public Bitmap? Preview { get; init; }
 }
 
@@ -39,7 +44,7 @@ internal sealed class OverlayForm : Form
         Text = "TachoClicker Live-Inspektor (F8=Start/Pause | F9=Tacho | F10=Blau | F6=Gruen | +/-=Vorlauf)";
         StartPosition = FormStartPosition.Manual;
         Location = new Point(40, 40);
-        ClientSize = new Size(650, 365);
+        ClientSize = new Size(650, 395);
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         ShowInTaskbar = true;
@@ -110,11 +115,18 @@ internal sealed class OverlayForm : Form
         g.Clear(BackColor);
 
         using var titleFont = new Font("Consolas", 10.5f, FontStyle.Bold);
-        using var infoFont = new Font("Consolas", 9f, FontStyle.Regular);
+        using var badgeFont = new Font("Consolas", 9.5f, FontStyle.Bold);
+        using var infoFont = new Font("Consolas", 8.5f, FontStyle.Regular);
         using var borderWaiting = new Pen(Color.Gold, 2);
         using var borderArmed = new Pen(Color.Cyan, 3);
         using var borderCooldown = new Pen(Color.Gray, 2);
         using var crossPen = new Pen(Color.Red, 2);
+
+        using var redBadgeBg = new SolidBrush(Color.FromArgb(200, 35, 35));
+        using var greenBadgeBg = new SolidBrush(Color.FromArgb(25, 145, 55));
+        using var blueBadgeBg = new SolidBrush(Color.FromArgb(20, 115, 210));
+        using var whiteBadgeBg = new SolidBrush(Color.FromArgb(145, 150, 160));
+        using var neutralBadgeBg = new SolidBrush(Color.FromArgb(45, 48, 55));
 
         OverlaySnapshot? snap;
         lock (_lock)
@@ -125,8 +137,9 @@ internal sealed class OverlayForm : Form
 
             string statusText = snap.Running ? "STATUS: AKTIV (F8)" : "STATUS: PAUSIERT (F8)";
             Brush statusBrush = snap.Running ? Brushes.LimeGreen : Brushes.Orange;
+            string tachoAngles = string.Join(" | ", snap.Tachos.Select(t => $"T{t.Index + 1}={t.TachoLeadDeg:F1}°"));
             g.DrawString(
-                $"{statusText} | Profil: {snap.ActiveProfile}er (F2/F3) | Basis-Vorlauf: {snap.LeadAngleDeg:F0}° (+/-) | +Stufe: +{snap.ExtraLeadPerTachoDeg:F0}° (Bild\u2191/\u2193)",
+                $"{statusText}  |  Profil: {snap.ActiveProfile}er (F2/F3)  |  Vorlauf (unabhaengig): {tachoAngles}",
                 titleFont, statusBrush, 12, 8);
             g.DrawString(
                 "Legende: Magenta = Gruener Bereich | Gelb = Weisser Balken | Gruene Linie = Gruen-Ende | Rote Linie = Ausloeser",
@@ -134,7 +147,7 @@ internal sealed class OverlayForm : Form
 
             int tileSize = 160;
             int startX = 12;
-            int startY = 52;
+            int startY = 50;
 
             for (int i = 0; i < snap.Tachos.Count; i++)
             {
@@ -162,21 +175,45 @@ internal sealed class OverlayForm : Form
                 g.DrawRectangle(pen, x, y, tileSize, tileSize);
 
                 string btnName = t.IsLast ? "-> GRUEN" : "-> BLAU";
-                g.DrawString($"Tacho {t.Index + 1} ({btnName}) [{t.TachoLeadDeg:F0}°]", titleFont, Brushes.White, x, y + tileSize + 4);
+                g.DrawString($"Tacho {t.Index + 1} ({btnName}) [{t.TachoLeadDeg:F1}°]", titleFont, Brushes.White, x, y + tileSize + 4);
                 g.DrawString($"Pos : ({t.CenterX}, {t.CenterY})", infoFont, Brushes.Silver, x, y + tileSize + 22);
                 g.DrawString($"Gruen: {t.BlueCount} px | Weiss: {t.WhiteCount} px", infoFont,
-                    t.BlueCount > 0 ? Brushes.Magenta : Brushes.Silver, x, y + tileSize + 38);
-                g.DrawString($"Rest: {(t.RemainingDeg < 350 ? $"{t.RemainingDeg:F0}°" : "-")} | {t.State}", infoFont,
-                    t.State == DetectorState.Armed ? Brushes.Cyan : Brushes.Silver, x, y + tileSize + 54);
+                    t.BlueCount > 0 ? Brushes.Magenta : Brushes.Silver, x, y + tileSize + 36);
+                g.DrawString($"Rest: {(t.RemainingDeg < 350 ? $"{t.RemainingDeg:F0}°" : "-")} | {(t.SpeedDegPerSec > 10 ? $"{t.SpeedDegPerSec:F0}°/s -> {t.EffectiveLeadDeg:F0}°" : $"{t.State}")}", infoFont,
+                    t.State == DetectorState.Armed ? Brushes.Cyan : Brushes.Silver, x, y + tileSize + 50);
 
-                var (fbText, fbBrush) = t.LastFeedback switch
+                // Farbige Feedback-Box fuer die nach dem Klick erkannte Tacho-Farbe
+                int badgeY = y + tileSize + 68;
+                var (badgeBrush, line1, line2) = t.LastFeedback switch
                 {
-                    TachoFeedback.OptimalBlue => ("Feedback: BLAU (Optimal!)", Brushes.DeepSkyBlue),
-                    TachoFeedback.TooEarlyGreen => ("Feedback: GRUEN (-0.7°)", Brushes.LimeGreen),
-                    TachoFeedback.TooLateRed => ("Feedback: ROT (+1.5°)", Brushes.OrangeRed),
-                    _ => ("Feedback: -", Brushes.Gray)
+                    TachoFeedback.OptimalBlue => (
+                        blueBadgeBg,
+                        "FARBE: BLAU (OPTIMAL)",
+                        $"Vorlauf ±0.0° (B={t.PeakBlue} R={t.PeakRed} G={t.PeakGreen})"),
+                    TachoFeedback.TooEarlyGreen => (
+                        greenBadgeBg,
+                        "FARBE: GRUEN (FRUEH)",
+                        $"Vorlauf {t.LastDelta:+0.0;-0.0}° (G={t.PeakGreen} B={t.PeakBlue} R={t.PeakRed})"),
+                    TachoFeedback.TooLateRed => (
+                        redBadgeBg,
+                        "FARBE: ROT (ZU SPAET!)",
+                        $"Vorlauf {t.LastDelta:+0.0;-0.0}° (R={t.PeakRed} G={t.PeakGreen} B={t.PeakBlue})"),
+                    TachoFeedback.WayTooEarlyWhite => (
+                        whiteBadgeBg,
+                        "FARBE: WEISS (VIEL ZU FRUEH)",
+                        $"Reset auf Startwert ({t.TachoLeadDeg:F1}° | W={t.PeakWhite})"),
+                    _ => (
+                        neutralBadgeBg,
+                        "FARBE NACH KLICK: -",
+                        t.PeakRed + t.PeakGreen + t.PeakBlue > 0
+                            ? $"Letzte Px: R={t.PeakRed} G={t.PeakGreen} B={t.PeakBlue}"
+                            : "Noch kein Klick ausgewertet")
                 };
-                g.DrawString(fbText, infoFont, fbBrush, x, y + tileSize + 70);
+
+                g.FillRectangle(badgeBrush, x, badgeY, tileSize, 38);
+                g.DrawRectangle(Pens.WhiteSmoke, x, badgeY, tileSize, 38);
+                g.DrawString(line1, badgeFont, Brushes.White, x + 4, badgeY + 3);
+                g.DrawString(line2, infoFont, Brushes.White, x + 4, badgeY + 20);
             }
 
             // Button-Vorschauen rechts

@@ -96,7 +96,7 @@ internal static class Program
                         nextTachoIndex = (nextTachoIndex + 1) % tachos.Count;
 
                         Console.WriteLine(
-                            $"[Kalibrierung {cfg.ActiveProfile}er-Modus] Tacho {justSet}/{tachos.Count} gesetzt auf: ({pt.X}, {pt.Y}) | Naechster mit F9: Tacho {nextTachoIndex + 1}/{tachos.Count}");
+                            $"[Kalibrierung {cfg.ActiveProfile}er-Modus] Tacho {justSet}/{tachos.Count} gesetzt auf: ({pt.X}, {pt.Y}) [Vorlauf: {tachos[justSet - 1].LeadAngleDeg:F1}°] | Naechster mit F9: Tacho {nextTachoIndex + 1}/{tachos.Count}");
                     }
                 }
 
@@ -152,30 +152,30 @@ internal static class Program
 
                 if (NativeMethods.IsAnyKeyJustPressed(NativeMethods.VK_OEM_PLUS, NativeMethods.VK_ADD, ref plusPrev))
                 {
-                    cfg.AdjustAllLeadAngles(1.0);
+                    double val = cfg.AdjustTachoLeadAngle(0, +1.0);
                     cfg.Save();
-                    Console.WriteLine($"[Vorlauf] Alle um +1° erhoeht -> T1={cfg.GetLeadAngleForTacho(0):F1}°, T2={cfg.GetLeadAngleForTacho(1):F1}°, T3={cfg.GetLeadAngleForTacho(2):F1}°");
+                    Console.WriteLine($"[Vorlauf Tacho 1] +1.0° -> T1={val:F1}°");
                 }
 
                 if (NativeMethods.IsAnyKeyJustPressed(NativeMethods.VK_OEM_MINUS, NativeMethods.VK_SUBTRACT, ref minusPrev))
                 {
-                    cfg.AdjustAllLeadAngles(-1.0);
+                    double val = cfg.AdjustTachoLeadAngle(0, -1.0);
                     cfg.Save();
-                    Console.WriteLine($"[Vorlauf] Alle um -1° verringert -> T1={cfg.GetLeadAngleForTacho(0):F1}°, T2={cfg.GetLeadAngleForTacho(1):F1}°, T3={cfg.GetLeadAngleForTacho(2):F1}°");
+                    Console.WriteLine($"[Vorlauf Tacho 1] -1.0° -> T1={val:F1}°");
                 }
 
                 if (NativeMethods.IsKeyJustPressed(NativeMethods.VK_PRIOR, ref pgUpPrev))
                 {
-                    cfg.AdjustStepLeadAngles(1.0);
+                    double val = cfg.AdjustTachoLeadAngle(1, +1.0);
                     cfg.Save();
-                    Console.WriteLine($"[Stufen-Bonus] Erhoeht -> T1={cfg.GetLeadAngleForTacho(0):F1}°, T2={cfg.GetLeadAngleForTacho(1):F1}°, T3={cfg.GetLeadAngleForTacho(2):F1}°");
+                    Console.WriteLine($"[Vorlauf Tacho 2] +1.0° -> T2={val:F1}°");
                 }
 
                 if (NativeMethods.IsKeyJustPressed(NativeMethods.VK_NEXT, ref pgDnPrev))
                 {
-                    cfg.AdjustStepLeadAngles(-1.0);
+                    double val = cfg.AdjustTachoLeadAngle(1, -1.0);
                     cfg.Save();
-                    Console.WriteLine($"[Stufen-Bonus] Verringert -> T1={cfg.GetLeadAngleForTacho(0):F1}°, T2={cfg.GetLeadAngleForTacho(1):F1}°, T3={cfg.GetLeadAngleForTacho(2):F1}°");
+                    Console.WriteLine($"[Vorlauf Tacho 2] -1.0° -> T2={val:F1}°");
                 }
 
                 var activeTachos = cfg.GetActiveTachos();
@@ -187,11 +187,6 @@ internal static class Program
                     {
                         double tachoLead = cfg.GetLeadAngleForTacho(i);
                         bool triggered = detectors[i].Update(activeTachos[i].X, activeTachos[i].Y, tachoLead, cfg);
-
-                        if (detectors[i].ConsumeFeedback(out TachoFeedback fb))
-                        {
-                            HandleTachoFeedback(i, fb, cfg);
-                        }
 
                         if (detectors[i].JustArmed)
                         {
@@ -207,7 +202,23 @@ internal static class Program
 
                         if (triggered)
                         {
+                            // 1. Button sofort betätigen
                             TriggerClick(i, activeTachos.Count, cfg);
+
+                            // 2. NUR direkt nach dem Auslösen des Buttons die Tacho-Farbe (Blau / Grün / Rot) messen
+                            TachoFeedback fb = detectors[i].MeasureFeedbackRightAfterClick(
+                                activeTachos[i].X, activeTachos[i].Y, cfg);
+
+                            // 3. Sofort den unabhängigen Parameter genau dieses Tachos anpassen
+                            HandleTachoFeedback(i, fb, detectors[i], cfg);
+
+                            // 4. Live-Inspektor sofort mit erkannter Farbe & neuem Winkel aktualisieren
+                            if (overlay != null)
+                            {
+                                lastOverlayUpdate = DateTime.UtcNow;
+                                overlay.UpdateSnapshot(BuildOverlaySnapshot(cfg, detectors, running));
+                            }
+
                             anyArmed = false;
                             break;
                         }
@@ -220,7 +231,7 @@ internal static class Program
                         for (int i = 0; i < activeTachos.Count; i++)
                         {
                             var d = detectors[i];
-                            parts[i] = $"T{i + 1}[{d.State}, G={d.LastBlueCount}, W={d.LastWhiteCount}, Rem={d.LastRemainingDeg:F0}/{cfg.GetLeadAngleForTacho(i):F0}°]";
+                            parts[i] = $"T{i + 1}[{d.State}, G={d.LastBlueCount}, W={d.LastWhiteCount}, Rem={d.LastRemainingDeg:F0}/{cfg.GetLeadAngleForTacho(i):F1}°]";
                         }
                         Console.WriteLine(string.Join(" | ", parts));
                     }
@@ -229,7 +240,6 @@ internal static class Program
                 }
                 else
                 {
-                    // Even when paused, refresh detector images periodically so the Live-Inspektor shows live camera previews!
                     for (int i = 0; i < activeTachos.Count; i++)
                     {
                         if (activeTachos[i].IsSet)
@@ -241,7 +251,6 @@ internal static class Program
                     Thread.Sleep(40);
                 }
 
-                // Skip heavy bitmap preview generation while a tacho is actively spinning (Armed) so we lose 0 ms!
                 if (overlay != null && !anyArmed && (DateTime.UtcNow - lastOverlayUpdate).TotalMilliseconds >= 80)
                 {
                     lastOverlayUpdate = DateTime.UtcNow;
@@ -267,6 +276,7 @@ internal static class Program
         for (int i = 0; i < tachos.Count; i++)
         {
             double tachoLead = cfg.GetLeadAngleForTacho(i);
+            double effLead = detectors[i].LastEffectiveLeadDeg > 0 ? detectors[i].LastEffectiveLeadDeg : tachoLead;
             items.Add(new TachoOverlayItem
             {
                 Index = i,
@@ -278,8 +288,15 @@ internal static class Program
                 WhiteCount = detectors[i].LastWhiteCount,
                 RemainingDeg = detectors[i].LastRemainingDeg,
                 TachoLeadDeg = tachoLead,
+                EffectiveLeadDeg = effLead,
+                SpeedDegPerSec = detectors[i].LastSpeedDegPerSec,
                 LastFeedback = detectors[i].LastFeedback,
-                Preview = tachos[i].IsSet ? detectors[i].CreateDiagnosticBitmap(tachoLead) : null
+                PeakRed = detectors[i].LastPeakRed,
+                PeakGreen = detectors[i].LastPeakGreen,
+                PeakBlue = detectors[i].LastPeakBlue,
+                PeakWhite = detectors[i].LastPeakWhite,
+                LastDelta = detectors[i].LastCorrectionDelta,
+                Preview = tachos[i].IsSet ? detectors[i].CreateDiagnosticBitmap(effLead) : null
             });
         }
 
@@ -287,8 +304,6 @@ internal static class Program
         {
             Running = running,
             ActiveProfile = cfg.ActiveProfile,
-            LeadAngleDeg = cfg.LeadAngleDeg,
-            ExtraLeadPerTachoDeg = cfg.ExtraLeadPerTachoDeg,
             BlueButtonPreview = CaptureSmallPreview(cfg.BlueButtonX, cfg.BlueButtonY, 70),
             GreenButtonPreview = CaptureSmallPreview(cfg.GreenButtonX, cfg.GreenButtonY, 70),
             Tachos = items
@@ -307,28 +322,47 @@ internal static class Program
         return bmp;
     }
 
-    private static void HandleTachoFeedback(int tachoIndex, TachoFeedback fb, AppConfig cfg)
+    private static void HandleTachoFeedback(int tachoIndex, TachoFeedback fb, TachoDetector detector, AppConfig cfg)
     {
+        string counts = $"(R={detector.LastPeakRed}, G={detector.LastPeakGreen}, B={detector.LastPeakBlue})";
         switch (fb)
         {
             case TachoFeedback.TooLateRed:
             {
-                double updated = cfg.ApplyAutoCorrection(tachoIndex, +1.5);
+                const double delta = +2.5;
+                detector.LastCorrectionDelta = delta;
+                double updated = cfg.AdjustTachoLeadAngle(tachoIndex, delta);
                 cfg.Save();
-                Console.WriteLine($"[Auto-Tuning Tacho {tachoIndex + 1}] ROT (zu spaet) erkannt -> Vorlauf +1.5° auf {updated:F1}° erhoeht!");
+                Console.WriteLine($"[Nach-Klick-Farbe Tacho {tachoIndex + 1}] >>> ROT (ZU SPAET!) <<< {counts} -> Vorlauf Tacho {tachoIndex + 1} um +{delta:F1}° auf {updated:F1}° erhoeht!");
                 break;
             }
             case TachoFeedback.TooEarlyGreen:
             {
-                double updated = cfg.ApplyAutoCorrection(tachoIndex, -0.7);
+                const double delta = -0.5;
+                detector.LastCorrectionDelta = delta;
+                double updated = cfg.AdjustTachoLeadAngle(tachoIndex, delta);
                 cfg.Save();
-                Console.WriteLine($"[Auto-Tuning Tacho {tachoIndex + 1}] GRUEN (etwas zu frueh) erkannt -> Vorlauf -0.7° auf {updated:F1}° gesenkt!");
+                Console.WriteLine($"[Nach-Klick-Farbe Tacho {tachoIndex + 1}] >>> GRUEN (ETWAS FRUEH) <<< {counts} -> Vorlauf Tacho {tachoIndex + 1} um {delta:F1}° auf {updated:F1}° gesenkt!");
                 break;
             }
             case TachoFeedback.OptimalBlue:
             {
+                detector.LastCorrectionDelta = 0.0;
                 double current = cfg.GetLeadAngleForTacho(tachoIndex);
-                Console.WriteLine($"[Auto-Tuning Tacho {tachoIndex + 1}] BLAU (OPTIMAL!) erkannt -> Vorlauf {current:F1}° bleibt unveraendert.");
+                Console.WriteLine($"[Nach-Klick-Farbe Tacho {tachoIndex + 1}] >>> BLAU (OPTIMAL!) <<< {counts} -> Vorlauf Tacho {tachoIndex + 1} ({current:F1}°) bleibt unveraendert.");
+                break;
+            }
+            case TachoFeedback.WayTooEarlyWhite:
+            {
+                detector.LastCorrectionDelta = 0.0;
+                double resetVal = cfg.ResetTachoLeadAngleToDefault(tachoIndex);
+                cfg.Save();
+                Console.WriteLine($"[Nach-Klick-Farbe Tacho {tachoIndex + 1}] >>> WEISS (SEHR VIEL ZU FRUEH!) <<< (W={detector.LastPeakWhite}) -> Vorlauf Tacho {tachoIndex + 1} auf Ausgangswert {resetVal:F1}° zurueckgesetzt!");
+                break;
+            }
+            default:
+            {
+                Console.WriteLine($"[Nach-Klick-Farbe Tacho {tachoIndex + 1}] Keine eindeutige Farbe erkannt {counts}.");
                 break;
             }
         }
@@ -341,7 +375,7 @@ internal static class Program
         int targetY = isLast ? cfg.GreenButtonY : cfg.BlueButtonY;
         string btnLabel = isLast ? "Gruener Schwerter-Button" : "Blauer Schild-Button";
 
-        Console.WriteLine($"[TREFFER Tacho {tachoIndex + 1}/{totalTachos}!] Blaues Optimum -> Klicke {btnLabel} ({targetX}, {targetY})");
+        Console.WriteLine($"[TREFFER Tacho {tachoIndex + 1}/{totalTachos}!] Klicke {btnLabel} ({targetX}, {targetY})...");
         NativeMethods.ClickAt(targetX, targetY, cfg.ClickHoldMs);
     }
 
@@ -367,7 +401,7 @@ internal static class Program
         for (int i = 0; i < tachos.Count; i++)
         {
             string btn = (i == tachos.Count - 1) ? "Gruen" : "Blau";
-            Console.WriteLine($"  Tacho {i + 1} ({btn}): {(tachos[i].IsSet ? $"({tachos[i].X}, {tachos[i].Y})" : "noch nicht gesetzt (mit F9 festlegen)")}");
+            Console.WriteLine($"  Tacho {i + 1} ({btn}) [Vorlauf: {tachos[i].LeadAngleDeg:F1}°]: {(tachos[i].IsSet ? $"({tachos[i].X}, {tachos[i].Y})" : "noch nicht gesetzt (mit F9 festlegen)")}");
         }
 
         if (!cfg.IsCalibrated && running)
@@ -387,24 +421,24 @@ internal static class Program
     {
         var tachos = cfg.GetActiveTachos();
         Console.WriteLine("=================================================================");
-        Console.WriteLine("  TachoClicker - C# (.NET 8) mit Live-Inspektor");
+        Console.WriteLine("  TachoClicker - C# (.NET 8) mit Live-Inspektor & Auto-Tuning");
         Console.WriteLine("=================================================================");
         Console.WriteLine("Hotkeys:");
-        Console.WriteLine("  F2  : Auf 2er-Konfiguration umschalten (T1=Blau, T2=Gruen)");
-        Console.WriteLine("  F3  : Auf 3er-Konfiguration umschalten (T1=Blau, T2=Blau, T3=Gruen)");
-        Console.WriteLine("  F9  : Naechste Tacho-Mitte speichern (zyklisch Tacho 1..N)");
-        Console.WriteLine("  F10 : Blauen Schild-Button speichern (+ Auto-Start)");
-        Console.WriteLine("  F6  : Gruenen Schwerter-Button speichern (+ Auto-Start)");
-        Console.WriteLine("  F8  : Automatik Start / Pause");
-        Console.WriteLine("  F7  : Debug-Ausgabe An / Aus");
-        Console.WriteLine("  +/- : Basis-Vorlauf (Tacho 1) um 1° vergroessern / verkleinern");
-        Console.WriteLine("  BildAuf/Ab : Zusatz-Vorlauf fuer schnellere Tachos (Tacho 2/3) +/- 1°");
+        Console.WriteLine("  F2         : Auf 2er-Konfiguration umschalten (T1=Blau, T2=Gruen)");
+        Console.WriteLine("  F3         : Auf 3er-Konfiguration umschalten (T1=Blau, T2=Blau, T3=Gruen)");
+        Console.WriteLine("  F9         : Naechste Tacho-Mitte speichern (zyklisch Tacho 1..N)");
+        Console.WriteLine("  F10        : Blauen Schild-Button speichern (+ Auto-Start)");
+        Console.WriteLine("  F6         : Gruenen Schwerter-Button speichern (+ Auto-Start)");
+        Console.WriteLine("  F8         : Automatik Start / Pause");
+        Console.WriteLine("  F7         : Debug-Ausgabe An / Aus");
+        Console.WriteLine("  +/-        : Vorlauf Tacho 1 manuell +/- 1°");
+        Console.WriteLine("  BildAuf/Ab : Vorlauf Tacho 2 manuell +/- 1°");
         Console.WriteLine("-----------------------------------------------------------------");
-        Console.WriteLine($"Aktives Profil        : {cfg.ActiveProfile}er-Konfiguration | Vorlauf: {cfg.LeadAngleDeg}°");
+        Console.WriteLine($"Aktives Profil        : {cfg.ActiveProfile}er-Konfiguration (jeder Tacho unabhaengig)");
         for (int i = 0; i < tachos.Count; i++)
         {
             string btn = (i == tachos.Count - 1) ? "Gruen" : "Blau ";
-            Console.WriteLine($"  Tacho {i + 1}/{tachos.Count} [{btn}]    : {(tachos[i].IsSet ? $"({tachos[i].X}, {tachos[i].Y})" : "noch nicht gesetzt")}");
+            Console.WriteLine($"  Tacho {i + 1}/{tachos.Count} [{btn}]    : {(tachos[i].IsSet ? $"({tachos[i].X}, {tachos[i].Y})" : "noch nicht gesetzt")} | Vorlauf: {tachos[i].LeadAngleDeg:F1}°");
         }
         Console.WriteLine($"Blauer Schild-Button  : ({cfg.BlueButtonX}, {cfg.BlueButtonY})");
         Console.WriteLine($"Gruener Schwert-Btn   : ({cfg.GreenButtonX}, {cfg.GreenButtonY})");

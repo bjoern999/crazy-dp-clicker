@@ -6,7 +6,10 @@ internal sealed class TachoPoint
 {
     public int X { get; set; }
     public int Y { get; set; }
-    public double? LeadAngleDeg { get; set; }
+
+    // Jeder Tacho besitzt seinen eigenen, vollstaendig unabhaengigen Vorlauf-Winkel + Ausgangswert
+    public double LeadAngleDeg { get; set; } = 18.0;
+    public double DefaultLeadAngleDeg { get; set; } = 18.0;
 
     public bool IsSet => X > 0 && Y > 0;
 }
@@ -18,15 +21,15 @@ internal sealed class AppConfig
 
     public List<TachoPoint> Profile2 { get; set; } = new()
     {
-        new TachoPoint(),
-        new TachoPoint()
+        new TachoPoint { LeadAngleDeg = 18.0, DefaultLeadAngleDeg = 18.0 },
+        new TachoPoint { LeadAngleDeg = 24.0, DefaultLeadAngleDeg = 24.0 }
     };
 
     public List<TachoPoint> Profile3 { get; set; } = new()
     {
-        new TachoPoint(),
-        new TachoPoint(),
-        new TachoPoint()
+        new TachoPoint { LeadAngleDeg = 18.0, DefaultLeadAngleDeg = 18.0 },
+        new TachoPoint { LeadAngleDeg = 24.0, DefaultLeadAngleDeg = 24.0 },
+        new TachoPoint { LeadAngleDeg = 30.0, DefaultLeadAngleDeg = 30.0 }
     };
 
     public int TachoBoxSize { get; set; } = 180;
@@ -39,87 +42,62 @@ internal sealed class AppConfig
 
     public int PollIntervalMs { get; set; } = 2;
     public int ClickHoldMs { get; set; } = 15;
-    public int CooldownMs { get; set; } = 900;
+    public int CooldownMs { get; set; } = 700;
 
     // Minimum green pixels required to consider the tacho green zone active
     public int MinBluePixels { get; set; } = 12;
-
-    // Base trigger angle before the end of the green zone (for Tacho 1)
-    public double LeadAngleDeg { get; set; } = 10.0;
-
-    // Extra lead angle added per subsequent faster tacho (Tacho 2 = +1x, Tacho 3 = +2x)
-    public double ExtraLeadPerTachoDeg { get; set; } = 6.0;
-
-    public double GetLeadAngleForTacho(int index)
-    {
-        var tachos = GetActiveTachos();
-        if (index >= 0 && index < tachos.Count)
-        {
-            if (!tachos[index].LeadAngleDeg.HasValue)
-            {
-                tachos[index].LeadAngleDeg = Math.Round(LeadAngleDeg + (index * ExtraLeadPerTachoDeg), 1);
-            }
-            return tachos[index].LeadAngleDeg!.Value;
-        }
-        return LeadAngleDeg + (index * ExtraLeadPerTachoDeg);
-    }
-
-    public void AdjustAllLeadAngles(double delta)
-    {
-        LeadAngleDeg = Math.Clamp(Math.Round(LeadAngleDeg + delta, 1), -15.0, 55.0);
-        foreach (var t in Profile2)
-        {
-            if (t.LeadAngleDeg.HasValue)
-                t.LeadAngleDeg = Math.Clamp(Math.Round(t.LeadAngleDeg.Value + delta, 1), -15.0, 55.0);
-        }
-        foreach (var t in Profile3)
-        {
-            if (t.LeadAngleDeg.HasValue)
-                t.LeadAngleDeg = Math.Clamp(Math.Round(t.LeadAngleDeg.Value + delta, 1), -15.0, 55.0);
-        }
-    }
-
-    public void AdjustStepLeadAngles(double deltaStep)
-    {
-        ExtraLeadPerTachoDeg = Math.Clamp(Math.Round(ExtraLeadPerTachoDeg + deltaStep, 1), 0.0, 35.0);
-        for (int i = 1; i < Profile2.Count; i++)
-        {
-            if (Profile2[i].LeadAngleDeg is double val)
-                Profile2[i].LeadAngleDeg = Math.Clamp(Math.Round(val + i * deltaStep, 1), -15.0, 55.0);
-        }
-        for (int i = 1; i < Profile3.Count; i++)
-        {
-            if (Profile3[i].LeadAngleDeg is double val)
-                Profile3[i].LeadAngleDeg = Math.Clamp(Math.Round(val + i * deltaStep, 1), -15.0, 55.0);
-        }
-    }
-
-    public double ApplyAutoCorrection(int index, double delta)
-    {
-        double current = GetLeadAngleForTacho(index);
-        double updated = Math.Clamp(Math.Round(current + delta, 1), -15.0, 55.0);
-        var tachos = GetActiveTachos();
-        if (index >= 0 && index < tachos.Count)
-        {
-            tachos[index].LeadAngleDeg = updated;
-        }
-        if (index == 0)
-        {
-            LeadAngleDeg = updated;
-        }
-        return updated;
-    }
-
-    // Fallback: trigger if at least this many previously-blue pixels turn white
-    public int TriggerOverlapPixels { get; set; } = 1;
 
     public List<TachoPoint> GetActiveTachos()
     {
         var list = ActiveProfile == 3 ? Profile3 : Profile2;
         int expected = ActiveProfile == 3 ? 3 : 2;
         while (list.Count < expected)
-            list.Add(new TachoPoint());
+        {
+            double defaultLead = 21.0 + (list.Count * 8.0);
+            list.Add(new TachoPoint { LeadAngleDeg = defaultLead });
+        }
         return list;
+    }
+
+    public double GetLeadAngleForTacho(int index)
+    {
+        var tachos = GetActiveTachos();
+        if (index >= 0 && index < tachos.Count)
+            return tachos[index].LeadAngleDeg;
+        return 22.0;
+    }
+
+    public double AdjustTachoLeadAngle(int index, double delta)
+    {
+        var tachos = GetActiveTachos();
+        if (index >= 0 && index < tachos.Count)
+        {
+            tachos[index].LeadAngleDeg = Math.Clamp(Math.Round(tachos[index].LeadAngleDeg + delta, 1), -15.0, 60.0);
+            return tachos[index].LeadAngleDeg;
+        }
+        return 18.0;
+    }
+
+    public double ResetTachoLeadAngleToDefault(int index)
+    {
+        var tachos = GetActiveTachos();
+        if (index >= 0 && index < tachos.Count)
+        {
+            double def = tachos[index].DefaultLeadAngleDeg > 0
+                ? tachos[index].DefaultLeadAngleDeg
+                : (18.0 + index * 6.0);
+            tachos[index].LeadAngleDeg = def;
+            return def;
+        }
+        return 18.0;
+    }
+
+    public void AdjustAllActiveLeadAngles(double delta)
+    {
+        foreach (var t in GetActiveTachos())
+        {
+            t.LeadAngleDeg = Math.Clamp(Math.Round(t.LeadAngleDeg + delta, 1), -15.0, 60.0);
+        }
     }
 
     public bool IsCalibrated
@@ -160,6 +138,20 @@ internal sealed class AppConfig
     public void Save()
     {
         var options = new JsonSerializerOptions { WriteIndented = true };
-        File.WriteAllText(ConfigPath, JsonSerializer.Serialize(this, options));
+        string json = JsonSerializer.Serialize(this, options);
+        File.WriteAllText(ConfigPath, json);
+
+        try
+        {
+            string projectRootConfig = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "config.json"));
+            if (File.Exists(projectRootConfig))
+            {
+                File.WriteAllText(projectRootConfig, json);
+            }
+        }
+        catch
+        {
+            // Ignore if running standalone outside project directory
+        }
     }
 }
