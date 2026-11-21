@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
 
@@ -19,6 +20,12 @@ internal enum TachoFeedback
     WayTooEarlyWhite
 }
 
+internal readonly struct AngleCheckpoint
+{
+    public double TimeMs { get; init; }
+    public double RemainingDeg { get; init; }
+}
+
 internal sealed class TachoDetector : IDisposable
 {
     private Bitmap? _bitmap;
@@ -33,7 +40,6 @@ internal sealed class TachoDetector : IDisposable
     public int LastWhiteCount { get; private set; }
     public double LastRemainingDeg { get; private set; } = 360.0;
     public double LastTargetEndDeg => _greenEndDeg;
-    public double LastWhiteFrontDeg { get; private set; }
     public bool JustArmed { get; private set; }
 
     public TachoFeedback LastFeedback { get; private set; } = TachoFeedback.None;
@@ -41,20 +47,22 @@ internal sealed class TachoDetector : IDisposable
     public int LastPeakGreen { get; private set; }
     public int LastPeakBlue { get; private set; }
     public int LastPeakWhite { get; private set; }
-    public double LastCorrectionDelta { get; set; }
-    public double LastSpeedDegPerSec => _smoothedSpeedDegPerMs * 1000.0;
-    public double LastEffectiveLeadDeg { get; private set; }
+    public double LastCorrectionDeltaMs { get; set; }
 
-    private const double ReferenceSpeedDegPerMs = 0.45; // 450 deg/sec nominal reference speed
-    private double _smoothedSpeedDegPerMs;
-    private double _speedSampleRemDeg = 360.0;
-    private DateTime _speedSampleTime = DateTime.MinValue;
+    public double LastSpeedDegPerSec { get; private set; }
+    public int LastCheckpointCount => _checkpoints.Count;
+    public double LastPredictedTimeToEndMs { get; private set; } = -1;
 
+    private readonly List<AngleCheckpoint> _checkpoints = new(32);
+    private double _nextCheckpointDeg = -1;
     private double _greenEndDeg;
+    private bool _greenEndLocked;
     private double _prevRemainingDeg = 360.0;
     private int _zeroGreenFrames;
     private DateTime _armedSince = DateTime.MinValue;
     private DateTime _cooldownUntil = DateTime.MinValue;
+
+    private static double NowMs() => Stopwatch.GetTimestamp() * 1000.0 / Stopwatch.Frequency;
 
     public void Reset()
     {
@@ -67,12 +75,13 @@ internal sealed class TachoDetector : IDisposable
         JustArmed = false;
         _zeroGreenFrames = 0;
         _prevRemainingDeg = 360.0;
-        _smoothedSpeedDegPerMs = 0;
-        _speedSampleRemDeg = 360.0;
-        _speedSampleTime = DateTime.MinValue;
+        _greenEndLocked = false;
+        _checkpoints.Clear();
+        _nextCheckpointDeg = -1;
+        LastPredictedTimeToEndMs = -1;
     }
 
-    public bool Update(int centerX, int centerY, double leadAngleDeg, AppConfig cfg)
+    public bool Update(int centerX, int centerY, double clickOffsetMs, AppConfig cfg)
     {
         JustArmed = false;
 
@@ -99,6 +108,7 @@ internal sealed class TachoDetector : IDisposable
         double maxRSq = maxR * maxR;
 
         _graphics!.CopyFromScreen(left, top, 0, 0, new Size(_size, _size), CopyPixelOperation.SourceCopy);
+        double captureTimeMs = NowMs();
 
         var rect = new Rectangle(0, 0, _size, _size);
         BitmapData data = _bitmap!.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
@@ -110,7 +120,6 @@ internal sealed class TachoDetector : IDisposable
         double greenSinSum = 0;
         double greenCosSum = 0;
         double minRemainingDeg = 360.0;
-        double bestWhiteDeg = 0.0;
 
         Span<int> greenAngleBins = stackalloc int[360];
         greenAngleBins.Clear();
@@ -177,15 +186,12 @@ internal sealed class TachoDetector : IDisposable
 
                                 // Counter-clockwise in screen coords = decreasing angle toward _greenEndDeg
                                 double rem = (whiteDeg - _greenEndDeg + 360.0) % 360.0;
-                                // Only treat 342..360 as negative overshoot if the white front was already close (< 55°)
-                                // so the 11 o'clock starting tail never triggers at the beginning of the spin!
                                 if (rem >= 342.0 && _prevRemainingDeg < 55.0)
                                     rem -= 360.0;
 
                                 if (rem < minRemainingDeg)
                                 {
                                     minRemainingDeg = rem;
-                                    bestWhiteDeg = whiteDeg;
                                 }
                             }
                         }
@@ -200,22 +206,22 @@ internal sealed class TachoDetector : IDisposable
 
         LastBlueCount = greenCount;
         LastWhiteCount = whiteCount;
-        LastWhiteFrontDeg = bestWhiteDeg;
 
-        int minGreen = Math.Max(8, cfg.MinBluePixels);
+        int minGreen = Math.Max(4, cfg.MinGreenPixels);
 
         if (State == DetectorState.WaitingForBlueZone)
         {
             if (greenCount >= minGreen && TryComputeGreenEndDeg(greenSinSum, greenCosSum, greenAngleBins, out double endDeg))
             {
                 _greenEndDeg = endDeg;
+                _greenEndLocked = false;
                 _zeroGreenFrames = 0;
                 _prevRemainingDeg = 360.0;
                 _armedSince = DateTime.UtcNow;
-                _smoothedSpeedDegPerMs = 0;
-                _speedSampleRemDeg = 360.0;
-                _speedSampleTime = DateTime.MinValue;
-                LastEffectiveLeadDeg = leadAngleDeg;
+                _checkpoints.Clear();
+                _nextCheckpointDeg = -1;
+                LastSpeedDegPerSec = 0;
+                LastPredictedTimeToEndMs = -1;
                 _flashSnapshot?.Dispose();
                 _flashSnapshot = null;
                 State = DetectorState.Armed;
@@ -224,11 +230,15 @@ internal sealed class TachoDetector : IDisposable
             return false;
         }
 
-        // State == Armed: update _greenEndDeg while the counter-clockwise end of the green zone is still visible
-        if (greenCount >= minGreen && TryComputeGreenEndDeg(greenSinSum, greenCosSum, greenAngleBins, out double updatedEndDeg))
+        // State == Armed: refine _greenEndDeg briefly before locking it so all 10° checkpoints share one exact reference
+        if (greenCount >= minGreen)
         {
-            _greenEndDeg = updatedEndDeg;
             _zeroGreenFrames = 0;
+            if (!_greenEndLocked && _checkpoints.Count == 0 &&
+                TryComputeGreenEndDeg(greenSinSum, greenCosSum, greenAngleBins, out double updatedEndDeg))
+            {
+                _greenEndDeg = updatedEndDeg;
+            }
         }
         else
         {
@@ -237,58 +247,147 @@ internal sealed class TachoDetector : IDisposable
 
         LastRemainingDeg = minRemainingDeg;
 
-        // Measure live angular velocity (deg/ms) of the white bar during the current spin
-        if (whiteCount >= 12 && minRemainingDeg < 275.0 && minRemainingDeg > 5.0)
+        // 1. Record a timestamped checkpoint every CheckpointStepDeg (default 10°) as the white front moves counter-clockwise
+        double stepDeg = Math.Clamp(cfg.CheckpointStepDeg, 5.0, 20.0);
+        if (whiteCount >= 12 && minRemainingDeg < 275.0 && minRemainingDeg > 2.0)
         {
-            var now = DateTime.UtcNow;
-            if (_speedSampleTime == DateTime.MinValue || minRemainingDeg > _speedSampleRemDeg + 5.0)
+            if (_nextCheckpointDeg < 0)
             {
-                _speedSampleRemDeg = minRemainingDeg;
-                _speedSampleTime = now;
+                // Lock _greenEndDeg once we start collecting 10° checkpoints
+                _greenEndLocked = true;
+                _checkpoints.Add(new AngleCheckpoint { TimeMs = captureTimeMs, RemainingDeg = minRemainingDeg });
+                _nextCheckpointDeg = Math.Floor(minRemainingDeg / stepDeg) * stepDeg - stepDeg;
             }
-            else
+            else if (minRemainingDeg <= _nextCheckpointDeg)
             {
-                double dtMs = (now - _speedSampleTime).TotalMilliseconds;
-                double dDeg = _speedSampleRemDeg - minRemainingDeg;
-                if (dtMs >= 10.0 && dDeg >= 3.5)
+                // Only accept monotonically decreasing angles with realistic speed (not glitches)
+                var last = _checkpoints[_checkpoints.Count - 1];
+                double dt = captureTimeMs - last.TimeMs;
+                double dDeg = last.RemainingDeg - minRemainingDeg;
+                if (dt >= 4.0 && dDeg >= 3.0)
                 {
-                    if (dtMs <= 160.0 && dDeg <= 80.0)
+                    double instSpeed = dDeg / dt;
+                    if (instSpeed >= 0.08 && instSpeed <= 2.2)
                     {
-                        double instSpeed = Math.Clamp(dDeg / dtMs, 0.15, 1.60);
-                        _smoothedSpeedDegPerMs = _smoothedSpeedDegPerMs <= 0.01
-                            ? instSpeed
-                            : (0.60 * _smoothedSpeedDegPerMs + 0.40 * instSpeed);
+                        _checkpoints.Add(new AngleCheckpoint { TimeMs = captureTimeMs, RemainingDeg = minRemainingDeg });
                     }
-                    _speedSampleRemDeg = minRemainingDeg;
-                    _speedSampleTime = now;
+                    while (_nextCheckpointDeg >= minRemainingDeg)
+                        _nextCheckpointDeg -= stepDeg;
                 }
             }
         }
 
-        // Scale the lead angle dynamically with the live measured speed of this enemy's tacho
-        double speedFactor = _smoothedSpeedDegPerMs > 0.05
-            ? Math.Clamp(_smoothedSpeedDegPerMs / ReferenceSpeedDegPerMs, 0.60, 2.30)
-            : 1.0;
-        double effectiveLeadDeg = Math.Clamp(leadAngleDeg * speedFactor, -15.0, 65.0);
-        LastEffectiveLeadDeg = effectiveLeadDeg;
         _prevRemainingDeg = minRemainingDeg;
 
-        // Trigger as soon as the moving white front has passed the bottom of the ring and reaches effectiveLeadDeg before the end of the green zone
-        if (whiteCount >= 20 && bottomWhiteCount >= 6 && minRemainingDeg <= effectiveLeadDeg)
+        // 2. Extrapolate the exact arrival time at RemainingDeg = 0° (end of green / blue optimum) using linear regression
+        if (bottomWhiteCount >= 6 && TryPredictArrivalTimeMs(out double predictedZeroTimeMs, out double speedDegPerMs))
         {
+            LastSpeedDegPerSec = speedDegPerMs * 1000.0;
+            double now = NowMs();
+            double timeToEndMs = predictedZeroTimeMs - now;
+            LastPredictedTimeToEndMs = timeToEndMs;
+
+            double clickTargetTimeMs = predictedZeroTimeMs - clickOffsetMs;
+            double waitMs = clickTargetTimeMs - now;
+
+            // Once we are within <= 26 ms of the exact extrapolated click moment (and close to the green zone),
+            // stop waiting for another 60 Hz monitor frame and sleep/spin with sub-ms Stopwatch precision!
+            if (minRemainingDeg <= 75.0 && waitMs <= 26.0)
+            {
+                if (waitMs > 0.5)
+                {
+                    PreciseWaitUntil(clickTargetTimeMs);
+                }
+
+                State = DetectorState.Cooldown;
+                _cooldownUntil = DateTime.UtcNow.AddMilliseconds(cfg.CooldownMs);
+                return true;
+            }
+        }
+        else if (whiteCount >= 20 && bottomWhiteCount >= 6 && minRemainingDeg <= 14.0)
+        {
+            // Safety fallback if too few checkpoints were seen before reaching the green zone
             State = DetectorState.Cooldown;
             _cooldownUntil = DateTime.UtcNow.AddMilliseconds(cfg.CooldownMs);
             return true;
         }
 
-        // Safety reset: if green disappeared for >15 frames without triggering, or armed for >3.5s, disarm cleanly
-        if (_zeroGreenFrames > 15 || (DateTime.UtcNow - _armedSince).TotalSeconds > 3.5)
+        // Safety reset: if green disappeared for >18 frames without triggering, or armed for >3.5s, disarm cleanly
+        if (_zeroGreenFrames > 18 || (DateTime.UtcNow - _armedSince).TotalSeconds > 3.5)
         {
             Reset();
             return false;
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Performs Ordinary Least Squares (linear regression) over the most recent 10°-checkpoints
+    /// to compute the exact angular speed (deg/ms) and exact Stopwatch timestamp when RemainingDeg == 0°.
+    /// </summary>
+    private bool TryPredictArrivalTimeMs(out double zeroTimeMs, out double speedDegPerMs)
+    {
+        zeroTimeMs = 0;
+        speedDegPerMs = 0;
+
+        int total = _checkpoints.Count;
+        if (total < 4)
+            return false;
+
+        // Use up to the most recent 12 checkpoints (~120° of travel) for optimal smoothness & local accuracy
+        int startIdx = Math.Max(0, total - 12);
+        int n = total - startIdx;
+        double t0 = _checkpoints[startIdx].TimeMs;
+
+        double sumX = 0;
+        double sumY = 0;
+        for (int i = startIdx; i < total; i++)
+        {
+            sumX += (_checkpoints[i].TimeMs - t0);
+            sumY += _checkpoints[i].RemainingDeg;
+        }
+
+        double meanX = sumX / n;
+        double meanY = sumY / n;
+
+        double num = 0;
+        double den = 0;
+        for (int i = startIdx; i < total; i++)
+        {
+            double dx = (_checkpoints[i].TimeMs - t0) - meanX;
+            double dy = _checkpoints[i].RemainingDeg - meanY;
+            num += dx * dy;
+            den += dx * dx;
+        }
+
+        if (den <= 1e-6)
+            return false;
+
+        double slope = num / den; // deg / ms (must be negative since RemainingDeg decreases)
+        if (slope >= -0.08 || slope <= -2.2)
+            return false;
+
+        speedDegPerMs = -slope;
+        // y(x) = meanY + slope * (x - meanX) = 0  ==>  x_zero = meanX + meanY / speedDegPerMs
+        double xZero = meanX + (meanY / speedDegPerMs);
+        zeroTimeMs = t0 + xZero;
+        return true;
+    }
+
+    private static void PreciseWaitUntil(double targetTimeMs)
+    {
+        while (true)
+        {
+            double rem = targetTimeMs - NowMs();
+            if (rem <= 0)
+                break;
+
+            if (rem > 3.0)
+                Thread.Sleep(1);
+            else
+                Thread.SpinWait(50);
+        }
     }
 
     /// <summary>
@@ -415,14 +514,18 @@ internal sealed class TachoDetector : IDisposable
         int minOffset = 0;
         bool found = false;
 
-        for (int offset = -100; offset <= 20; offset++)
+        // First try >= 2 pixels per degree bin for noise rejection; fall back to >= 1 for ultra-narrow green zones
+        for (int minBinCount = 2; minBinCount >= 1 && !found; minBinCount--)
         {
-            int bin = (centerBin + offset + 360) % 360;
-            if (bins[bin] >= 2)
+            for (int offset = -100; offset <= 20; offset++)
             {
-                minOffset = offset;
-                found = true;
-                break;
+                int bin = (centerBin + offset + 360) % 360;
+                if (bins[bin] >= minBinCount)
+                {
+                    minOffset = offset;
+                    found = true;
+                    break;
+                }
             }
         }
 
@@ -436,9 +539,9 @@ internal sealed class TachoDetector : IDisposable
         return true;
     }
 
-    public Bitmap? CreateDiagnosticBitmap(double leadAngleDeg)
+    public Bitmap? CreateDiagnosticBitmap()
     {
-        // While in Cooldown right after a click, show the frozen post-click flash image if captured!
+        // While in Cooldown right after a click, show the frozen +200 ms snapshot if captured!
         if (State == DetectorState.Cooldown && _flashSnapshot != null)
         {
             return (Bitmap)_flashSnapshot.Clone();
@@ -503,18 +606,10 @@ internal sealed class TachoDetector : IDisposable
             if (LastBlueCount > 0 || State == DetectorState.Armed)
             {
                 double endRad = _greenEndDeg * (Math.PI / 180.0);
-                double triggerRad = (_greenEndDeg + leadAngleDeg) * (Math.PI / 180.0);
-
                 using var endPen = new Pen(Color.Lime, 2);
-                using var trigPen = new Pen(Color.Red, 2);
-
                 g.DrawLine(endPen, half, half,
                     half + (int)(Math.Cos(endRad) * maxR),
                     half + (int)(Math.Sin(endRad) * maxR));
-
-                g.DrawLine(trigPen, half, half,
-                    half + (int)(Math.Cos(triggerRad) * maxR),
-                    half + (int)(Math.Sin(triggerRad) * maxR));
             }
         }
 

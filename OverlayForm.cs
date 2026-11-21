@@ -19,18 +19,18 @@ internal sealed class TachoOverlayItem
     public int CenterY { get; init; }
     public bool IsLast { get; init; }
     public DetectorState State { get; init; }
-    public int BlueCount { get; init; }
+    public int GreenCount { get; init; }
     public int WhiteCount { get; init; }
     public double RemainingDeg { get; init; }
-    public double TachoLeadDeg { get; init; }
-    public double EffectiveLeadDeg { get; init; }
+    public double ClickOffsetMs { get; init; }
     public double SpeedDegPerSec { get; init; }
+    public int CheckpointCount { get; init; }
     public TachoFeedback LastFeedback { get; init; }
     public int PeakRed { get; init; }
     public int PeakGreen { get; init; }
     public int PeakBlue { get; init; }
     public int PeakWhite { get; init; }
-    public double LastDelta { get; init; }
+    public double LastDeltaMs { get; init; }
     public Bitmap? Preview { get; init; }
 }
 
@@ -41,7 +41,7 @@ internal sealed class OverlayForm : Form
 
     public OverlayForm()
     {
-        Text = "TachoClicker Live-Inspektor (F8=Start/Pause | F9=Tacho | F10=Blau | F6=Gruen | +/-=Vorlauf)";
+        Text = "TachoClicker Live-Inspektor (10°-Hochrechnung | F8=Start | F9=Tacho | F10=Blau | F6=Gruen)";
         StartPosition = FormStartPosition.Manual;
         Location = new Point(40, 40);
         ClientSize = new Size(650, 395);
@@ -114,8 +114,8 @@ internal sealed class OverlayForm : Form
         Graphics g = e.Graphics;
         g.Clear(BackColor);
 
-        using var titleFont = new Font("Consolas", 10.5f, FontStyle.Bold);
-        using var badgeFont = new Font("Consolas", 9.5f, FontStyle.Bold);
+        using var titleFont = new Font("Consolas", 10.0f, FontStyle.Bold);
+        using var badgeFont = new Font("Consolas", 9.0f, FontStyle.Bold);
         using var infoFont = new Font("Consolas", 8.5f, FontStyle.Regular);
         using var borderWaiting = new Pen(Color.Gold, 2);
         using var borderArmed = new Pen(Color.Cyan, 3);
@@ -137,12 +137,12 @@ internal sealed class OverlayForm : Form
 
             string statusText = snap.Running ? "STATUS: AKTIV (F8)" : "STATUS: PAUSIERT (F8)";
             Brush statusBrush = snap.Running ? Brushes.LimeGreen : Brushes.Orange;
-            string tachoAngles = string.Join(" | ", snap.Tachos.Select(t => $"T{t.Index + 1}={t.TachoLeadDeg:F2}°"));
+            string tachoOffsets = string.Join(" | ", snap.Tachos.Select(t => $"T{t.Index + 1}={t.ClickOffsetMs:F1}ms"));
             g.DrawString(
-                $"{statusText}  |  Profil: {snap.ActiveProfile}er (F2/F3)  |  Vorlauf (unabhaengig): {tachoAngles}",
+                $"{statusText}  |  {snap.ActiveProfile}er (F2/F3)  |  Zeit-Vorlauf: {tachoOffsets}",
                 titleFont, statusBrush, 12, 8);
             g.DrawString(
-                "Legende: Magenta = Gruener Bereich | Gelb = Weisser Balken | Gruene Linie = Gruen-Ende | Rote Linie = Ausloeser",
+                "10°-Hochrechnung: Magenta = Gruen | Gelb = Weiss | Gruene Linie = Ziel (Gruen-Ende)",
                 infoFont, Brushes.LightGray, 12, 28);
 
             int tileSize = 160;
@@ -174,15 +174,18 @@ internal sealed class OverlayForm : Form
 
                 g.DrawRectangle(pen, x, y, tileSize, tileSize);
 
-                string btnName = t.IsLast ? "-> GRUEN" : "-> BLAU";
-                g.DrawString($"Tacho {t.Index + 1} ({btnName}) [{t.TachoLeadDeg:F2}°]", titleFont, Brushes.White, x, y + tileSize + 4);
+                string btnName = t.IsLast ? "GRUEN" : "BLAU";
+                g.DrawString($"T{t.Index + 1} ({btnName}) [{t.ClickOffsetMs:F1} ms]", titleFont, Brushes.White, x, y + tileSize + 4);
                 g.DrawString($"Pos : ({t.CenterX}, {t.CenterY})", infoFont, Brushes.Silver, x, y + tileSize + 22);
-                g.DrawString($"Gruen: {t.BlueCount} px | Weiss: {t.WhiteCount} px", infoFont,
-                    t.BlueCount > 0 ? Brushes.Magenta : Brushes.Silver, x, y + tileSize + 36);
-                g.DrawString($"Rest: {(t.RemainingDeg < 350 ? $"{t.RemainingDeg:F0}°" : "-")} | {(t.SpeedDegPerSec > 10 ? $"{t.SpeedDegPerSec:F0}°/s -> {t.EffectiveLeadDeg:F0}°" : $"{t.State}")}", infoFont,
-                    t.State == DetectorState.Armed ? Brushes.Cyan : Brushes.Silver, x, y + tileSize + 50);
+                g.DrawString($"Gruen: {t.GreenCount} px | Weiss: {t.WhiteCount} px", infoFont,
+                    t.GreenCount > 0 ? Brushes.Magenta : Brushes.Silver, x, y + tileSize + 36);
+                g.DrawString(
+                    t.SpeedDegPerSec > 10
+                        ? $"Speed: {t.SpeedDegPerSec:F0}°/s (n={t.CheckpointCount})"
+                        : $"Status: {t.State}",
+                    infoFont, t.SpeedDegPerSec > 10 ? Brushes.Cyan : Brushes.Silver, x, y + tileSize + 50);
 
-                // Farbige Feedback-Box fuer die nach dem Klick erkannte Tacho-Farbe
+                // Farbige Feedback-Box fuer die nach dem Klick (200 ms) erkannte Tacho-Farbe
                 int badgeY = y + tileSize + 68;
                 string allCounts = $"B={t.PeakBlue} G={t.PeakGreen} R={t.PeakRed} W={t.PeakWhite}";
                 var (badgeBrush, line1, line2) = t.LastFeedback switch
@@ -190,19 +193,19 @@ internal sealed class OverlayForm : Form
                     TachoFeedback.OptimalBlue => (
                         blueBadgeBg,
                         "200ms: BLAU (OPTIMAL)",
-                        $"±0.0° ({allCounts})"),
+                        $"±0.0ms ({allCounts})"),
                     TachoFeedback.TooEarlyGreen => (
                         greenBadgeBg,
                         "200ms: GRUEN (FRUEH)",
-                        $"{t.LastDelta:+0.00;-0.00}° ({allCounts})"),
+                        $"{t.LastDeltaMs:+0.0;-0.0}ms ({allCounts})"),
                     TachoFeedback.TooLateRed => (
                         redBadgeBg,
                         "200ms: ROT (ZU SPAET!)",
-                        $"{t.LastDelta:+0.0;-0.0}° ({allCounts})"),
+                        $"{t.LastDeltaMs:+0.0;-0.0}ms ({allCounts})"),
                     TachoFeedback.WayTooEarlyWhite => (
                         whiteBadgeBg,
                         "200ms: WEISS (VIEL ZU FRUEH)",
-                        $"Reset->{t.TachoLeadDeg:F0}° ({allCounts})"),
+                        $"Reset->{t.ClickOffsetMs:F0}ms ({allCounts})"),
                     _ => (
                         neutralBadgeBg,
                         "200ms NACH KLICK: -",

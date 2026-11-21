@@ -7,9 +7,9 @@ internal sealed class TachoPoint
     public int X { get; set; }
     public int Y { get; set; }
 
-    // Jeder Tacho besitzt seinen eigenen, vollstaendig unabhaengigen Vorlauf-Winkel + Ausgangswert
-    public double LeadAngleDeg { get; set; } = 18.0;
-    public double DefaultLeadAngleDeg { get; set; } = 18.0;
+    // Unabhaengiger Zeit-Vorlauf in Millisekunden (kompensiert Display- & Klick-Latenz)
+    public double ClickOffsetMs { get; set; } = 25.0;
+    public double DefaultClickOffsetMs { get; set; } = 25.0;
 
     public bool IsSet => X > 0 && Y > 0;
 }
@@ -21,15 +21,15 @@ internal sealed class AppConfig
 
     public List<TachoPoint> Profile2 { get; set; } = new()
     {
-        new TachoPoint { LeadAngleDeg = 18.0, DefaultLeadAngleDeg = 18.0 },
-        new TachoPoint { LeadAngleDeg = 24.0, DefaultLeadAngleDeg = 24.0 }
+        new TachoPoint { ClickOffsetMs = 25.0, DefaultClickOffsetMs = 25.0 },
+        new TachoPoint { ClickOffsetMs = 25.0, DefaultClickOffsetMs = 25.0 }
     };
 
     public List<TachoPoint> Profile3 { get; set; } = new()
     {
-        new TachoPoint { LeadAngleDeg = 18.0, DefaultLeadAngleDeg = 18.0 },
-        new TachoPoint { LeadAngleDeg = 24.0, DefaultLeadAngleDeg = 24.0 },
-        new TachoPoint { LeadAngleDeg = 30.0, DefaultLeadAngleDeg = 30.0 }
+        new TachoPoint { ClickOffsetMs = 25.0, DefaultClickOffsetMs = 25.0 },
+        new TachoPoint { ClickOffsetMs = 25.0, DefaultClickOffsetMs = 25.0 },
+        new TachoPoint { ClickOffsetMs = 25.0, DefaultClickOffsetMs = 25.0 }
     };
 
     public int TachoBoxSize { get; set; } = 180;
@@ -44,8 +44,11 @@ internal sealed class AppConfig
     public int ClickHoldMs { get; set; } = 15;
     public int CooldownMs { get; set; } = 700;
 
-    // Minimum green pixels required to consider the tacho green zone active
-    public int MinBluePixels { get; set; } = 12;
+    // Abstand der Winkel-Messpunkte fuer die Geschwindigkeits-Hochrechnung
+    public double CheckpointStepDeg { get; set; } = 10.0;
+
+    // Minimum green pixels required to consider the tacho green zone active (low for narrow green zones)
+    public int MinGreenPixels { get; set; } = 6;
 
     public List<TachoPoint> GetActiveTachos()
     {
@@ -53,51 +56,40 @@ internal sealed class AppConfig
         int expected = ActiveProfile == 3 ? 3 : 2;
         while (list.Count < expected)
         {
-            double defaultLead = 21.0 + (list.Count * 8.0);
-            list.Add(new TachoPoint { LeadAngleDeg = defaultLead });
+            list.Add(new TachoPoint { ClickOffsetMs = 25.0, DefaultClickOffsetMs = 25.0 });
         }
         return list;
     }
 
-    public double GetLeadAngleForTacho(int index)
+    public double GetClickOffsetMsForTacho(int index)
     {
         var tachos = GetActiveTachos();
         if (index >= 0 && index < tachos.Count)
-            return tachos[index].LeadAngleDeg;
-        return 22.0;
+            return tachos[index].ClickOffsetMs;
+        return 25.0;
     }
 
-    public double AdjustTachoLeadAngle(int index, double delta)
+    public double AdjustTachoClickOffsetMs(int index, double deltaMs)
     {
         var tachos = GetActiveTachos();
         if (index >= 0 && index < tachos.Count)
         {
-            tachos[index].LeadAngleDeg = Math.Clamp(Math.Round(tachos[index].LeadAngleDeg + delta, 2), -15.0, 60.0);
-            return tachos[index].LeadAngleDeg;
+            tachos[index].ClickOffsetMs = Math.Clamp(Math.Round(tachos[index].ClickOffsetMs + deltaMs, 2), -40.0, 150.0);
+            return tachos[index].ClickOffsetMs;
         }
-        return 18.0;
+        return 25.0;
     }
 
-    public double ResetTachoLeadAngleToDefault(int index)
+    public double ResetTachoClickOffsetToDefault(int index)
     {
         var tachos = GetActiveTachos();
         if (index >= 0 && index < tachos.Count)
         {
-            double def = tachos[index].DefaultLeadAngleDeg > 0
-                ? tachos[index].DefaultLeadAngleDeg
-                : (18.0 + index * 6.0);
-            tachos[index].LeadAngleDeg = def;
+            double def = tachos[index].DefaultClickOffsetMs > 0 ? tachos[index].DefaultClickOffsetMs : 25.0;
+            tachos[index].ClickOffsetMs = def;
             return def;
         }
-        return 18.0;
-    }
-
-    public void AdjustAllActiveLeadAngles(double delta)
-    {
-        foreach (var t in GetActiveTachos())
-        {
-            t.LeadAngleDeg = Math.Clamp(Math.Round(t.LeadAngleDeg + delta, 1), -15.0, 60.0);
-        }
+        return 25.0;
     }
 
     public bool IsCalibrated
