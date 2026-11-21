@@ -498,7 +498,7 @@ internal static class Program
 
         double deltaMs = fb switch
         {
-            TachoFeedback.TooLateRed => +2.0,
+            TachoFeedback.TooLateRed => +2.5,
             TachoFeedback.TooEarlyGreen => -0.5,
             _ => 0.0
         };
@@ -519,6 +519,12 @@ internal static class Program
                 slot.ClickOffsetMs = slot.DefaultClickOffsetMs > 0 ? slot.DefaultClickOffsetMs : 41.0;
             else if (deltaMs != 0.0)
                 slot.ClickOffsetMs = Math.Clamp(Math.Round(slot.ClickOffsetMs + deltaMs, 2), 0.0, 120.0);
+
+            // Refine stored signature with the final converged click-time fingerprint (much cleaner than mid-spin!)
+            if (detector.LastFingerprint.EndSpeedDegPerSec > 50.0)
+            {
+                slot.UpdateSignatureEma(detector.LastFingerprint);
+            }
 
             updated = slot.ClickOffsetMs;
             enemyStore.Save();

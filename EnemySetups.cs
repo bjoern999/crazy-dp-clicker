@@ -291,7 +291,7 @@ internal sealed class EnemySetupStore
         var setup = new EnemySetup
         {
             Id = id,
-            Name = $"Gegner #{id}",
+            Name = $"Spieler-Setup #{id}",
             ProfileSize = profileSize,
             LastSeenUtc = DateTime.UtcNow
         };

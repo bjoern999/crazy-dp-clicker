@@ -301,14 +301,16 @@ internal sealed class TachoDetector : IDisposable
             return false;
         }
 
-        int minGreen = Math.Max(4, cfg.MinGreenPixels);
+        // Even a narrow 18° green zone has ~380 green pixels on 4K; requiring >= 35 px and Width 6°..85°
+        // plus upper-right/right sector (245°..360° or 0°..55°) completely prevents green character sprites (e.g. 142°, 1°) from arming!
+        int minGreen = Math.Max(35, cfg.MinGreenPixels);
 
         if (State == DetectorState.WaitingForBlueZone)
         {
-            // Reject full-screen green attack/victory effects (real Tacho green zone has Width <= 85° and GreenPx <= 2800)
             if (greenCount >= minGreen && greenCount <= 2800 &&
                 TryComputeGreenArc(greenSinSum, greenCosSum, greenAngleBins, out double endDeg, out double widthDeg) &&
-                widthDeg <= 85.0)
+                widthDeg >= 6.0 && widthDeg <= 85.0 &&
+                IsValidGreenEndAngle(endDeg))
             {
                 _greenEndDeg = endDeg;
                 LastGreenWidthDeg = widthDeg;
@@ -339,7 +341,8 @@ internal sealed class TachoDetector : IDisposable
             _zeroGreenFrames = 0;
             if (!_greenEndLocked &&
                 TryComputeGreenArc(greenSinSum, greenCosSum, greenAngleBins, out double updatedEndDeg, out double updatedWidthDeg) &&
-                updatedWidthDeg <= 85.0)
+                updatedWidthDeg >= 6.0 && updatedWidthDeg <= 85.0 &&
+                IsValidGreenEndAngle(updatedEndDeg))
             {
                 _greenEndDeg = updatedEndDeg;
                 LastGreenWidthDeg = updatedWidthDeg;
@@ -398,8 +401,8 @@ internal sealed class TachoDetector : IDisposable
             LastAccelDegPerSec2 = accelDegPerSec2;
             LastRegressionR2 = r2;
 
-            // Identify enemy setup ONCE mid-spin (~200-350 ms BEFORE clicking!) so its saved offset is used for this very click
-            if (!_setupResolvedForSpin && onFingerprintReady != null && usedQuadratic && _checkpoints.Count >= 7 && minRemainingDeg <= 145.0)
+            // Identify character setup ONCE once the quadratic curve has converged (rem <= 80°, still ~180-250 ms BEFORE click!)
+            if (!_setupResolvedForSpin && onFingerprintReady != null && usedQuadratic && _checkpoints.Count >= 10 && minRemainingDeg <= 80.0)
             {
                 _setupResolvedForSpin = true;
                 var fp = new TachoFingerprint
@@ -421,20 +424,21 @@ internal sealed class TachoDetector : IDisposable
 
             if (minRemainingDeg <= 105.0 && waitMs <= 26.0)
             {
+                var finalFp = new TachoFingerprint
+                {
+                    GreenEndDeg = _greenEndDeg,
+                    GreenWidthDeg = LastGreenWidthDeg,
+                    BlueWidthDeg = LastBlueWidthDeg,
+                    EndSpeedDegPerSec = endSpeedDegPerSec,
+                    AccelDegPerSec2 = accelDegPerSec2
+                };
+                LastFingerprint = finalFp;
+
                 // If not resolved yet (e.g. fast tacho), resolve right before clicking
                 if (!_setupResolvedForSpin && onFingerprintReady != null)
                 {
                     _setupResolvedForSpin = true;
-                    var fp = new TachoFingerprint
-                    {
-                        GreenEndDeg = _greenEndDeg,
-                        GreenWidthDeg = LastGreenWidthDeg,
-                        BlueWidthDeg = LastBlueWidthDeg,
-                        EndSpeedDegPerSec = endSpeedDegPerSec,
-                        AccelDegPerSec2 = accelDegPerSec2
-                    };
-                    LastFingerprint = fp;
-                    usedOffset = onFingerprintReady(fp);
+                    usedOffset = onFingerprintReady(finalFp);
                     _activeSpinClickOffsetMs = usedOffset;
                     clickTargetTimeMs = predictedZeroTimeMs - usedOffset;
                     waitMs = clickTargetTimeMs - NowMs();
@@ -928,6 +932,12 @@ internal sealed class TachoDetector : IDisposable
             else
                 Thread.SpinWait(50);
         }
+    }
+
+    private static bool IsValidGreenEndAngle(double deg)
+    {
+        // Real Tacho green zone ends on the right / upper-right sector (245°..360° or 0°..55°), never at 8 o'clock (142°)
+        return deg >= 245.0 || deg <= 55.0;
     }
 
     private static double ComputeBlueSliverWidthDeg(double greenEndDeg, ReadOnlySpan<int> blueBins)

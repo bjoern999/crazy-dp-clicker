@@ -227,7 +227,7 @@ internal sealed class OverlayForm : Form
             string enemyLine;
             if (!hasEnemy)
             {
-                enemyLine = $"GEGNER-SETUP: noch nicht erkannt (gespeicherte Gegner: {snap.TotalSavedEnemies})";
+                enemyLine = $"TACHO-SETUP: noch nicht erkannt (gespeicherte Setups: {snap.TotalSavedEnemies})";
             }
             else
             {
@@ -235,7 +235,7 @@ internal sealed class OverlayForm : Form
                 string rate = snap.EnemyTotalClicks > 0
                     ? $" | Blau: {snap.EnemyBlueHits}/{snap.EnemyTotalClicks} ({100 * snap.EnemyBlueHits / snap.EnemyTotalClicks}%)"
                     : "";
-                enemyLine = $"GEGNER-SETUP: {snap.EnemySetupName} [{tag}]{rate} | Gesamt: {snap.TotalSavedEnemies}";
+                enemyLine = $"TACHO-SETUP: {snap.EnemySetupName} [{tag}]{rate} | Gesamt: {snap.TotalSavedEnemies}";
             }
 
             g.FillRectangle(enemyBg, 12, 28, ClientSize.Width - 24, 24);
