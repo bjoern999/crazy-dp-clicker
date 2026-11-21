@@ -1,0 +1,45 @@
+{
+  "ActiveProfile": 2,
+  "Profile2": [
+    {
+      "X": 1690,
+      "Y": 1126,
+      "IsSet": true
+    },
+    {
+      "X": 1871,
+      "Y": 1131,
+      "IsSet": true
+    }
+  ],
+  "Profile3": [
+    {
+      "X": 1688,
+      "Y": 1131,
+      "IsSet": true
+    },
+    {
+      "X": 0,
+      "Y": 0,
+      "IsSet": false
+    },
+    {
+      "X": 0,
+      "Y": 0,
+      "IsSet": false
+    }
+  ],
+  "TachoBoxSize": 180,
+  "BlueButtonX": 1712,
+  "BlueButtonY": 1687,
+  "GreenButtonX": 2080,
+  "GreenButtonY": 1680,
+  "PollIntervalMs": 2,
+  "ClickHoldMs": 15,
+  "CooldownMs": 900,
+  "MinBluePixels": 12,
+  "LeadAngleDeg": 21,
+  "ExtraLeadPerTachoDeg": 8,
+  "TriggerOverlapPixels": 1,
+  "IsCalibrated": true
+}
