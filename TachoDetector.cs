@@ -401,17 +401,19 @@ internal sealed class TachoDetector : IDisposable
             LastAccelDegPerSec2 = accelDegPerSec2;
             LastRegressionR2 = r2;
 
-            // Identify character setup ONCE once the quadratic curve has converged (rem <= 80°, still ~180-250 ms BEFORE click!)
-            if (!_setupResolvedForSpin && onFingerprintReady != null && usedQuadratic && _checkpoints.Count >= 10 && minRemainingDeg <= 80.0)
+            // Identify character setup ONCE at rem <= 55° (fully converged speed/accel + exact T55 spin time, still ~65-175 ms BEFORE click!)
+            if (!_setupResolvedForSpin && onFingerprintReady != null && _checkpoints.Count >= 8 && minRemainingDeg <= 55.0)
             {
                 _setupResolvedForSpin = true;
+                double spinTime55 = ComputeSpinTimeToDegMs(55.0, captureTimeMs, minRemainingDeg);
                 var fp = new TachoFingerprint
                 {
                     GreenEndDeg = _greenEndDeg,
                     GreenWidthDeg = LastGreenWidthDeg,
                     BlueWidthDeg = LastBlueWidthDeg,
                     EndSpeedDegPerSec = endSpeedDegPerSec,
-                    AccelDegPerSec2 = accelDegPerSec2
+                    AccelDegPerSec2 = accelDegPerSec2,
+                    SpinTimeTo55Ms = spinTime55
                 };
                 LastFingerprint = fp;
                 _activeSpinClickOffsetMs = onFingerprintReady(fp);
@@ -424,13 +426,15 @@ internal sealed class TachoDetector : IDisposable
 
             if (minRemainingDeg <= 105.0 && waitMs <= 26.0)
             {
+                double finalSpinTime55 = ComputeSpinTimeToDegMs(55.0, captureTimeMs, minRemainingDeg);
                 var finalFp = new TachoFingerprint
                 {
                     GreenEndDeg = _greenEndDeg,
                     GreenWidthDeg = LastGreenWidthDeg,
                     BlueWidthDeg = LastBlueWidthDeg,
                     EndSpeedDegPerSec = endSpeedDegPerSec,
-                    AccelDegPerSec2 = accelDegPerSec2
+                    AccelDegPerSec2 = accelDegPerSec2,
+                    SpinTimeTo55Ms = finalSpinTime55
                 };
                 LastFingerprint = finalFp;
 
@@ -698,6 +702,43 @@ internal sealed class TachoDetector : IDisposable
         }
 
         return 360.0;
+    }
+
+    private double ComputeSpinTimeToDegMs(double targetDeg, double currentTimeMs, double currentRemDeg)
+    {
+        if (_checkpoints.Count < 2)
+            return 0.0;
+
+        double t0 = _checkpoints[0].TimeMs;
+
+        for (int i = 1; i < _checkpoints.Count; i++)
+        {
+            var prev = _checkpoints[i - 1];
+            var cur = _checkpoints[i];
+            if (prev.RemainingDeg >= targetDeg && cur.RemainingDeg <= targetDeg)
+            {
+                double dd = prev.RemainingDeg - cur.RemainingDeg;
+                if (dd > 0.01)
+                {
+                    double tCross = prev.TimeMs + ((prev.RemainingDeg - targetDeg) / dd) * (cur.TimeMs - prev.TimeMs);
+                    return Math.Max(0.0, tCross - t0);
+                }
+            }
+        }
+
+        // Fallback: interpolate between last checkpoint and current frame
+        var last = _checkpoints[_checkpoints.Count - 1];
+        if (last.RemainingDeg >= targetDeg && currentRemDeg <= targetDeg)
+        {
+            double dd = last.RemainingDeg - currentRemDeg;
+            if (dd > 0.01)
+            {
+                double tCross = last.TimeMs + ((last.RemainingDeg - targetDeg) / dd) * (currentTimeMs - last.TimeMs);
+                return Math.Max(0.0, tCross - t0);
+            }
+        }
+
+        return 0.0;
     }
 
     /// <summary>

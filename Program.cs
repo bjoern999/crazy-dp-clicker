@@ -52,8 +52,9 @@ internal static class Program
         int expectedTachoIndex = 0;
         DateTime lastClickUtc = DateTime.MinValue;
 
-        // Aktuell erkannter Gegner & Fingerabdruecke der laufenden Runde
+        // Aktuell erkannter Spieler & Fingerabdruecke der laufenden Runde
         EnemySetup? activeEnemy = null;
+        EnemySetup? lastConfirmedEnemy = null;
         bool activeEnemyIsNew = false;
         var roundFingerprints = new Dictionary<int, TachoFingerprint>();
 
@@ -87,6 +88,7 @@ internal static class Program
                 {
                     SwitchProfile(cfg, detectors, 2, ref nextTachoIndex, ref expectedTachoIndex, ref running);
                     activeEnemy = null;
+                    lastConfirmedEnemy = null;
                     roundFingerprints.Clear();
                 }
 
@@ -94,6 +96,7 @@ internal static class Program
                 {
                     SwitchProfile(cfg, detectors, 3, ref nextTachoIndex, ref expectedTachoIndex, ref running);
                     activeEnemy = null;
+                    lastConfirmedEnemy = null;
                     roundFingerprints.Clear();
                 }
 
@@ -214,6 +217,7 @@ internal static class Program
                                 cur,
                                 fp,
                                 cur > 0 ? activeEnemy : null,
+                                lastConfirmedEnemy,
                                 roundFingerprints,
                                 activeTachos,
                                 cfg.GetClickOffsetMsForTacho(cur));
@@ -221,6 +225,8 @@ internal static class Program
                             bool changedEnemy = activeEnemy == null || activeEnemy.Id != matched.Id || isNew;
                             activeEnemy = matched;
                             activeEnemyIsNew = isNew;
+                            if (cur == activeTachos.Count - 1)
+                                lastConfirmedEnemy = matched;
 
                             var slot = matched.Tachos[cur];
                             double enemyOffset = slot.ClickOffsetMs;
@@ -231,7 +237,7 @@ internal static class Program
                                 var best = slot.GetBestProvenOffset();
                                 string bestStr = best != null ? $", Bewaehrt={best.OffsetMs:F2}ms ({best.BlueHits}/{best.Total} Blau)" : "";
                                 Console.WriteLine(
-                                    $"[Spieler-Setup] {matched.Name} [{tag}] | T{cur + 1}: v={fp.EndSpeedDegPerSec:F0}°/s, a={fp.AccelDegPerSec2:F0}°/s², G={fp.GreenWidthDeg:F0}° -> Offset {enemyOffset:F2} ms{bestStr}");
+                                    $"[Spieler-Setup] {matched.Name} [{tag}] | T{cur + 1}: v={fp.EndSpeedDegPerSec:F1}°/s, a={fp.AccelDegPerSec2:F0}°/s², T55={fp.SpinTimeTo55Ms:F0}ms, G={fp.GreenWidthDeg:F0}° -> Offset {enemyOffset:F2} ms{bestStr}");
                             }
 
                             return enemyOffset;
@@ -537,7 +543,7 @@ internal static class Program
 
             if (detector.LastFingerprint.EndSpeedDegPerSec > 50.0)
             {
-                slot.UpdateSignatureEma(detector.LastFingerprint);
+                slot.UpdateSignatureEma(detector.LastFingerprint, activeEnemy.IsFixed);
             }
 
             enemyStore.Save();

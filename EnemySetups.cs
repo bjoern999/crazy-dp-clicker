@@ -9,6 +9,7 @@ internal readonly struct TachoFingerprint
     public double BlueWidthDeg { get; init; }
     public double EndSpeedDegPerSec { get; init; }
     public double AccelDegPerSec2 { get; init; }
+    public double SpinTimeTo55Ms { get; init; }
 }
 
 internal sealed class OffsetPerformance
@@ -44,6 +45,7 @@ internal sealed class TachoSetupSlot
     public double BlueWidthDeg { get; set; }
     public double EndSpeedDegPerSec { get; set; }
     public double AccelDegPerSec2 { get; set; }
+    public double SpinTimeTo55Ms { get; set; }
 
     public double ClickOffsetMs { get; set; } = 41.0;
     public double DefaultClickOffsetMs { get; set; } = 41.0;
@@ -75,16 +77,27 @@ internal sealed class TachoSetupSlot
         BlueWidthDeg = Math.Round(fp.BlueWidthDeg, 1);
         EndSpeedDegPerSec = Math.Round(fp.EndSpeedDegPerSec, 1);
         AccelDegPerSec2 = Math.Round(fp.AccelDegPerSec2, 1);
+        SpinTimeTo55Ms = Math.Round(fp.SpinTimeTo55Ms, 1);
         ClickOffsetMs = Math.Round(initialOffsetMs, 2);
         DefaultClickOffsetMs = Math.Round(initialOffsetMs, 2);
         Samples = 1;
     }
 
-    public void UpdateSignatureEma(TachoFingerprint fp)
+    public void UpdateSignatureEma(TachoFingerprint fp, bool isFixed = false)
     {
         if (!HasSignature)
         {
             InitFrom(fp, ClickOffsetMs, X, Y);
+            return;
+        }
+
+        // Feste Spieler (Ammonit, Mammut, Oviraptor, ...) frieren ihre kalibrierte Tacho-Signatur ein,
+        // damit sich aehnliche Tachos niemals gegenseitig per EMA verschmieren koennen!
+        if (isFixed)
+        {
+            if (SpinTimeTo55Ms <= 1.0 && fp.SpinTimeTo55Ms > 100.0)
+                SpinTimeTo55Ms = Math.Round(fp.SpinTimeTo55Ms, 1);
+            Samples++;
             return;
         }
 
@@ -94,6 +107,12 @@ internal sealed class TachoSetupSlot
         BlueWidthDeg = Math.Round(BlueWidthDeg * (1 - alpha) + fp.BlueWidthDeg * alpha, 1);
         EndSpeedDegPerSec = Math.Round(EndSpeedDegPerSec * (1 - alpha) + fp.EndSpeedDegPerSec * alpha, 1);
         AccelDegPerSec2 = Math.Round(AccelDegPerSec2 * (1 - alpha) + fp.AccelDegPerSec2 * alpha, 1);
+        if (fp.SpinTimeTo55Ms > 100.0)
+        {
+            SpinTimeTo55Ms = SpinTimeTo55Ms <= 1.0
+                ? Math.Round(fp.SpinTimeTo55Ms, 1)
+                : Math.Round(SpinTimeTo55Ms * (1 - alpha) + fp.SpinTimeTo55Ms * alpha, 1);
+        }
         Samples++;
     }
 
@@ -214,16 +233,37 @@ internal sealed class TachoSetupSlot
         double dGreenW = Math.Abs(GreenWidthDeg - fp.GreenWidthDeg) / 4.5;
         double dBlueW = Math.Abs(BlueWidthDeg - fp.BlueWidthDeg) / 4.5;
 
-        double speedTol = Math.Max(20.0, EndSpeedDegPerSec * 0.065);
+        // Schaerfere Toleranzen fuer Speed, Accel & Spin-Laufzeit trennen Ammonit (358.6°/s, 258°/s², 1180ms)
+        // und Mammut (372.6°/s, 298°/s², 1157ms) schon bei Tacho 1 zuverlaessig!
+        double speedTol = Math.Max(14.0, EndSpeedDegPerSec * 0.042);
         double dSpeed = Math.Abs(EndSpeedDegPerSec - fp.EndSpeedDegPerSec) / speedTol;
 
-        double accelTol = Math.Max(55.0, Math.Abs(AccelDegPerSec2) * 0.25);
+        double accelTol = Math.Max(35.0, Math.Abs(AccelDegPerSec2) * 0.16);
         double dAccel = Math.Abs(AccelDegPerSec2 - fp.AccelDegPerSec2) / accelTol;
 
-        if (dEnd > 1.5 || dGreenW > 1.4 || dBlueW > 1.5 || dSpeed > 1.4 || dAccel > 1.6)
+        bool hasTime = SpinTimeTo55Ms > 100.0 && fp.SpinTimeTo55Ms > 100.0;
+        double dTime = 0.0;
+        if (hasTime)
+        {
+            double timeTol = Math.Max(22.0, SpinTimeTo55Ms * 0.025);
+            dTime = Math.Abs(SpinTimeTo55Ms - fp.SpinTimeTo55Ms) / timeTol;
+            if (dTime > 1.65)
+                return double.MaxValue;
+        }
+
+        if (dEnd > 1.5 || dGreenW > 1.4 || dBlueW > 1.5 || dSpeed > 1.55 || dAccel > 1.70)
             return double.MaxValue;
 
-        return Math.Sqrt((dEnd * dEnd + dGreenW * dGreenW + dBlueW * dBlueW + dSpeed * dSpeed * 1.4 + dAccel * dAccel * 0.8) / 5.2);
+        double weightedSq =
+            dEnd * dEnd * 1.0 +
+            dGreenW * dGreenW * 1.0 +
+            dBlueW * dBlueW * 0.4 +
+            dSpeed * dSpeed * 2.0 +
+            dAccel * dAccel * 1.6 +
+            (hasTime ? dTime * dTime * 1.8 : 0.0);
+        double totalWeight = hasTime ? 7.8 : 6.0;
+
+        return Math.Sqrt(weightedSq / totalWeight);
     }
 
     private static double AngleDiffDeg(double a, double b)
@@ -313,6 +353,7 @@ internal sealed class EnemySetupStore
         int tachoIndex,
         TachoFingerprint currentFp,
         EnemySetup? currentRoundSetup,
+        EnemySetup? preferredStickySetup,
         IReadOnlyDictionary<int, TachoFingerprint> roundFingerprints,
         IReadOnlyList<TachoPoint> activePositions,
         double fallbackOffsetMs)
@@ -338,7 +379,7 @@ internal sealed class EnemySetupStore
             if (dCurrent <= 1.0)
             {
                 if (!slot.HasPosition && curX > 0 && curY > 0) { slot.X = curX; slot.Y = curY; }
-                slot.UpdateSignatureEma(currentFp);
+                slot.UpdateSignatureEma(currentFp, currentRoundSetup.IsFixed);
                 currentRoundSetup.LastSeenUtc = DateTime.UtcNow;
                 Save();
                 return (currentRoundSetup, false, dCurrent);
@@ -362,7 +403,7 @@ internal sealed class EnemySetupStore
                 {
                     if (kv.Key == tachoIndex || kv.Key >= candidate.Tachos.Count) continue;
                     double dPrev = candidate.Tachos[kv.Key].DistanceTo(kv.Value);
-                    if (dPrev > 1.15)
+                    if (dPrev > 1.55)
                     {
                         allOk = false;
                         break;
@@ -386,7 +427,7 @@ internal sealed class EnemySetupStore
             {
                 var matchedSlot = bestJoint.Tachos[tachoIndex];
                 if (!matchedSlot.HasPosition && curX > 0 && curY > 0) { matchedSlot.X = curX; matchedSlot.Y = curY; }
-                matchedSlot.UpdateSignatureEma(currentFp);
+                matchedSlot.UpdateSignatureEma(currentFp, bestJoint.IsFixed);
                 bestJoint.LastSeenUtc = DateTime.UtcNow;
                 Save();
                 return (bestJoint, false, bestJointDist);
@@ -397,18 +438,28 @@ internal sealed class EnemySetupStore
         }
 
         // Case 2: Tacho 1 (start of a round)
+        // Mit sanfter Hysterese (0.80x Bonus fuer den zuletzt durch T2 bestaetigten Spieler),
+        // damit minimale Messschwankungen niemals zu Ping-Pong fuehren, ein echter Spielerwechsel aber sofort umschaltet.
         EnemySetup? bestMatch = null;
-        double bestDist = double.MaxValue;
+        double bestEffectiveDist = double.MaxValue;
+        double bestRawDist = double.MaxValue;
 
         foreach (var candidate in Setups)
         {
             if (candidate.ProfileSize != profileSize) continue;
             candidate.EnsureSlots();
 
-            double dist = candidate.Tachos[tachoIndex].DistanceTo(currentFp);
-            if (dist <= 1.0 && dist < bestDist)
+            double rawDist = candidate.Tachos[tachoIndex].DistanceTo(currentFp);
+            if (rawDist > 1.0) continue;
+
+            double effectiveDist = (preferredStickySetup != null && candidate.Id == preferredStickySetup.Id)
+                ? rawDist * 0.80
+                : rawDist;
+
+            if (effectiveDist < bestEffectiveDist)
             {
-                bestDist = dist;
+                bestEffectiveDist = effectiveDist;
+                bestRawDist = rawDist;
                 bestMatch = candidate;
             }
         }
@@ -417,10 +468,10 @@ internal sealed class EnemySetupStore
         {
             var matchedSlot = bestMatch.Tachos[tachoIndex];
             if (!matchedSlot.HasPosition && curX > 0 && curY > 0) { matchedSlot.X = curX; matchedSlot.Y = curY; }
-            matchedSlot.UpdateSignatureEma(currentFp);
+            matchedSlot.UpdateSignatureEma(currentFp, bestMatch.IsFixed);
             bestMatch.LastSeenUtc = DateTime.UtcNow;
             Save();
-            return (bestMatch, false, bestDist);
+            return (bestMatch, false, bestRawDist);
         }
 
         var created = CreateNewSetup(profileSize, tachoIndex, currentFp, roundFingerprints, activePositions, fallbackOffsetMs, null);
