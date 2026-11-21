@@ -3,3 +3,4 @@ obj/
 .vs/
 *.user
 debug_T*_after_click.png
+tacho_telemetry.log

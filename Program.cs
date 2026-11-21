@@ -202,9 +202,15 @@ internal static class Program
                     if (detectors[cur].State == DetectorState.Armed)
                         isArmed = true;
 
+                    if (detectors[cur].JustAbortedWithoutClick)
+                    {
+                        LogTelemetryAbort(cur, activeTachos.Count, clickOffsetMs, detectors[cur]);
+                    }
+
                     if (triggered)
                     {
                         bool isLastBtn = cur == activeTachos.Count - 1;
+                        string checkpointsStr = detectors[cur].FormatCheckpointsSummary();
 
                         // 1. Button sofort betaetigen
                         TriggerClick(cur, activeTachos.Count, detectors[cur], cfg);
@@ -219,8 +225,11 @@ internal static class Program
                         TachoFeedback fb = detectors[cur].MeasureBottomColorAfterClick(
                             cur + 1, activeTachos[cur].X, activeTachos[cur].Y, cfg);
 
-                        // 3. Sofort den unabhaengigen Parameter dieses Tachos anpassen
+                        // 4. Sofort den unabhaengigen Parameter dieses Tachos anpassen
                         double newOffset = HandleTachoFeedback(cur, fb, detectors[cur], cfg);
+
+                        // 5. Vollstaendige Telemetrie fuer Analyse in tacho_telemetry.log schreiben
+                        LogTelemetryClick(cur, activeTachos.Count, clickOffsetMs, newOffset, fb, detectors[cur], checkpointsStr);
 
                         lastClickedTachoNumber = cur + 1;
                         lastFeedback = fb;
@@ -358,6 +367,47 @@ internal static class Program
         using var g = Graphics.FromImage(bmp);
         g.CopyFromScreen(Math.Max(0, centerX - half), Math.Max(0, centerY - half), 0, 0, new Size(size, size), CopyPixelOperation.SourceCopy);
         return bmp;
+    }
+
+    private static string GetTelemetryLogPath()
+    {
+        string projectRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", ".."));
+        string dir = Directory.Exists(projectRoot) ? projectRoot : AppContext.BaseDirectory;
+        return Path.Combine(dir, "tacho_telemetry.log");
+    }
+
+    private static void LogTelemetryClick(
+        int tachoIndex, int totalTachos, double usedOffsetMs, double newOffsetMs,
+        TachoFeedback fb, TachoDetector d, string checkpointsStr)
+    {
+        try
+        {
+            string line =
+                $"{DateTime.Now:HH:mm:ss.fff} | CLICK | T{tachoIndex + 1}/{totalTachos} | " +
+                $"Reason={d.LastTriggerReason} | Speed={d.LastSpeedDegPerSec:F1}°/s | R2={d.LastRegressionR2:F4} | " +
+                $"RemAtTrig={d.LastRemDegAtTrigger:F1}° | WaitMs={d.LastWaitMsAtTrigger:F1} | " +
+                $"Offset={usedOffsetMs:F1}->{newOffsetMs:F1}ms | " +
+                $"GreenEnd={d.LastTargetEndDeg:F0}° Width={d.LastGreenWidthDeg:F0}° GreenPx={d.LastInitialGreenCount} BlueSliverPx={d.LastBlueSliverCount} | " +
+                $"Feedback={fb} (RGB={d.LastAvgR},{d.LastAvgG},{d.LastAvgB} B={d.LastPatchBlue} G={d.LastPatchGreen} R={d.LastPatchRed} W={d.LastPatchWhite}) | " +
+                $"Checkpoints={checkpointsStr}";
+            File.AppendAllText(GetTelemetryLogPath(), line + Environment.NewLine);
+        }
+        catch { }
+    }
+
+    private static void LogTelemetryAbort(int tachoIndex, int totalTachos, double usedOffsetMs, TachoDetector d)
+    {
+        try
+        {
+            string line =
+                $"{DateTime.Now:HH:mm:ss.fff} | ABORT_NO_CLICK | T{tachoIndex + 1}/{totalTachos} | " +
+                $"Reason={d.LastAbortReason} | LastRem={d.LastAbortMinRemDeg:F1}° | BottomRedPx={d.LastAbortRedOnBottom} | " +
+                $"Offset={usedOffsetMs:F1}ms | GreenEnd={d.LastTargetEndDeg:F0}° Width={d.LastGreenWidthDeg:F0}° GreenPx={d.LastInitialGreenCount} BlueSliverPx={d.LastBlueSliverCount} | " +
+                $"Checkpoints={d.LastAbortCheckpointSummary}";
+            File.AppendAllText(GetTelemetryLogPath(), line + Environment.NewLine);
+            Console.WriteLine($"[ABBRUCH OHNE KLICK Tacho {tachoIndex + 1}] {d.LastAbortReason} (LastRem={d.LastAbortMinRemDeg:F0}°, BottomRed={d.LastAbortRedOnBottom})");
+        }
+        catch { }
     }
 
     private static double HandleTachoFeedback(int tachoIndex, TachoFeedback fb, TachoDetector detector, AppConfig cfg)

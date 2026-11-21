@@ -40,6 +40,7 @@ internal sealed class TachoDetector : IDisposable
     public int LastGreenCount { get; private set; }
     public int LastWhiteCount { get; private set; }
     public double LastRemainingDeg { get; private set; } = 360.0;
+    public double LastTargetEndDeg => _greenEndDeg;
     public bool JustArmed { get; private set; }
 
     public TachoFeedback LastFeedback { get; private set; } = TachoFeedback.None;
@@ -56,6 +57,27 @@ internal sealed class TachoDetector : IDisposable
 
     public double LastSpeedDegPerSec { get; private set; }
     public int LastCheckpointCount => _checkpoints.Count;
+
+    // Telemetry fields for diagnosing timing precision
+    public string LastTriggerReason { get; private set; } = "";
+    public double LastRemDegAtTrigger { get; private set; }
+    public double LastWaitMsAtTrigger { get; private set; }
+    public double LastRegressionR2 { get; private set; }
+    public double LastGreenWidthDeg { get; private set; }
+    public int LastBlueSliverCount { get; private set; }
+    public int LastInitialGreenCount { get; private set; }
+    public bool JustAbortedWithoutClick { get; private set; }
+    public string LastAbortReason { get; private set; } = "";
+    public string LastAbortCheckpointSummary { get; private set; } = "";
+    public double LastAbortMinRemDeg { get; private set; }
+    public int LastAbortRedOnBottom { get; private set; }
+
+    public string FormatCheckpointsSummary()
+    {
+        if (_checkpoints.Count == 0) return "[]";
+        double t0 = _checkpoints[0].TimeMs;
+        return "[" + string.Join(", ", _checkpoints.Select(c => $"{c.TimeMs - t0:F0}ms:{c.RemainingDeg:F0}°")) + "]";
+    }
 
     // Exact measured bottom-of-ring pixel position (6 o'clock) in local box coordinates
     public int BottomSpotLocalX { get; private set; }
@@ -93,6 +115,7 @@ internal sealed class TachoDetector : IDisposable
     public bool Update(int centerX, int centerY, double clickOffsetMs, AppConfig cfg)
     {
         JustArmed = false;
+        JustAbortedWithoutClick = false;
 
         if (State == DetectorState.Cooldown)
         {
@@ -125,7 +148,9 @@ internal sealed class TachoDetector : IDisposable
         BitmapData data = _bitmap!.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
 
         int greenCount = 0;
+        int blueSliverCount = 0;
         int whiteCount = 0;
+        int bottomRedCount = 0;
         int centerPixels = 0;
         int centerWhitePixels = 0;
         int bottomWhiteCount = 0;
@@ -201,6 +226,14 @@ internal sealed class TachoDetector : IDisposable
                             int bin = ((int)Math.Round(deg)) % 360;
                             greenAngleBins[bin]++;
                         }
+                        else if (IsFeedbackBlue(r, g, b))
+                        {
+                            blueSliverCount++;
+                        }
+                        else if (dy > 15 && Math.Abs(dx) <= 12 && IsFeedbackRed(r, g, b))
+                        {
+                            bottomRedCount++;
+                        }
 
                         if (isWhite)
                         {
@@ -254,9 +287,12 @@ internal sealed class TachoDetector : IDisposable
 
         if (State == DetectorState.WaitingForBlueZone)
         {
-            if (greenCount >= minGreen && TryComputeGreenEndDeg(greenSinSum, greenCosSum, greenAngleBins, out double endDeg))
+            if (greenCount >= minGreen && TryComputeGreenArc(greenSinSum, greenCosSum, greenAngleBins, out double endDeg, out double widthDeg))
             {
                 _greenEndDeg = endDeg;
+                LastGreenWidthDeg = widthDeg;
+                LastInitialGreenCount = greenCount;
+                LastBlueSliverCount = blueSliverCount;
                 _greenStableFrames = 1;
                 _greenEndLocked = false;
                 _zeroGreenFrames = 0;
@@ -265,6 +301,7 @@ internal sealed class TachoDetector : IDisposable
                 _checkpoints.Clear();
                 _nextCheckpointDeg = -1;
                 LastSpeedDegPerSec = 0;
+                LastRegressionR2 = 0;
                 State = DetectorState.Armed;
                 JustArmed = true;
             }
@@ -275,9 +312,12 @@ internal sealed class TachoDetector : IDisposable
         if (greenCount >= minGreen)
         {
             _zeroGreenFrames = 0;
-            if (!_greenEndLocked && TryComputeGreenEndDeg(greenSinSum, greenCosSum, greenAngleBins, out double updatedEndDeg))
+            if (!_greenEndLocked && TryComputeGreenArc(greenSinSum, greenCosSum, greenAngleBins, out double updatedEndDeg, out double updatedWidthDeg))
             {
                 _greenEndDeg = updatedEndDeg;
+                LastGreenWidthDeg = updatedWidthDeg;
+                if (greenCount > LastInitialGreenCount) LastInitialGreenCount = greenCount;
+                if (blueSliverCount > LastBlueSliverCount) LastBlueSliverCount = blueSliverCount;
                 _greenStableFrames++;
                 if (_greenStableFrames >= 3)
                     _greenEndLocked = true;
@@ -321,15 +361,20 @@ internal sealed class TachoDetector : IDisposable
         _prevRemainingDeg = minRemainingDeg;
 
         // 2. Extrapolate the exact arrival time at RemainingDeg = 0° (end of green / blue optimum)
-        if (bottomWhiteCount >= 6 && TryPredictArrivalTimeMs(out double predictedZeroTimeMs, out double speedDegPerMs))
+        if (bottomWhiteCount >= 6 && TryPredictArrivalTimeMs(out double predictedZeroTimeMs, out double speedDegPerMs, out double r2))
         {
             LastSpeedDegPerSec = speedDegPerMs * 1000.0;
+            LastRegressionR2 = r2;
             double now = NowMs();
             double clickTargetTimeMs = predictedZeroTimeMs - clickOffsetMs;
             double waitMs = clickTargetTimeMs - now;
 
             if (minRemainingDeg <= 105.0 && waitMs <= 26.0)
             {
+                LastTriggerReason = "REGRESSION";
+                LastRemDegAtTrigger = minRemainingDeg;
+                LastWaitMsAtTrigger = waitMs;
+
                 if (waitMs > 0.5)
                 {
                     PreciseWaitUntil(clickTargetTimeMs);
@@ -342,6 +387,9 @@ internal sealed class TachoDetector : IDisposable
         }
         else if (whiteCount >= 20 && bottomWhiteCount >= 6 && minRemainingDeg <= 16.0)
         {
+            LastTriggerReason = $"FALLBACK(n={_checkpoints.Count})";
+            LastRemDegAtTrigger = minRemainingDeg;
+            LastWaitMsAtTrigger = 0;
             State = DetectorState.Cooldown;
             _cooldownUntil = DateTime.UtcNow.AddMilliseconds(cfg.CooldownMs);
             return true;
@@ -349,6 +397,11 @@ internal sealed class TachoDetector : IDisposable
 
         if (_zeroGreenFrames > 18 || (DateTime.UtcNow - _armedSince).TotalSeconds > 3.5)
         {
+            JustAbortedWithoutClick = true;
+            LastAbortReason = _zeroGreenFrames > 18 ? "ZERO_GREEN_TIMEOUT" : "MAX_TIME_3.5S";
+            LastAbortCheckpointSummary = FormatCheckpointsSummary();
+            LastAbortMinRemDeg = _prevRemainingDeg;
+            LastAbortRedOnBottom = bottomRedCount;
             Reset();
             return false;
         }
@@ -572,10 +625,11 @@ internal sealed class TachoDetector : IDisposable
         return 360.0;
     }
 
-    private bool TryPredictArrivalTimeMs(out double zeroTimeMs, out double speedDegPerMs)
+    private bool TryPredictArrivalTimeMs(out double zeroTimeMs, out double speedDegPerMs, out double rSquared)
     {
         zeroTimeMs = 0;
         speedDegPerMs = 0;
+        rSquared = 0;
 
         int total = _checkpoints.Count;
         if (total < 4)
@@ -598,12 +652,14 @@ internal sealed class TachoDetector : IDisposable
 
         double num = 0;
         double den = 0;
+        double ssTot = 0;
         for (int i = startIdx; i < total; i++)
         {
             double dx = (_checkpoints[i].TimeMs - t0) - meanX;
             double dy = _checkpoints[i].RemainingDeg - meanY;
             num += dx * dy;
             den += dx * dx;
+            ssTot += dy * dy;
         }
 
         if (den <= 1e-6)
@@ -612,6 +668,15 @@ internal sealed class TachoDetector : IDisposable
         double slope = num / den;
         if (slope >= -0.08 || slope <= -2.4)
             return false;
+
+        double ssRes = 0;
+        for (int i = startIdx; i < total; i++)
+        {
+            double pred = meanY + slope * ((_checkpoints[i].TimeMs - t0) - meanX);
+            double err = _checkpoints[i].RemainingDeg - pred;
+            ssRes += err * err;
+        }
+        rSquared = ssTot > 1e-6 ? Math.Max(0.0, 1.0 - (ssRes / ssTot)) : 0.0;
 
         speedDegPerMs = -slope;
         double xZero = meanX + (meanY / speedDegPerMs);
@@ -634,16 +699,18 @@ internal sealed class TachoDetector : IDisposable
         }
     }
 
-    private static bool TryComputeGreenEndDeg(double sinSum, double cosSum, ReadOnlySpan<int> bins, out double endDeg)
+    private static bool TryComputeGreenArc(double sinSum, double cosSum, ReadOnlySpan<int> bins, out double endDeg, out double widthDeg)
     {
         double meanDeg = Math.Atan2(sinSum, cosSum) * (180.0 / Math.PI);
         if (meanDeg < 0) meanDeg += 360.0;
 
         int centerBin = ((int)Math.Round(meanDeg)) % 360;
         int minOffset = 0;
-        bool found = false;
+        int maxOffset = 0;
+        bool foundMin = false;
+        bool foundMax = false;
 
-        for (int minBinCount = 2; minBinCount >= 1 && !found; minBinCount--)
+        for (int minBinCount = 2; minBinCount >= 1 && !foundMin; minBinCount--)
         {
             for (int offset = -100; offset <= 20; offset++)
             {
@@ -651,19 +718,31 @@ internal sealed class TachoDetector : IDisposable
                 if (bins[bin] >= minBinCount)
                 {
                     minOffset = offset;
-                    found = true;
+                    foundMin = true;
+                    break;
+                }
+            }
+            for (int offset = 100; offset >= -20; offset--)
+            {
+                int bin = (centerBin + offset + 360) % 360;
+                if (bins[bin] >= minBinCount)
+                {
+                    maxOffset = offset;
+                    foundMax = true;
                     break;
                 }
             }
         }
 
-        if (!found)
+        if (!foundMin)
         {
             endDeg = meanDeg;
+            widthDeg = 0;
             return false;
         }
 
         endDeg = (centerBin + minOffset + 360.0) % 360.0;
+        widthDeg = foundMax ? Math.Max(1.0, maxOffset - minOffset) : 0;
         return true;
     }
 
