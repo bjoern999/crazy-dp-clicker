@@ -4,14 +4,14 @@
     {
       "X": 1690,
       "Y": 1126,
-      "ClickOffsetMs": 27,
+      "ClickOffsetMs": 70,
       "DefaultClickOffsetMs": 55,
       "IsSet": true
     },
     {
       "X": 1871,
       "Y": 1131,
-      "ClickOffsetMs": 56,
+      "ClickOffsetMs": 66,
       "DefaultClickOffsetMs": 55,
       "IsSet": true
     }
