@@ -1,5 +1,5 @@
 {
-  "NextId": 4,
+  "NextId": 5,
   "Setups": [
     {
       "Id": 1,
@@ -17,14 +17,14 @@
           "EndSpeedDegPerSec": 358.6,
           "AccelDegPerSec2": 257.7,
           "SpinTimeTo55Ms": 1180.1,
-          "ClickOffsetMs": 45.25,
+          "ClickOffsetMs": 47,
           "DefaultClickOffsetMs": 45.5,
-          "Samples": 80,
-          "BlueHits": 28,
-          "GreenHits": 10,
+          "Samples": 106,
+          "BlueHits": 29,
+          "GreenHits": 22,
           "RedHits": 2,
           "WhiteHits": 0,
-          "TotalClicks": 40,
+          "TotalClicks": 53,
           "OffsetHistory": [
             {
               "OffsetMs": 44,
@@ -40,49 +40,71 @@
             {
               "OffsetMs": 44.5,
               "BlueHits": 0,
-              "GreenHits": 1,
+              "GreenHits": 2,
               "RedHits": 1,
               "WhiteHits": 0,
-              "Total": 2,
+              "Total": 3,
               "BlueRate": 0,
-              "SafeRate": 0.5,
-              "QualityScore": -0.175
+              "SafeRate": 0.6666666666666666,
+              "QualityScore": 0
             },
             {
               "OffsetMs": 45,
               "BlueHits": 1,
-              "GreenHits": 2,
+              "GreenHits": 3,
               "RedHits": 0,
               "WhiteHits": 0,
-              "Total": 3,
-              "BlueRate": 0.3333333333333333,
+              "Total": 4,
+              "BlueRate": 0.25,
               "SafeRate": 1,
-              "QualityScore": 0.5666666666666667
+              "QualityScore": 0.5125
             },
             {
               "OffsetMs": 45.5,
               "BlueHits": 7,
-              "GreenHits": 2,
+              "GreenHits": 3,
               "RedHits": 0,
               "WhiteHits": 0,
-              "Total": 9,
-              "BlueRate": 0.7777777777777778,
+              "Total": 10,
+              "BlueRate": 0.7,
               "SafeRate": 1,
-              "QualityScore": 0.8555555555555556
+              "QualityScore": 0.805
             },
             {
               "OffsetMs": 46,
               "BlueHits": 1,
-              "GreenHits": 2,
+              "GreenHits": 3,
               "RedHits": 0,
               "WhiteHits": 0,
-              "Total": 3,
-              "BlueRate": 0.3333333333333333,
+              "Total": 4,
+              "BlueRate": 0.25,
               "SafeRate": 1,
-              "QualityScore": 0.5666666666666667
+              "QualityScore": 0.5125
             },
             {
               "OffsetMs": 46.5,
+              "BlueHits": 1,
+              "GreenHits": 3,
+              "RedHits": 0,
+              "WhiteHits": 0,
+              "Total": 4,
+              "BlueRate": 0.25,
+              "SafeRate": 1,
+              "QualityScore": 0.5125
+            },
+            {
+              "OffsetMs": 47,
+              "BlueHits": 14,
+              "GreenHits": 2,
+              "RedHits": 0,
+              "WhiteHits": 0,
+              "Total": 16,
+              "BlueRate": 0.875,
+              "SafeRate": 1,
+              "QualityScore": 0.91875
+            },
+            {
+              "OffsetMs": 45.25,
               "BlueHits": 1,
               "GreenHits": 2,
               "RedHits": 0,
@@ -93,21 +115,54 @@
               "QualityScore": 0.5666666666666667
             },
             {
-              "OffsetMs": 47,
-              "BlueHits": 14,
+              "OffsetMs": 44.75,
+              "BlueHits": 0,
               "GreenHits": 1,
               "RedHits": 0,
               "WhiteHits": 0,
-              "Total": 15,
-              "BlueRate": 0.9333333333333333,
+              "Total": 1,
+              "BlueRate": 0,
               "SafeRate": 1,
-              "QualityScore": 0.9566666666666667
+              "QualityScore": 0.35
+            },
+            {
+              "OffsetMs": 46.75,
+              "BlueHits": 0,
+              "GreenHits": 1,
+              "RedHits": 0,
+              "WhiteHits": 0,
+              "Total": 1,
+              "BlueRate": 0,
+              "SafeRate": 1,
+              "QualityScore": 0.35
+            },
+            {
+              "OffsetMs": 46.25,
+              "BlueHits": 0,
+              "GreenHits": 1,
+              "RedHits": 0,
+              "WhiteHits": 0,
+              "Total": 1,
+              "BlueRate": 0,
+              "SafeRate": 1,
+              "QualityScore": 0.35
+            },
+            {
+              "OffsetMs": 45.75,
+              "BlueHits": 0,
+              "GreenHits": 1,
+              "RedHits": 0,
+              "WhiteHits": 0,
+              "Total": 1,
+              "BlueRate": 0,
+              "SafeRate": 1,
+              "QualityScore": 0.35
             }
           ],
-          "ConsecutiveNonBlue": 1,
+          "ConsecutiveNonBlue": 0,
           "ConsecutiveRed": 0,
           "HasPosition": true,
-          "BlueRatePercent": 70
+          "BlueRatePercent": 54.716981132075475
         },
         {
           "HasSignature": true,
@@ -117,16 +172,16 @@
           "GreenWidthDeg": 33,
           "BlueWidthDeg": 0,
           "EndSpeedDegPerSec": 322.6,
-          "AccelDegPerSec2": 102.0,
+          "AccelDegPerSec2": 102,
           "SpinTimeTo55Ms": 912.6,
-          "ClickOffsetMs": 56.5,
+          "ClickOffsetMs": 56.25,
           "DefaultClickOffsetMs": 56,
-          "Samples": 122,
-          "BlueHits": 40,
-          "GreenHits": 10,
+          "Samples": 148,
+          "BlueHits": 52,
+          "GreenHits": 11,
           "RedHits": 8,
           "WhiteHits": 0,
-          "TotalClicks": 58,
+          "TotalClicks": 71,
           "OffsetHistory": [
             {
               "OffsetMs": 43,
@@ -207,14 +262,14 @@
             },
             {
               "OffsetMs": 56.5,
-              "BlueHits": 1,
-              "GreenHits": 2,
+              "BlueHits": 2,
+              "GreenHits": 3,
               "RedHits": 0,
               "WhiteHits": 0,
-              "Total": 3,
-              "BlueRate": 0.3333333333333333,
+              "Total": 5,
+              "BlueRate": 0.4,
               "SafeRate": 1,
-              "QualityScore": 0.5666666666666667
+              "QualityScore": 0.61
             },
             {
               "OffsetMs": 57,
@@ -270,17 +325,28 @@
               "BlueRate": 0,
               "SafeRate": 1,
               "QualityScore": 0.35
+            },
+            {
+              "OffsetMs": 56.25,
+              "BlueHits": 11,
+              "GreenHits": 0,
+              "RedHits": 0,
+              "WhiteHits": 0,
+              "Total": 11,
+              "BlueRate": 1,
+              "SafeRate": 1,
+              "QualityScore": 1
             }
           ],
-          "ConsecutiveNonBlue": 2,
+          "ConsecutiveNonBlue": 0,
           "ConsecutiveRed": 0,
           "HasPosition": true,
-          "BlueRatePercent": 68.96551724137932
+          "BlueRatePercent": 73.2394366197183
         }
       ],
-      "LastSeenUtc": "2026-11-21T21:48:44.8328046Z",
-      "TotalBlueHits": 68,
-      "TotalClicks": 98
+      "LastSeenUtc": "2026-11-21T22:06:31.8621244Z",
+      "TotalBlueHits": 81,
+      "TotalClicks": 124
     },
     {
       "Id": 2,
@@ -842,6 +908,133 @@
       "LastSeenUtc": "2026-11-21T21:49:40.3350594Z",
       "TotalBlueHits": 7,
       "TotalClicks": 7
+    },
+    {
+      "Id": 4,
+      "Name": "Stegosaurus",
+      "IsFixed": true,
+      "ProfileSize": 2,
+      "Tachos": [
+        {
+          "HasSignature": true,
+          "X": 1690,
+          "Y": 1126,
+          "GreenEndDeg": 293,
+          "GreenWidthDeg": 21,
+          "BlueWidthDeg": 0,
+          "EndSpeedDegPerSec": 366,
+          "AccelDegPerSec2": 279,
+          "SpinTimeTo55Ms": 1161.5,
+          "ClickOffsetMs": 43.5,
+          "DefaultClickOffsetMs": 45,
+          "Samples": 6,
+          "BlueHits": 0,
+          "GreenHits": 3,
+          "RedHits": 0,
+          "WhiteHits": 0,
+          "TotalClicks": 3,
+          "OffsetHistory": [
+            {
+              "OffsetMs": 45,
+              "BlueHits": 0,
+              "GreenHits": 1,
+              "RedHits": 0,
+              "WhiteHits": 0,
+              "Total": 1,
+              "BlueRate": 0,
+              "SafeRate": 1,
+              "QualityScore": 0.35
+            },
+            {
+              "OffsetMs": 44.5,
+              "BlueHits": 0,
+              "GreenHits": 1,
+              "RedHits": 0,
+              "WhiteHits": 0,
+              "Total": 1,
+              "BlueRate": 0,
+              "SafeRate": 1,
+              "QualityScore": 0.35
+            },
+            {
+              "OffsetMs": 44,
+              "BlueHits": 0,
+              "GreenHits": 1,
+              "RedHits": 0,
+              "WhiteHits": 0,
+              "Total": 1,
+              "BlueRate": 0,
+              "SafeRate": 1,
+              "QualityScore": 0.35
+            }
+          ],
+          "ConsecutiveNonBlue": 3,
+          "ConsecutiveRed": 0,
+          "HasPosition": true,
+          "BlueRatePercent": 0
+        },
+        {
+          "HasSignature": true,
+          "X": 1871,
+          "Y": 1131,
+          "GreenEndDeg": 296,
+          "GreenWidthDeg": 18,
+          "BlueWidthDeg": 0,
+          "EndSpeedDegPerSec": 480.1,
+          "AccelDegPerSec2": 279.9,
+          "SpinTimeTo55Ms": 637.1,
+          "ClickOffsetMs": 44.5,
+          "DefaultClickOffsetMs": 43,
+          "Samples": 6,
+          "BlueHits": 0,
+          "GreenHits": 2,
+          "RedHits": 1,
+          "WhiteHits": 0,
+          "TotalClicks": 3,
+          "OffsetHistory": [
+            {
+              "OffsetMs": 43,
+              "BlueHits": 0,
+              "GreenHits": 1,
+              "RedHits": 0,
+              "WhiteHits": 0,
+              "Total": 1,
+              "BlueRate": 0,
+              "SafeRate": 1,
+              "QualityScore": 0.35
+            },
+            {
+              "OffsetMs": 42.5,
+              "BlueHits": 0,
+              "GreenHits": 0,
+              "RedHits": 1,
+              "WhiteHits": 0,
+              "Total": 1,
+              "BlueRate": 0,
+              "SafeRate": 0,
+              "QualityScore": -0.7
+            },
+            {
+              "OffsetMs": 45,
+              "BlueHits": 0,
+              "GreenHits": 1,
+              "RedHits": 0,
+              "WhiteHits": 0,
+              "Total": 1,
+              "BlueRate": 0,
+              "SafeRate": 1,
+              "QualityScore": 0.35
+            }
+          ],
+          "ConsecutiveNonBlue": 3,
+          "ConsecutiveRed": 0,
+          "HasPosition": true,
+          "BlueRatePercent": 0
+        }
+      ],
+      "LastSeenUtc": "2026-11-21T22:06:55.2465758Z",
+      "TotalBlueHits": 0,
+      "TotalClicks": 6
     }
   ]
 }
