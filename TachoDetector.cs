@@ -111,8 +111,10 @@ internal sealed class TachoDetector : IDisposable
         int left = Math.Max(0, centerX - half);
         int top = Math.Max(0, centerY - half);
 
-        double minR = _size * 0.12;
-        double maxR = _size * 0.47;
+        // Real Tacho track sits strictly at radius 43..72 px in a 180x180 box (24%..40%).
+        // Staying inside 23%..39.5% completely excludes the pale-blue outer glow ring at radius 78..90 px!
+        double minR = _size * 0.23;
+        double maxR = _size * 0.395;
         double minRSq = minR * minR;
         double maxRSq = maxR * maxR;
 
@@ -233,10 +235,10 @@ internal sealed class TachoDetector : IDisposable
             BottomSpotLocalX = (int)(bottomWhiteSumX / bottomWhiteCount);
             BottomSpotLocalY = (int)(bottomWhiteSumY / bottomWhiteCount);
         }
-        else if (BottomSpotLocalY == 0)
+        else
         {
             BottomSpotLocalX = half;
-            BottomSpotLocalY = half + (int)(_size * 0.30);
+            BottomSpotLocalY = half + (int)(_size * 0.315); // r = 57 px -> dead-center in real track (43..72 px)
         }
 
         // Ignore bright white menu cards (a real Tacho always has a dark gray center hole!)
@@ -371,7 +373,7 @@ internal sealed class TachoDetector : IDisposable
         using var g = Graphics.FromImage(snap);
         g.CopyFromScreen(left, top, 0, 0, new Size(_size, _size), CopyPixelOperation.SourceCopy);
 
-        int maxR = (int)(_size * 0.47);
+        int maxR = (int)(_size * 0.395);
         double endRad = _greenEndDeg * (Math.PI / 180.0);
         using var endPen = new Pen(Color.Lime, 2);
         g.DrawLine(endPen, half, half,
@@ -379,7 +381,7 @@ internal sealed class TachoDetector : IDisposable
             half + (int)(Math.Sin(endRad) * maxR));
 
         int sx = BottomSpotLocalX > 0 ? BottomSpotLocalX : half;
-        int sy = BottomSpotLocalY > 0 ? BottomSpotLocalY : half + (int)(_size * 0.30);
+        int sy = BottomSpotLocalY > 0 ? BottomSpotLocalY : half + (int)(_size * 0.315);
         using var spotPen = new Pen(Color.Orange, 2);
         g.DrawRectangle(spotPen, sx - 5, sy - 5, 10, 10);
 
@@ -398,7 +400,7 @@ internal sealed class TachoDetector : IDisposable
         int boxTop = Math.Max(0, centerY - boxHalf);
 
         int spotX = BottomSpotLocalX > 0 ? BottomSpotLocalX : boxHalf;
-        int spotY = BottomSpotLocalY > 0 ? BottomSpotLocalY : boxHalf + (int)(_size * 0.30);
+        int spotY = BottomSpotLocalY > 0 ? BottomSpotLocalY : boxHalf + (int)(_size * 0.315);
 
         int screenPatchLeft = Math.Max(0, boxLeft + spotX - patchHalf);
         int screenPatchTop = Math.Max(0, boxTop + spotY - patchHalf);
@@ -716,16 +718,16 @@ internal sealed class TachoDetector : IDisposable
         using (var g = Graphics.FromImage(copy))
         {
             int half = _size / 2;
-            int minR = (int)(_size * 0.12);
-            int maxR = (int)(_size * 0.47);
+            int minR = (int)(_size * 0.23);
+            int maxR = (int)(_size * 0.395);
 
-            using var ringPen = new Pen(Color.FromArgb(120, 255, 255, 0), 1);
+            using var ringPen = new Pen(Color.FromArgb(140, 255, 255, 0), 1);
             g.DrawEllipse(ringPen, half - minR, half - minR, minR * 2, minR * 2);
             g.DrawEllipse(ringPen, half - maxR, half - maxR, maxR * 2, maxR * 2);
 
             // Mark the exact 9x9 bottom pixel spot used for post-click color detection
             int sx = BottomSpotLocalX > 0 ? BottomSpotLocalX : half;
-            int sy = BottomSpotLocalY > 0 ? BottomSpotLocalY : half + (int)(_size * 0.30);
+            int sy = BottomSpotLocalY > 0 ? BottomSpotLocalY : half + (int)(_size * 0.315);
             using var spotPen = new Pen(Color.Orange, 2);
             g.DrawRectangle(spotPen, sx - 5, sy - 5, 10, 10);
 
@@ -759,12 +761,14 @@ internal sealed class TachoDetector : IDisposable
 
     private static bool IsFeedbackBlue(byte r, byte g, byte b)
     {
-        return b >= 120 && (b - r) >= 35 && b >= (g - 25);
+        // Reject pale-blue outer glow ring (R=177..198); match vivid royal/sky blue feedback only
+        return b >= 135 && r <= 120 && (b - r) >= 50 && b >= (g - 25);
     }
 
     private static bool IsTachoWhite(byte r, byte g, byte b)
     {
-        return r >= 205 && g >= 205 && b >= 205;
+        // Pure neutral white progress bar; rejects pale-blue outer glow ring (R=198, B=255 -> B-R=57)
+        return r >= 215 && g >= 215 && b >= 215 && Math.Abs(r - b) <= 25;
     }
 
     private void EnsureBitmaps(int size)
