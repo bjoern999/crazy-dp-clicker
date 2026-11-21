@@ -1,0 +1,77 @@
+{
+  "NextId": 3,
+  "Setups": [
+    {
+      "Id": 1,
+      "Name": "Ammonit",
+      "ProfileSize": 2,
+      "Tachos": [
+        {
+          "HasSignature": true,
+          "GreenEndDeg": 293,
+          "GreenWidthDeg": 39,
+          "BlueWidthDeg": 1.5,
+          "EndSpeedDegPerSec": 362.8,
+          "AccelDegPerSec2": 270.9,
+          "ClickOffsetMs": 45.5,
+          "DefaultClickOffsetMs": 45,
+          "Samples": 78,
+          "BlueHits": 28,
+          "TotalClicks": 39
+        },
+        {
+          "HasSignature": true,
+          "GreenEndDeg": 297,
+          "GreenWidthDeg": 33,
+          "BlueWidthDeg": 0,
+          "EndSpeedDegPerSec": 322.7,
+          "AccelDegPerSec2": 104,
+          "ClickOffsetMs": 56,
+          "DefaultClickOffsetMs": 43,
+          "Samples": 88,
+          "BlueHits": 25,
+          "TotalClicks": 41
+        }
+      ],
+      "LastSeenUtc": "2026-11-21T21:35:00.9635932Z",
+      "TotalBlueHits": 53,
+      "TotalClicks": 80
+    },
+    {
+      "Id": 2,
+      "Name": "Mammut",
+      "ProfileSize": 2,
+      "Tachos": [
+        {
+          "HasSignature": true,
+          "GreenEndDeg": 293,
+          "GreenWidthDeg": 39,
+          "BlueWidthDeg": 0.6,
+          "EndSpeedDegPerSec": 362.9,
+          "AccelDegPerSec2": 271.1,
+          "ClickOffsetMs": 45.5,
+          "DefaultClickOffsetMs": 46,
+          "Samples": 69,
+          "BlueHits": 21,
+          "TotalClicks": 34
+        },
+        {
+          "HasSignature": true,
+          "GreenEndDeg": 297,
+          "GreenWidthDeg": 33,
+          "BlueWidthDeg": 0,
+          "EndSpeedDegPerSec": 481.5,
+          "AccelDegPerSec2": 294.2,
+          "ClickOffsetMs": 49.5,
+          "DefaultClickOffsetMs": 43,
+          "Samples": 58,
+          "BlueHits": 0,
+          "TotalClicks": 29
+        }
+      ],
+      "LastSeenUtc": "2026-11-21T21:35:11.3473887Z",
+      "TotalBlueHits": 21,
+      "TotalClicks": 63
+    }
+  ]
+}
