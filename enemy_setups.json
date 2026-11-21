@@ -17,14 +17,14 @@
           "EndSpeedDegPerSec": 358.6,
           "AccelDegPerSec2": 257.7,
           "SpinTimeTo55Ms": 1180.1,
-          "ClickOffsetMs": 47,
+          "ClickOffsetMs": 47.25,
           "DefaultClickOffsetMs": 45.5,
-          "Samples": 106,
-          "BlueHits": 29,
-          "GreenHits": 22,
-          "RedHits": 2,
+          "Samples": 154,
+          "BlueHits": 38,
+          "GreenHits": 36,
+          "RedHits": 3,
           "WhiteHits": 0,
-          "TotalClicks": 53,
+          "TotalClicks": 77,
           "OffsetHistory": [
             {
               "OffsetMs": 44,
@@ -84,24 +84,24 @@
             {
               "OffsetMs": 46.5,
               "BlueHits": 1,
-              "GreenHits": 3,
+              "GreenHits": 5,
               "RedHits": 0,
               "WhiteHits": 0,
-              "Total": 4,
-              "BlueRate": 0.25,
+              "Total": 6,
+              "BlueRate": 0.16666666666666666,
               "SafeRate": 1,
-              "QualityScore": 0.5125
+              "QualityScore": 0.4583333333333333
             },
             {
               "OffsetMs": 47,
               "BlueHits": 14,
-              "GreenHits": 2,
-              "RedHits": 0,
+              "GreenHits": 4,
+              "RedHits": 1,
               "WhiteHits": 0,
-              "Total": 16,
-              "BlueRate": 0.875,
-              "SafeRate": 1,
-              "QualityScore": 0.91875
+              "Total": 19,
+              "BlueRate": 0.7368421052631579,
+              "SafeRate": 0.9473684210526315,
+              "QualityScore": 0.7736842105263159
             },
             {
               "OffsetMs": 45.25,
@@ -128,13 +128,13 @@
             {
               "OffsetMs": 46.75,
               "BlueHits": 0,
-              "GreenHits": 1,
+              "GreenHits": 3,
               "RedHits": 0,
               "WhiteHits": 0,
-              "Total": 1,
+              "Total": 3,
               "BlueRate": 0,
               "SafeRate": 1,
-              "QualityScore": 0.35
+              "QualityScore": 0.3499999999999999
             },
             {
               "OffsetMs": 46.25,
@@ -157,12 +157,45 @@
               "BlueRate": 0,
               "SafeRate": 1,
               "QualityScore": 0.35
+            },
+            {
+              "OffsetMs": 47.75,
+              "BlueHits": 7,
+              "GreenHits": 3,
+              "RedHits": 0,
+              "WhiteHits": 0,
+              "Total": 10,
+              "BlueRate": 0.7,
+              "SafeRate": 1,
+              "QualityScore": 0.805
+            },
+            {
+              "OffsetMs": 47.5,
+              "BlueHits": 1,
+              "GreenHits": 3,
+              "RedHits": 0,
+              "WhiteHits": 0,
+              "Total": 4,
+              "BlueRate": 0.25,
+              "SafeRate": 1,
+              "QualityScore": 0.5125
+            },
+            {
+              "OffsetMs": 47.25,
+              "BlueHits": 1,
+              "GreenHits": 2,
+              "RedHits": 0,
+              "WhiteHits": 0,
+              "Total": 3,
+              "BlueRate": 0.3333333333333333,
+              "SafeRate": 1,
+              "QualityScore": 0.5666666666666667
             }
           ],
           "ConsecutiveNonBlue": 0,
           "ConsecutiveRed": 0,
           "HasPosition": true,
-          "BlueRatePercent": 54.716981132075475
+          "BlueRatePercent": 49.35064935064935
         },
         {
           "HasSignature": true,
@@ -174,14 +207,14 @@
           "EndSpeedDegPerSec": 322.6,
           "AccelDegPerSec2": 102,
           "SpinTimeTo55Ms": 912.6,
-          "ClickOffsetMs": 56.25,
+          "ClickOffsetMs": 57.25,
           "DefaultClickOffsetMs": 56,
-          "Samples": 148,
-          "BlueHits": 52,
-          "GreenHits": 11,
-          "RedHits": 8,
+          "Samples": 196,
+          "BlueHits": 67,
+          "GreenHits": 16,
+          "RedHits": 11,
           "WhiteHits": 0,
-          "TotalClicks": 71,
+          "TotalClicks": 94,
           "OffsetHistory": [
             {
               "OffsetMs": 43,
@@ -262,36 +295,36 @@
             },
             {
               "OffsetMs": 56.5,
-              "BlueHits": 2,
+              "BlueHits": 9,
               "GreenHits": 3,
-              "RedHits": 0,
+              "RedHits": 1,
               "WhiteHits": 0,
-              "Total": 5,
-              "BlueRate": 0.4,
-              "SafeRate": 1,
-              "QualityScore": 0.61
+              "Total": 13,
+              "BlueRate": 0.6923076923076923,
+              "SafeRate": 0.9230769230769231,
+              "QualityScore": 0.7192307692307693
             },
             {
               "OffsetMs": 57,
-              "BlueHits": 4,
-              "GreenHits": 2,
-              "RedHits": 0,
+              "BlueHits": 6,
+              "GreenHits": 3,
+              "RedHits": 1,
               "WhiteHits": 0,
-              "Total": 6,
-              "BlueRate": 0.6666666666666666,
-              "SafeRate": 1,
-              "QualityScore": 0.7833333333333333
+              "Total": 10,
+              "BlueRate": 0.6,
+              "SafeRate": 0.9,
+              "QualityScore": 0.635
             },
             {
               "OffsetMs": 57.5,
-              "BlueHits": 0,
-              "GreenHits": 2,
+              "BlueHits": 1,
+              "GreenHits": 3,
               "RedHits": 0,
               "WhiteHits": 0,
-              "Total": 2,
-              "BlueRate": 0,
+              "Total": 4,
+              "BlueRate": 0.25,
               "SafeRate": 1,
-              "QualityScore": 0.35
+              "QualityScore": 0.5125
             },
             {
               "OffsetMs": 58,
@@ -317,36 +350,58 @@
             },
             {
               "OffsetMs": 56.75,
-              "BlueHits": 0,
-              "GreenHits": 1,
+              "BlueHits": 1,
+              "GreenHits": 2,
               "RedHits": 0,
               "WhiteHits": 0,
-              "Total": 1,
-              "BlueRate": 0,
+              "Total": 3,
+              "BlueRate": 0.3333333333333333,
               "SafeRate": 1,
-              "QualityScore": 0.35
+              "QualityScore": 0.5666666666666667
             },
             {
               "OffsetMs": 56.25,
               "BlueHits": 11,
               "GreenHits": 0,
+              "RedHits": 1,
+              "WhiteHits": 0,
+              "Total": 12,
+              "BlueRate": 0.9166666666666666,
+              "SafeRate": 0.9166666666666666,
+              "QualityScore": 0.8583333333333334
+            },
+            {
+              "OffsetMs": 57.75,
+              "BlueHits": 3,
+              "GreenHits": 1,
               "RedHits": 0,
               "WhiteHits": 0,
-              "Total": 11,
-              "BlueRate": 1,
+              "Total": 4,
+              "BlueRate": 0.75,
               "SafeRate": 1,
-              "QualityScore": 1
+              "QualityScore": 0.8375
+            },
+            {
+              "OffsetMs": 57.25,
+              "BlueHits": 1,
+              "GreenHits": 1,
+              "RedHits": 0,
+              "WhiteHits": 0,
+              "Total": 2,
+              "BlueRate": 0.5,
+              "SafeRate": 1,
+              "QualityScore": 0.675
             }
           ],
           "ConsecutiveNonBlue": 0,
           "ConsecutiveRed": 0,
           "HasPosition": true,
-          "BlueRatePercent": 73.2394366197183
+          "BlueRatePercent": 71.27659574468085
         }
       ],
-      "LastSeenUtc": "2026-11-21T22:06:31.8621244Z",
-      "TotalBlueHits": 81,
-      "TotalClicks": 124
+      "LastSeenUtc": "2026-11-21T22:14:36.8664623Z",
+      "TotalBlueHits": 105,
+      "TotalClicks": 171
     },
     {
       "Id": 2,
@@ -925,14 +980,14 @@
           "EndSpeedDegPerSec": 366,
           "AccelDegPerSec2": 279,
           "SpinTimeTo55Ms": 1161.5,
-          "ClickOffsetMs": 43.5,
+          "ClickOffsetMs": 42.5,
           "DefaultClickOffsetMs": 45,
-          "Samples": 6,
-          "BlueHits": 0,
-          "GreenHits": 3,
-          "RedHits": 0,
+          "Samples": 54,
+          "BlueHits": 15,
+          "GreenHits": 10,
+          "RedHits": 1,
           "WhiteHits": 0,
-          "TotalClicks": 3,
+          "TotalClicks": 26,
           "OffsetHistory": [
             {
               "OffsetMs": 45,
@@ -966,12 +1021,100 @@
               "BlueRate": 0,
               "SafeRate": 1,
               "QualityScore": 0.35
+            },
+            {
+              "OffsetMs": 43.5,
+              "BlueHits": 0,
+              "GreenHits": 1,
+              "RedHits": 0,
+              "WhiteHits": 0,
+              "Total": 1,
+              "BlueRate": 0,
+              "SafeRate": 1,
+              "QualityScore": 0.35
+            },
+            {
+              "OffsetMs": 43.25,
+              "BlueHits": 0,
+              "GreenHits": 1,
+              "RedHits": 0,
+              "WhiteHits": 0,
+              "Total": 1,
+              "BlueRate": 0,
+              "SafeRate": 1,
+              "QualityScore": 0.35
+            },
+            {
+              "OffsetMs": 43,
+              "BlueHits": 0,
+              "GreenHits": 1,
+              "RedHits": 0,
+              "WhiteHits": 0,
+              "Total": 1,
+              "BlueRate": 0,
+              "SafeRate": 1,
+              "QualityScore": 0.35
+            },
+            {
+              "OffsetMs": 42.75,
+              "BlueHits": 0,
+              "GreenHits": 1,
+              "RedHits": 0,
+              "WhiteHits": 0,
+              "Total": 1,
+              "BlueRate": 0,
+              "SafeRate": 1,
+              "QualityScore": 0.35
+            },
+            {
+              "OffsetMs": 42.5,
+              "BlueHits": 0,
+              "GreenHits": 1,
+              "RedHits": 0,
+              "WhiteHits": 0,
+              "Total": 1,
+              "BlueRate": 0,
+              "SafeRate": 1,
+              "QualityScore": 0.35
+            },
+            {
+              "OffsetMs": 42.25,
+              "BlueHits": 0,
+              "GreenHits": 1,
+              "RedHits": 0,
+              "WhiteHits": 0,
+              "Total": 1,
+              "BlueRate": 0,
+              "SafeRate": 1,
+              "QualityScore": 0.35
+            },
+            {
+              "OffsetMs": 42,
+              "BlueHits": 0,
+              "GreenHits": 1,
+              "RedHits": 0,
+              "WhiteHits": 0,
+              "Total": 1,
+              "BlueRate": 0,
+              "SafeRate": 1,
+              "QualityScore": 0.35
+            },
+            {
+              "OffsetMs": 41.75,
+              "BlueHits": 15,
+              "GreenHits": 0,
+              "RedHits": 1,
+              "WhiteHits": 0,
+              "Total": 16,
+              "BlueRate": 0.9375,
+              "SafeRate": 0.9375,
+              "QualityScore": 0.89375
             }
           ],
-          "ConsecutiveNonBlue": 3,
-          "ConsecutiveRed": 0,
+          "ConsecutiveNonBlue": 1,
+          "ConsecutiveRed": 1,
           "HasPosition": true,
-          "BlueRatePercent": 0
+          "BlueRatePercent": 57.69230769230769
         },
         {
           "HasSignature": true,
@@ -983,14 +1126,14 @@
           "EndSpeedDegPerSec": 480.1,
           "AccelDegPerSec2": 279.9,
           "SpinTimeTo55Ms": 637.1,
-          "ClickOffsetMs": 44.5,
+          "ClickOffsetMs": 54.75,
           "DefaultClickOffsetMs": 43,
-          "Samples": 6,
+          "Samples": 52,
           "BlueHits": 0,
-          "GreenHits": 2,
-          "RedHits": 1,
+          "GreenHits": 9,
+          "RedHits": 17,
           "WhiteHits": 0,
-          "TotalClicks": 3,
+          "TotalClicks": 26,
           "OffsetHistory": [
             {
               "OffsetMs": 43,
@@ -1018,23 +1161,221 @@
               "OffsetMs": 45,
               "BlueHits": 0,
               "GreenHits": 1,
+              "RedHits": 1,
+              "WhiteHits": 0,
+              "Total": 2,
+              "BlueRate": 0,
+              "SafeRate": 0.5,
+              "QualityScore": -0.175
+            },
+            {
+              "OffsetMs": 44.5,
+              "BlueHits": 0,
+              "GreenHits": 1,
               "RedHits": 0,
               "WhiteHits": 0,
               "Total": 1,
               "BlueRate": 0,
               "SafeRate": 1,
               "QualityScore": 0.35
+            },
+            {
+              "OffsetMs": 44.25,
+              "BlueHits": 0,
+              "GreenHits": 1,
+              "RedHits": 1,
+              "WhiteHits": 0,
+              "Total": 2,
+              "BlueRate": 0,
+              "SafeRate": 0.5,
+              "QualityScore": -0.175
+            },
+            {
+              "OffsetMs": 44,
+              "BlueHits": 0,
+              "GreenHits": 2,
+              "RedHits": 0,
+              "WhiteHits": 0,
+              "Total": 2,
+              "BlueRate": 0,
+              "SafeRate": 1,
+              "QualityScore": 0.35
+            },
+            {
+              "OffsetMs": 43.75,
+              "BlueHits": 0,
+              "GreenHits": 2,
+              "RedHits": 0,
+              "WhiteHits": 0,
+              "Total": 2,
+              "BlueRate": 0,
+              "SafeRate": 1,
+              "QualityScore": 0.35
+            },
+            {
+              "OffsetMs": 43.5,
+              "BlueHits": 0,
+              "GreenHits": 1,
+              "RedHits": 1,
+              "WhiteHits": 0,
+              "Total": 2,
+              "BlueRate": 0,
+              "SafeRate": 0.5,
+              "QualityScore": -0.175
+            },
+            {
+              "OffsetMs": 43.25,
+              "BlueHits": 0,
+              "GreenHits": 0,
+              "RedHits": 1,
+              "WhiteHits": 0,
+              "Total": 1,
+              "BlueRate": 0,
+              "SafeRate": 0,
+              "QualityScore": -0.7
+            },
+            {
+              "OffsetMs": 45.75,
+              "BlueHits": 0,
+              "GreenHits": 0,
+              "RedHits": 1,
+              "WhiteHits": 0,
+              "Total": 1,
+              "BlueRate": 0,
+              "SafeRate": 0,
+              "QualityScore": -0.7
+            },
+            {
+              "OffsetMs": 46.5,
+              "BlueHits": 0,
+              "GreenHits": 0,
+              "RedHits": 1,
+              "WhiteHits": 0,
+              "Total": 1,
+              "BlueRate": 0,
+              "SafeRate": 0,
+              "QualityScore": -0.7
+            },
+            {
+              "OffsetMs": 47.25,
+              "BlueHits": 0,
+              "GreenHits": 0,
+              "RedHits": 1,
+              "WhiteHits": 0,
+              "Total": 1,
+              "BlueRate": 0,
+              "SafeRate": 0,
+              "QualityScore": -0.7
+            },
+            {
+              "OffsetMs": 48,
+              "BlueHits": 0,
+              "GreenHits": 0,
+              "RedHits": 1,
+              "WhiteHits": 0,
+              "Total": 1,
+              "BlueRate": 0,
+              "SafeRate": 0,
+              "QualityScore": -0.7
+            },
+            {
+              "OffsetMs": 48.75,
+              "BlueHits": 0,
+              "GreenHits": 0,
+              "RedHits": 1,
+              "WhiteHits": 0,
+              "Total": 1,
+              "BlueRate": 0,
+              "SafeRate": 0,
+              "QualityScore": -0.7
+            },
+            {
+              "OffsetMs": 49.5,
+              "BlueHits": 0,
+              "GreenHits": 0,
+              "RedHits": 1,
+              "WhiteHits": 0,
+              "Total": 1,
+              "BlueRate": 0,
+              "SafeRate": 0,
+              "QualityScore": -0.7
+            },
+            {
+              "OffsetMs": 50.25,
+              "BlueHits": 0,
+              "GreenHits": 0,
+              "RedHits": 1,
+              "WhiteHits": 0,
+              "Total": 1,
+              "BlueRate": 0,
+              "SafeRate": 0,
+              "QualityScore": -0.7
+            },
+            {
+              "OffsetMs": 51,
+              "BlueHits": 0,
+              "GreenHits": 0,
+              "RedHits": 1,
+              "WhiteHits": 0,
+              "Total": 1,
+              "BlueRate": 0,
+              "SafeRate": 0,
+              "QualityScore": -0.7
+            },
+            {
+              "OffsetMs": 51.75,
+              "BlueHits": 0,
+              "GreenHits": 0,
+              "RedHits": 1,
+              "WhiteHits": 0,
+              "Total": 1,
+              "BlueRate": 0,
+              "SafeRate": 0,
+              "QualityScore": -0.7
+            },
+            {
+              "OffsetMs": 52.5,
+              "BlueHits": 0,
+              "GreenHits": 0,
+              "RedHits": 1,
+              "WhiteHits": 0,
+              "Total": 1,
+              "BlueRate": 0,
+              "SafeRate": 0,
+              "QualityScore": -0.7
+            },
+            {
+              "OffsetMs": 53.25,
+              "BlueHits": 0,
+              "GreenHits": 0,
+              "RedHits": 1,
+              "WhiteHits": 0,
+              "Total": 1,
+              "BlueRate": 0,
+              "SafeRate": 0,
+              "QualityScore": -0.7
+            },
+            {
+              "OffsetMs": 54,
+              "BlueHits": 0,
+              "GreenHits": 0,
+              "RedHits": 1,
+              "WhiteHits": 0,
+              "Total": 1,
+              "BlueRate": 0,
+              "SafeRate": 0,
+              "QualityScore": -0.7
             }
           ],
-          "ConsecutiveNonBlue": 3,
-          "ConsecutiveRed": 0,
+          "ConsecutiveNonBlue": 26,
+          "ConsecutiveRed": 15,
           "HasPosition": true,
           "BlueRatePercent": 0
         }
       ],
-      "LastSeenUtc": "2026-11-21T22:06:55.2465758Z",
-      "TotalBlueHits": 0,
-      "TotalClicks": 6
+      "LastSeenUtc": "2026-11-21T22:16:38.305951Z",
+      "TotalBlueHits": 15,
+      "TotalClicks": 52
     }
   ]
 }

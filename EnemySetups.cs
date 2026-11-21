@@ -212,10 +212,31 @@ internal sealed class TachoSetupSlot
             }
         }
 
-        // 3. Regulare Anpassung: fuer "feste" Spieler (z.B. Ammonit / Mammut) deutlich kleinere, feinere Schritte!
+        // 3. Regulare Anpassung:
+        //    - Feste Spieler mit bewaehrtem Offset: feine Schritte (+0.75 / -0.25 ms).
+        //    - Schnelle/noch unkalibrierte Tachos (z.B. > 440°/s mit 0 Blau oder >= 3x Rot in Folge):
+        //      groessere Suchschritte aus Rot heraus (+1.5 / +3.0 ms), aber weiterhin feines -0.25 ms Herantasten aus Gruen!
+        double redStep;
+        if (!isFixedPlayer)
+        {
+            redStep = +2.5;
+        }
+        else if (bestProven == null && ConsecutiveRed >= 3)
+        {
+            redStep = +3.0;
+        }
+        else if (bestProven == null && EndSpeedDegPerSec >= 440.0)
+        {
+            redStep = +1.5;
+        }
+        else
+        {
+            redStep = +0.75;
+        }
+
         double step = fb switch
         {
-            TachoFeedback.TooLateRed => isFixedPlayer ? +0.75 : +2.5,
+            TachoFeedback.TooLateRed => redStep,
             TachoFeedback.TooEarlyGreen => isFixedPlayer ? -0.25 : -0.5,
             _ => 0.0
         };
@@ -264,6 +285,25 @@ internal sealed class TachoSetupSlot
         double totalWeight = hasTime ? 7.8 : 6.0;
 
         return Math.Sqrt(weightedSq / totalWeight);
+    }
+
+    public bool MatchesGeometryAndSpinTime(TachoFingerprint fp)
+    {
+        if (!HasSignature)
+            return false;
+
+        double dEnd = AngleDiffDeg(GreenEndDeg, fp.GreenEndDeg);
+        double dGreenW = Math.Abs(GreenWidthDeg - fp.GreenWidthDeg);
+        if (dEnd > 6.0 || dGreenW > 4.5)
+            return false;
+
+        if (SpinTimeTo55Ms > 100.0 && fp.SpinTimeTo55Ms > 100.0)
+        {
+            if (Math.Abs(SpinTimeTo55Ms - fp.SpinTimeTo55Ms) > 45.0)
+                return false;
+        }
+
+        return true;
     }
 
     private static double AngleDiffDeg(double a, double b)
@@ -431,6 +471,16 @@ internal sealed class EnemySetupStore
                 bestJoint.LastSeenUtc = DateTime.UtcNow;
                 Save();
                 return (bestJoint, false, bestJointDist);
+            }
+
+            // Schutz gegen einzelne Frame-Haker bei festen Spielern:
+            // Wenn Geometrie (GreenEnd, GreenWidth) und Laufzeit (T55) weiterhin exakt zum aktuellen festen Spieler passen,
+            // kein doppeltes Setup anlegen, sondern auf dem festen Spieler bleiben.
+            if (currentRoundSetup.IsFixed && slot.MatchesGeometryAndSpinTime(currentFp))
+            {
+                currentRoundSetup.LastSeenUtc = DateTime.UtcNow;
+                Save();
+                return (currentRoundSetup, false, 0.99);
             }
 
             var splitSetup = CreateNewSetup(profileSize, tachoIndex, currentFp, roundFingerprints, activePositions, fallbackOffsetMs, currentRoundSetup);
