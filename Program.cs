@@ -58,6 +58,7 @@ internal static class Program
         bool activeEnemyIsNew = false;
         var roundFingerprints = new Dictionary<int, TachoFingerprint>();
         DinoVisualFingerprint? currentRoundVisual = null;
+        bool dinoCapturedForSpin = false;
         Bitmap? lastDinoPreview = null;
         string lastDinoVisualInfo = "";
 
@@ -284,21 +285,28 @@ internal static class Program
                         int targetX = isLast ? cfg.GreenButtonX : cfg.BlueButtonX;
                         int targetY = isLast ? cfg.GreenButtonY : cfg.BlueButtonY;
                         NativeMethods.SetCursorPos(targetX, targetY);
-
-                        // Visuellen Dino-Fingerabdruck 1x direkt beim Start von Tacho 1 erfassen (~0.8 ms, ~1200 ms vor Klick!)
                         if (cur == 0)
+                            dinoCapturedForSpin = false;
+                    }
+
+                    // Visuellen Dino-Fingerabdruck 1x bei rem <= 190° erfassen (~700-900 ms vor Klick!):
+                    // Dann sind Schild-Effekte & Funken der Vorrunde bereits abgeklungen.
+                    if (cur == 0 && !dinoCapturedForSpin &&
+                        detectors[0].State == DetectorState.Armed &&
+                        detectors[0].LastRemainingDeg <= 190.0 &&
+                        detectors[0].LastRemainingDeg > 60.0)
+                    {
+                        dinoCapturedForSpin = true;
+                        var (dx, dy) = cfg.GetEffectiveDinoBoxCenter();
+                        if (dx > 0 && dy > 0)
                         {
-                            var (dx, dy) = cfg.GetEffectiveDinoBoxCenter();
-                            if (dx > 0 && dy > 0)
-                            {
-                                var (visFp, visPreview) = DinoVisualMatcher.CaptureAndExtract(dx, dy, cfg.DinoBoxWidth, cfg.DinoBoxHeight);
-                                currentRoundVisual = visFp;
-                                lastDinoPreview?.Dispose();
-                                lastDinoPreview = visPreview;
-                                lastDinoVisualInfo = visFp.HasVisual
-                                    ? $"Fg={visFp.ForegroundPixels}px AR={visFp.AspectRatio:F2}"
-                                    : "Kein Dino erkannt (F5?)";
-                            }
+                            var (visFp, visPreview) = DinoVisualMatcher.CaptureAndExtract(dx, dy, cfg.DinoBoxWidth, cfg.DinoBoxHeight);
+                            currentRoundVisual = visFp;
+                            lastDinoPreview?.Dispose();
+                            lastDinoPreview = visPreview;
+                            lastDinoVisualInfo = visFp.HasVisual
+                                ? $"Fg={visFp.ForegroundPixels}px AR={visFp.AspectRatio:F2}"
+                                : "Kein Dino erkannt (F5?)";
                         }
                     }
 

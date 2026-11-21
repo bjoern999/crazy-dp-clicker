@@ -27,8 +27,8 @@ internal static class DinoVisualMatcher
     public const int GridSize = 10;
     public const int HistBins = 39; // 12 Hue * 3 (Light/Normal/Dark) + 3 Neutral (Dark/Mid/Light)
 
-    // Same Dino across idle animation: ~0.04..0.15; different Dino species: ~0.30..0.85
-    public const double VisualMatchThreshold = 0.26;
+    // Same Dino across idle animation / minor sparks or shield fade: ~0.04..0.28; different Dino species: ~0.42..0.85
+    public const double VisualMatchThreshold = 0.34;
 
     public static (DinoVisualFingerprint Fingerprint, Bitmap Preview) CaptureAndExtract(
         int centerX, int centerY, int boxW = DefaultBoxWidth, int boxH = DefaultBoxHeight)
