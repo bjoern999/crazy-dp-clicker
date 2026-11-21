@@ -72,7 +72,7 @@ internal sealed class AppConfig
         var tachos = GetActiveTachos();
         if (index >= 0 && index < tachos.Count)
         {
-            tachos[index].LeadAngleDeg = Math.Clamp(Math.Round(tachos[index].LeadAngleDeg + delta, 1), -15.0, 60.0);
+            tachos[index].LeadAngleDeg = Math.Clamp(Math.Round(tachos[index].LeadAngleDeg + delta, 2), -15.0, 60.0);
             return tachos[index].LeadAngleDeg;
         }
         return 18.0;

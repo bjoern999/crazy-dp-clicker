@@ -137,7 +137,7 @@ internal sealed class OverlayForm : Form
 
             string statusText = snap.Running ? "STATUS: AKTIV (F8)" : "STATUS: PAUSIERT (F8)";
             Brush statusBrush = snap.Running ? Brushes.LimeGreen : Brushes.Orange;
-            string tachoAngles = string.Join(" | ", snap.Tachos.Select(t => $"T{t.Index + 1}={t.TachoLeadDeg:F1}°"));
+            string tachoAngles = string.Join(" | ", snap.Tachos.Select(t => $"T{t.Index + 1}={t.TachoLeadDeg:F2}°"));
             g.DrawString(
                 $"{statusText}  |  Profil: {snap.ActiveProfile}er (F2/F3)  |  Vorlauf (unabhaengig): {tachoAngles}",
                 titleFont, statusBrush, 12, 8);
@@ -175,7 +175,7 @@ internal sealed class OverlayForm : Form
                 g.DrawRectangle(pen, x, y, tileSize, tileSize);
 
                 string btnName = t.IsLast ? "-> GRUEN" : "-> BLAU";
-                g.DrawString($"Tacho {t.Index + 1} ({btnName}) [{t.TachoLeadDeg:F1}°]", titleFont, Brushes.White, x, y + tileSize + 4);
+                g.DrawString($"Tacho {t.Index + 1} ({btnName}) [{t.TachoLeadDeg:F2}°]", titleFont, Brushes.White, x, y + tileSize + 4);
                 g.DrawString($"Pos : ({t.CenterX}, {t.CenterY})", infoFont, Brushes.Silver, x, y + tileSize + 22);
                 g.DrawString($"Gruen: {t.BlueCount} px | Weiss: {t.WhiteCount} px", infoFont,
                     t.BlueCount > 0 ? Brushes.Magenta : Brushes.Silver, x, y + tileSize + 36);
@@ -194,7 +194,7 @@ internal sealed class OverlayForm : Form
                     TachoFeedback.TooEarlyGreen => (
                         greenBadgeBg,
                         "200ms: GRUEN (FRUEH)",
-                        $"{t.LastDelta:+0.0;-0.0}° ({allCounts})"),
+                        $"{t.LastDelta:+0.00;-0.00}° ({allCounts})"),
                     TachoFeedback.TooLateRed => (
                         redBadgeBg,
                         "200ms: ROT (ZU SPAET!)",

@@ -338,11 +338,11 @@ internal static class Program
             }
             case TachoFeedback.TooEarlyGreen:
             {
-                const double delta = -0.5;
+                const double delta = -0.25;
                 detector.LastCorrectionDelta = delta;
                 double updated = cfg.AdjustTachoLeadAngle(tachoIndex, delta);
                 cfg.Save();
-                Console.WriteLine($"[Nach-Klick-Farbe Tacho {tachoIndex + 1}] >>> GRUEN (ETWAS FRUEH) <<< {counts} -> Vorlauf Tacho {tachoIndex + 1} um {delta:F1}° auf {updated:F1}° gesenkt!");
+                Console.WriteLine($"[Nach-Klick-Farbe Tacho {tachoIndex + 1}] >>> GRUEN (ETWAS FRUEH) <<< {counts} -> Vorlauf Tacho {tachoIndex + 1} um {delta:F2}° auf {updated:F2}° gesenkt!");
                 break;
             }
             case TachoFeedback.OptimalBlue:
