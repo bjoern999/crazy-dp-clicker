@@ -47,6 +47,11 @@ internal sealed class TachoDetector : IDisposable
     public int LastPatchGreen { get; private set; }
     public int LastPatchBlue { get; private set; }
     public int LastPatchWhite { get; private set; }
+    public int LastAvgR { get; private set; }
+    public int LastAvgG { get; private set; }
+    public int LastAvgB { get; private set; }
+    public int LastPatchScreenX { get; private set; }
+    public int LastPatchScreenY { get; private set; }
     public double LastCorrectionDeltaMs { get; set; }
 
     public double LastSpeedDegPerSec { get; private set; }
@@ -119,6 +124,8 @@ internal sealed class TachoDetector : IDisposable
 
         int greenCount = 0;
         int whiteCount = 0;
+        int centerPixels = 0;
+        int centerWhitePixels = 0;
         int bottomWhiteCount = 0;
         long bottomWhiteSumX = 0;
         long bottomWhiteSumY = 0;
@@ -151,7 +158,19 @@ internal sealed class TachoDetector : IDisposable
                         double dx = x - half;
                         double distSq = dx * dx + dySq;
 
-                        if (distSq < minRSq || distSq > maxRSq)
+                        if (distSq < minRSq)
+                        {
+                            _lastGreenNow[idx] = false;
+                            _lastWhiteNow[idx] = false;
+                            centerPixels++;
+                            byte cb = row[x * 4 + 0];
+                            byte cg = row[x * 4 + 1];
+                            byte cr = row[x * 4 + 2];
+                            if (IsTachoWhite(cr, cg, cb)) centerWhitePixels++;
+                            continue;
+                        }
+
+                        if (distSq > maxRSq)
                         {
                             _lastGreenNow[idx] = false;
                             _lastWhiteNow[idx] = false;
@@ -218,6 +237,15 @@ internal sealed class TachoDetector : IDisposable
         {
             BottomSpotLocalX = half;
             BottomSpotLocalY = half + (int)(_size * 0.30);
+        }
+
+        // Ignore bright white menu cards (a real Tacho always has a dark gray center hole!)
+        bool centerLooksLikeMenu = centerPixels > 0 && ((double)centerWhitePixels / centerPixels) > 0.25;
+        if (centerLooksLikeMenu)
+        {
+            if (State == DetectorState.Armed)
+                Reset();
+            return false;
         }
 
         int minGreen = Math.Max(4, cfg.MinGreenPixels);
@@ -332,7 +360,33 @@ internal sealed class TachoDetector : IDisposable
     /// Reads ONLY a tiny 9x9 pixel patch on the bottom (6 o'clock) of the Tacho ring (~15..125 ms after click)
     /// and returns immediately as soon as the bottom pixels change from White to Blue, Green, or Red (or stay White).
     /// </summary>
-    public TachoFeedback MeasureBottomColorAfterClick(int centerX, int centerY, AppConfig cfg)
+    public Bitmap? CaptureClickMomentSnapshot(int centerX, int centerY, AppConfig cfg)
+    {
+        EnsureBitmaps(cfg.TachoBoxSize);
+        int half = _size / 2;
+        int left = Math.Max(0, centerX - half);
+        int top = Math.Max(0, centerY - half);
+
+        var snap = new Bitmap(_size, _size, PixelFormat.Format32bppArgb);
+        using var g = Graphics.FromImage(snap);
+        g.CopyFromScreen(left, top, 0, 0, new Size(_size, _size), CopyPixelOperation.SourceCopy);
+
+        int maxR = (int)(_size * 0.47);
+        double endRad = _greenEndDeg * (Math.PI / 180.0);
+        using var endPen = new Pen(Color.Lime, 2);
+        g.DrawLine(endPen, half, half,
+            half + (int)(Math.Cos(endRad) * maxR),
+            half + (int)(Math.Sin(endRad) * maxR));
+
+        int sx = BottomSpotLocalX > 0 ? BottomSpotLocalX : half;
+        int sy = BottomSpotLocalY > 0 ? BottomSpotLocalY : half + (int)(_size * 0.30);
+        using var spotPen = new Pen(Color.Orange, 2);
+        g.DrawRectangle(spotPen, sx - 5, sy - 5, 10, 10);
+
+        return snap;
+    }
+
+    public TachoFeedback MeasureBottomColorAfterClick(int tachoNumber, int centerX, int centerY, AppConfig cfg)
     {
         EnsureBitmaps(cfg.TachoBoxSize);
 
@@ -348,12 +402,15 @@ internal sealed class TachoDetector : IDisposable
 
         int screenPatchLeft = Math.Max(0, boxLeft + spotX - patchHalf);
         int screenPatchTop = Math.Max(0, boxTop + spotY - patchHalf);
+        LastPatchScreenX = screenPatchLeft + patchHalf;
+        LastPatchScreenY = screenPatchTop + patchHalf;
 
         int bestRed = 0;
         int bestGreen = 0;
         int bestBlue = 0;
         int whiteFrames = 0;
         int lastWhiteCount = 0;
+        int avgR = 0, avgG = 0, avgB = 0;
 
         DateTime start = DateTime.UtcNow;
         Thread.Sleep(15);
@@ -369,6 +426,7 @@ internal sealed class TachoDetector : IDisposable
             int gCount = 0;
             int bCount = 0;
             int wCount = 0;
+            long sumR = 0, sumG = 0, sumB = 0;
 
             try
             {
@@ -385,6 +443,10 @@ internal sealed class TachoDetector : IDisposable
                             byte g = row[x * 4 + 1];
                             byte r = row[x * 4 + 2];
 
+                            sumR += r;
+                            sumG += g;
+                            sumB += b;
+
                             if (IsTachoWhite(r, g, b)) wCount++;
                             else if (IsFeedbackRed(r, g, b)) rCount++;
                             else if (IsFeedbackGreen(r, g, b)) gCount++;
@@ -398,12 +460,15 @@ internal sealed class TachoDetector : IDisposable
                 _patchBitmap.UnlockBits(data);
             }
 
+            avgR = (int)(sumR / (patchSize * patchSize));
+            avgG = (int)(sumG / (patchSize * patchSize));
+            avgB = (int)(sumB / (patchSize * patchSize));
+
             if (rCount > bestRed) bestRed = rCount;
             if (gCount > bestGreen) bestGreen = gCount;
             if (bCount > bestBlue) bestBlue = bCount;
             lastWhiteCount = wCount;
 
-            // As soon as >= 25 of the 81 bottom-ring pixels turn Blue, Green, or Red -> immediate unambiguous match!
             int colorMax = Math.Max(rCount, Math.Max(gCount, bCount));
             if (colorMax >= 25)
             {
@@ -411,6 +476,11 @@ internal sealed class TachoDetector : IDisposable
                 LastPatchGreen = gCount;
                 LastPatchBlue = bCount;
                 LastPatchWhite = wCount;
+                LastAvgR = avgR;
+                LastAvgG = avgG;
+                LastAvgB = avgB;
+
+                SaveDebugAfterClickSnapshot(tachoNumber, boxLeft, boxTop, spotX, spotY);
 
                 if (bCount == colorMax) LastFeedback = TachoFeedback.OptimalBlue;
                 else if (gCount == colorMax) LastFeedback = TachoFeedback.TooEarlyGreen;
@@ -419,13 +489,11 @@ internal sealed class TachoDetector : IDisposable
                 return LastFeedback;
             }
 
-            // Track if the bottom patch stayed brightly white past 50 ms (way too early -> whole tacho stayed/turned white)
             if ((DateTime.UtcNow - start).TotalMilliseconds >= 50.0 && wCount >= 40)
             {
                 whiteFrames++;
             }
 
-            // If the bottom patch turned dark gray (Tacho already disappeared completely after 45 ms), stop waiting early
             if ((DateTime.UtcNow - start).TotalMilliseconds >= 45.0 && wCount < 10 && colorMax < 10)
             {
                 break;
@@ -438,6 +506,11 @@ internal sealed class TachoDetector : IDisposable
         LastPatchGreen = bestGreen;
         LastPatchBlue = bestBlue;
         LastPatchWhite = lastWhiteCount;
+        LastAvgR = avgR;
+        LastAvgG = avgG;
+        LastAvgB = avgB;
+
+        SaveDebugAfterClickSnapshot(tachoNumber, boxLeft, boxTop, spotX, spotY);
 
         int maxColorPeak = Math.Max(bestRed, Math.Max(bestGreen, bestBlue));
         if (maxColorPeak >= 18)
@@ -448,7 +521,6 @@ internal sealed class TachoDetector : IDisposable
             return LastFeedback;
         }
 
-        // Bottom stayed solid white across the post-click window without turning Blue/Green/Red -> White (way too early!)
         if (whiteFrames >= 8)
         {
             LastFeedback = TachoFeedback.WayTooEarlyWhite;
@@ -456,6 +528,28 @@ internal sealed class TachoDetector : IDisposable
         }
 
         return TachoFeedback.None;
+    }
+
+    private void SaveDebugAfterClickSnapshot(int tachoNumber, int boxLeft, int boxTop, int spotX, int spotY)
+    {
+        try
+        {
+            using var snap = new Bitmap(_size, _size, PixelFormat.Format32bppArgb);
+            using (var g = Graphics.FromImage(snap))
+            {
+                g.CopyFromScreen(boxLeft, boxTop, 0, 0, new Size(_size, _size), CopyPixelOperation.SourceCopy);
+                using var pen = new Pen(Color.Yellow, 2);
+                g.DrawRectangle(pen, spotX - 5, spotY - 5, 10, 10);
+            }
+
+            string projectRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", ".."));
+            string targetDir = Directory.Exists(projectRoot) ? projectRoot : AppContext.BaseDirectory;
+            snap.Save(Path.Combine(targetDir, $"debug_T{tachoNumber}_after_click.png"), ImageFormat.Png);
+        }
+        catch
+        {
+            // Ignore debug snapshot errors
+        }
     }
 
     private static double FindWhiteFrontRemainingDeg(double greenEndDeg, ReadOnlySpan<int> whiteBins, double prevRemainingDeg)

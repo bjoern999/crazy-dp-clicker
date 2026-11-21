@@ -22,7 +22,7 @@ internal sealed class OverlaySnapshot
     public int CheckpointCount { get; init; }
     public Bitmap? ActivePreview { get; init; }
 
-    // Ergebnis des letzten Klicks (Tacho-Nummer, Farbe auf den unteren Pixeln, Korrektur)
+    // Ergebnis des letzten Klicks
     public int LastClickedTachoNumber { get; init; }
     public TachoFeedback LastFeedback { get; init; }
     public int PatchRed { get; init; }
@@ -41,18 +41,37 @@ internal sealed class OverlayForm : Form
     private readonly object _lock = new();
     private OverlaySnapshot? _snapshot;
 
+    // Klick-Visualisierung (sofort beim Ausloesen des Buttons)
+    private Bitmap? _clickMomentBitmap;
+    private int _clickCount;
+    private int _clickTachoNumber;
+    private bool _clickWasGreenButton;
+    private DateTime _clickTimestampLocal = DateTime.MinValue;
+    private DateTime _flashUntilUtc = DateTime.MinValue;
+    private readonly System.Windows.Forms.Timer _flashTimer;
+
     public OverlayForm()
     {
-        Text = "TachoClicker Live-Inspektor (Nur aktiver Tacho)";
+        Text = "TachoClicker Live-Inspektor (Aktiver Tacho + Klick-Moment)";
         StartPosition = FormStartPosition.Manual;
         Location = new Point(40, 40);
-        ClientSize = new Size(370, 395);
+        ClientSize = new Size(575, 400);
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         ShowInTaskbar = true;
         TopMost = true;
         DoubleBuffered = true;
         BackColor = Color.FromArgb(24, 26, 30);
+
+        _flashTimer = new System.Windows.Forms.Timer { Interval = 50 };
+        _flashTimer.Tick += (_, _) =>
+        {
+            if (DateTime.UtcNow >= _flashUntilUtc)
+            {
+                _flashTimer.Stop();
+                Invalidate();
+            }
+        };
     }
 
     protected override void OnShown(EventArgs e)
@@ -61,6 +80,20 @@ internal sealed class OverlayForm : Form
         TopMost = true;
         BringToFront();
         Activate();
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _flashTimer.Dispose();
+            lock (_lock)
+            {
+                _clickMomentBitmap?.Dispose();
+                DisposeBitmaps(_snapshot);
+            }
+        }
+        base.Dispose(disposing);
     }
 
     public void EnsureVisibleOnTop()
@@ -77,6 +110,37 @@ internal sealed class OverlayForm : Form
             TopMost = false;
             TopMost = true;
             BringToFront();
+        });
+    }
+
+    /// <summary>
+    /// Sofortige visuelle Rueckmeldung im exakten Moment des Button-Klicks:
+    /// Button blinkt 450 ms gelb auf + eingefrorenes Foto "IM KLICK-MOMENT" wird angezeigt.
+    /// </summary>
+    public void FlashButtonClick(bool isGreenButton, int tachoNumber, Bitmap? clickMomentBitmap)
+    {
+        Bitmap? oldBmp;
+        lock (_lock)
+        {
+            oldBmp = _clickMomentBitmap;
+            _clickMomentBitmap = clickMomentBitmap;
+            _clickCount++;
+            _clickTachoNumber = tachoNumber;
+            _clickWasGreenButton = isGreenButton;
+            _clickTimestampLocal = DateTime.Now;
+            _flashUntilUtc = DateTime.UtcNow.AddMilliseconds(450);
+        }
+        oldBmp?.Dispose();
+
+        if (!IsHandleCreated || IsDisposed)
+            return;
+
+        BeginInvoke(() =>
+        {
+            if (IsDisposed) return;
+            if (!Visible) Visible = true;
+            _flashTimer.Start();
+            Invalidate();
         });
     }
 
@@ -118,9 +182,11 @@ internal sealed class OverlayForm : Form
         using var titleFont = new Font("Consolas", 10.0f, FontStyle.Bold);
         using var badgeFont = new Font("Consolas", 9.5f, FontStyle.Bold);
         using var infoFont = new Font("Consolas", 8.5f, FontStyle.Regular);
+        using var clickFlashFont = new Font("Consolas", 11.0f, FontStyle.Bold);
         using var borderWaiting = new Pen(Color.Gold, 2);
         using var borderArmed = new Pen(Color.Cyan, 3);
         using var borderCooldown = new Pen(Color.Gray, 2);
+        using var clickFlashPen = new Pen(Color.Yellow, 5);
         using var crossPen = new Pen(Color.Red, 2);
 
         using var redBadgeBg = new SolidBrush(Color.FromArgb(200, 35, 35));
@@ -128,27 +194,29 @@ internal sealed class OverlayForm : Form
         using var blueBadgeBg = new SolidBrush(Color.FromArgb(20, 115, 210));
         using var whiteBadgeBg = new SolidBrush(Color.FromArgb(145, 150, 160));
         using var neutralBadgeBg = new SolidBrush(Color.FromArgb(45, 48, 55));
+        using var flashBannerBg = new SolidBrush(Color.FromArgb(225, 255, 215, 0));
 
-        OverlaySnapshot? snap;
         lock (_lock)
         {
-            snap = _snapshot;
+            var snap = _snapshot;
             if (snap == null)
                 return;
+
+            bool isFlashing = DateTime.UtcNow < _flashUntilUtc;
 
             string statusText = snap.Running
                 ? $"AKTIV: Tacho {snap.ActiveTachoIndex + 1}/{snap.TotalTachos}"
                 : $"PAUSIERT (F8) | Vorschau T{snap.ActiveTachoIndex + 1}/{snap.TotalTachos}";
             Brush statusBrush = snap.Running ? Brushes.LimeGreen : Brushes.Orange;
 
-            g.DrawString($"{statusText}  ({snap.ActiveProfile}er-Modus)", titleFont, statusBrush, 12, 8);
-            g.DrawString($"Offsets: {snap.AllOffsetsSummary}", infoFont, Brushes.LightGray, 12, 26);
+            g.DrawString($"{statusText}  ({snap.ActiveProfile}er-Modus)  |  Offsets: {snap.AllOffsetsSummary}", titleFont, statusBrush, 12, 8);
+            g.DrawString("Links: Live-Bild aktiver Tacho | Mitte: Foto IM KLICK-MOMENT | Rechts: Button-Klick-Blitz", infoFont, Brushes.LightGray, 12, 26);
 
-            // Nur der aktuell aktive Tacho wird gross angezeigt
-            int tileSize = 210;
-            int x = 12;
+            int tileSize = 195;
             int y = 48;
 
+            // 1. Links: Nur der aktuell aktive Tacho (Live)
+            int xLive = 12;
             var pen = snap.State switch
             {
                 DetectorState.Armed => borderArmed,
@@ -158,36 +226,68 @@ internal sealed class OverlayForm : Form
 
             if (snap.ActivePreview != null)
             {
-                g.DrawImage(snap.ActivePreview, new Rectangle(x, y, tileSize, tileSize));
+                g.DrawImage(snap.ActivePreview, new Rectangle(xLive, y, tileSize, tileSize));
             }
             else
             {
-                g.FillRectangle(Brushes.Black, x, y, tileSize, tileSize);
-                g.DrawString("Nicht gesetzt\n(F9 druecken)", infoFont, Brushes.Gray, x + 45, y + 85);
+                g.FillRectangle(Brushes.Black, xLive, y, tileSize, tileSize);
+                g.DrawString("Nicht gesetzt\n(F9 druecken)", infoFont, Brushes.Gray, xLive + 40, y + 80);
             }
-
-            g.DrawRectangle(pen, x, y, tileSize, tileSize);
+            g.DrawRectangle(pen, xLive, y, tileSize, tileSize);
 
             string btnName = snap.IsLastTacho ? "-> GRUEN" : "-> BLAU";
-            g.DrawString($"Tacho {snap.ActiveTachoIndex + 1} ({btnName})  [{snap.ClickOffsetMs:F1} ms]", titleFont, Brushes.White, x, y + tileSize + 6);
-            g.DrawString($"Pos: ({snap.CenterX}, {snap.CenterY}) | Gruen: {snap.GreenCount} | Weiss: {snap.WhiteCount}", infoFont, Brushes.Silver, x, y + tileSize + 24);
+            g.DrawString($"Live T{snap.ActiveTachoIndex + 1} ({btnName}) [{snap.ClickOffsetMs:F1} ms]", titleFont, Brushes.White, xLive, y + tileSize + 6);
+            g.DrawString($"Pos: ({snap.CenterX}, {snap.CenterY}) | G={snap.GreenCount} W={snap.WhiteCount}", infoFont, Brushes.Silver, xLive, y + tileSize + 24);
             g.DrawString(
                 snap.SpeedDegPerSec > 10
-                    ? $"Speed: {snap.SpeedDegPerSec:F0}°/s (n={snap.CheckpointCount} Messpunkte)"
-                    : $"Orange Box unten = Messpunkt nach Klick ({snap.State})",
-                infoFont, snap.SpeedDegPerSec > 10 ? Brushes.Cyan : Brushes.Silver, x, y + tileSize + 40);
+                    ? $"Speed: {snap.SpeedDegPerSec:F0}°/s (n={snap.CheckpointCount})"
+                    : $"Status: {snap.State} (+/- fuer Offset)",
+                infoFont, snap.SpeedDegPerSec > 10 ? Brushes.Cyan : Brushes.Silver, xLive, y + tileSize + 40);
 
-            // Button-Vorschauen rechts neben dem aktiven Tacho
-            int btnX = x + tileSize + 18;
-            int btnSize = 92;
+            // 2. Mitte: Eingefrorenes Foto exakt IM KLICK-MOMENT
+            int xClick = xLive + tileSize + 14;
+            if (_clickMomentBitmap != null)
+            {
+                g.DrawImage(_clickMomentBitmap, new Rectangle(xClick, y, tileSize, tileSize));
+            }
+            else
+            {
+                g.FillRectangle(Brushes.Black, xClick, y, tileSize, tileSize);
+                g.DrawString("Foto im Klick-Moment\nerscheint beim 1. Klick", infoFont, Brushes.Gray, xClick + 16, y + 80);
+            }
+            g.DrawRectangle(isFlashing ? clickFlashPen : Pens.Silver, xClick, y, tileSize, tileSize);
 
-            DrawButtonPreview(g, snap.BlueButtonPreview, "Blau (F10)", btnX, y, btnSize, Brushes.DeepSkyBlue, infoFont, crossPen);
-            DrawButtonPreview(g, snap.GreenButtonPreview, "Gruen (F6)", btnX, y + btnSize + 26, btnSize, Brushes.LimeGreen, infoFont, crossPen);
+            if (isFlashing)
+            {
+                g.FillRectangle(flashBannerBg, xClick + 4, y + 4, tileSize - 8, 24);
+                g.DrawString($"KLICK #{_clickCount} -> {(_clickWasGreenButton ? "GRUEN!" : "BLAU!")}", clickFlashFont, Brushes.Black, xClick + 10, y + 7);
+            }
 
-            // Farb-Box fuer die direkt nach dem letzten Klick gemessenen unteren Tacho-Pixel
-            int badgeY = y + tileSize + 62;
+            string clickTitle = _clickCount > 0
+                ? $"Klick #{_clickCount} (T{_clickTachoNumber} -> {(_clickWasGreenButton ? "GRUEN" : "BLAU")})"
+                : "Noch kein Klick erfolgt";
+            g.DrawString(clickTitle, titleFont, isFlashing ? Brushes.Yellow : Brushes.White, xClick, y + tileSize + 6);
+            g.DrawString(
+                _clickCount > 0
+                    ? $"Uhrzeit: {_clickTimestampLocal:HH:mm:ss.fff}"
+                    : "Uhrzeit: -",
+                infoFont, Brushes.Silver, xClick, y + tileSize + 24);
+            g.DrawString("Gruene Linie = Ziel (Gruen-Ende)", infoFont, Brushes.LightGreen, xClick, y + tileSize + 40);
+
+            // 3. Rechts: Button-Vorschauen mit sofortigem gelbem KLICK!-Blitz
+            int btnX = xClick + tileSize + 16;
+            int btnSize = 90;
+
+            bool flashBlue = isFlashing && !_clickWasGreenButton;
+            bool flashGreen = isFlashing && _clickWasGreenButton;
+
+            DrawButtonPreview(g, snap.BlueButtonPreview, "Blau (F10)", btnX, y, btnSize, Brushes.DeepSkyBlue, infoFont, crossPen, flashBlue, clickFlashPen, flashBannerBg, badgeFont);
+            DrawButtonPreview(g, snap.GreenButtonPreview, "Gruen (F6)", btnX, y + btnSize + 28, btnSize, Brushes.LimeGreen, infoFont, crossPen, flashGreen, clickFlashPen, flashBannerBg, badgeFont);
+
+            // 4. Unten: Farb-Box fuer die direkt nach dem Klick gemessenen unteren 9x9 Pixel
+            int badgeY = y + tileSize + 64;
             int badgeW = ClientSize.Width - 24;
-            string counts = $"B={snap.PatchBlue} G={snap.PatchGreen} R={snap.PatchRed} W={snap.PatchWhite} (von 81 px)";
+            string counts = $"B={snap.PatchBlue} G={snap.PatchGreen} R={snap.PatchRed} W={snap.PatchWhite} (von 81 px unten)";
             string tLabel = snap.LastClickedTachoNumber > 0 ? $"T{snap.LastClickedTachoNumber}" : "-";
 
             var (badgeBrush, line1, line2) = snap.LastFeedback switch
@@ -210,19 +310,20 @@ internal sealed class OverlayForm : Form
                     $"Reset -> {snap.LastResultNewOffsetMs:F1} ms | {counts}"),
                 _ => (
                     neutralBadgeBg,
-                    "Nach letztem Klick: noch keine Farbe",
+                    "Nach letztem Klick: noch keine Farbe erkannt",
                     snap.LastClickedTachoNumber > 0 ? $"{tLabel}: {counts}" : "Warte auf ersten Klick...")
             };
 
-            g.FillRectangle(badgeBrush, x, badgeY, badgeW, 44);
-            g.DrawRectangle(Pens.WhiteSmoke, x, badgeY, badgeW, 44);
-            g.DrawString(line1, badgeFont, Brushes.White, x + 8, badgeY + 5);
-            g.DrawString(line2, infoFont, Brushes.White, x + 8, badgeY + 24);
+            g.FillRectangle(badgeBrush, 12, badgeY, badgeW, 44);
+            g.DrawRectangle(Pens.WhiteSmoke, 12, badgeY, badgeW, 44);
+            g.DrawString(line1, badgeFont, Brushes.White, 20, badgeY + 5);
+            g.DrawString(line2, infoFont, Brushes.White, 20, badgeY + 24);
         }
     }
 
     private static void DrawButtonPreview(
-        Graphics g, Bitmap? bmp, string label, int x, int y, int size, Brush labelBrush, Font font, Pen crossPen)
+        Graphics g, Bitmap? bmp, string label, int x, int y, int size, Brush labelBrush,
+        Font font, Pen crossPen, bool isFlashing, Pen flashPen, Brush flashBg, Font badgeFont)
     {
         if (bmp != null)
         {
@@ -236,7 +337,14 @@ internal sealed class OverlayForm : Form
             g.FillRectangle(Brushes.Black, x, y, size, size);
         }
 
-        g.DrawRectangle(Pens.Gray, x, y, size, size);
-        g.DrawString(label, font, labelBrush, x, y + size + 3);
+        g.DrawRectangle(isFlashing ? flashPen : Pens.Gray, x, y, size, size);
+
+        if (isFlashing)
+        {
+            g.FillRectangle(flashBg, x + 3, y + size / 2 - 11, size - 6, 22);
+            g.DrawString("KLICK!", badgeFont, Brushes.Black, x + 16, y + size / 2 - 8);
+        }
+
+        g.DrawString(label, font, isFlashing ? Brushes.Yellow : labelBrush, x, y + size + 3);
     }
 }

@@ -67,8 +67,6 @@ internal static class Program
         bool f10Prev = false;
         bool plusPrev = false;
         bool minusPrev = false;
-        bool pgUpPrev = false;
-        bool pgDnPrev = false;
 
         PrintHeader(cfg, running, debugMode);
 
@@ -166,30 +164,18 @@ internal static class Program
 
                 if (NativeMethods.IsAnyKeyJustPressed(NativeMethods.VK_OEM_PLUS, NativeMethods.VK_ADD, ref plusPrev))
                 {
-                    double val = cfg.AdjustTachoClickOffsetMs(0, +2.0);
+                    int targetIdx = expectedTachoIndex;
+                    double val = cfg.AdjustTachoClickOffsetMs(targetIdx, +2.0);
                     cfg.Save();
-                    Console.WriteLine($"[Zeit-Vorlauf Tacho 1] +2.0 ms -> T1={val:F1} ms");
+                    Console.WriteLine($"[Zeit-Vorlauf Tacho {targetIdx + 1}] +2.0 ms -> T{targetIdx + 1}={val:F1} ms");
                 }
 
                 if (NativeMethods.IsAnyKeyJustPressed(NativeMethods.VK_OEM_MINUS, NativeMethods.VK_SUBTRACT, ref minusPrev))
                 {
-                    double val = cfg.AdjustTachoClickOffsetMs(0, -2.0);
+                    int targetIdx = expectedTachoIndex;
+                    double val = cfg.AdjustTachoClickOffsetMs(targetIdx, -2.0);
                     cfg.Save();
-                    Console.WriteLine($"[Zeit-Vorlauf Tacho 1] -2.0 ms -> T1={val:F1} ms");
-                }
-
-                if (NativeMethods.IsKeyJustPressed(NativeMethods.VK_PRIOR, ref pgUpPrev))
-                {
-                    double val = cfg.AdjustTachoClickOffsetMs(1, +2.0);
-                    cfg.Save();
-                    Console.WriteLine($"[Zeit-Vorlauf Tacho 2] +2.0 ms -> T2={val:F1} ms");
-                }
-
-                if (NativeMethods.IsKeyJustPressed(NativeMethods.VK_NEXT, ref pgDnPrev))
-                {
-                    double val = cfg.AdjustTachoClickOffsetMs(1, -2.0);
-                    cfg.Save();
-                    Console.WriteLine($"[Zeit-Vorlauf Tacho 2] -2.0 ms -> T2={val:F1} ms");
+                    Console.WriteLine($"[Zeit-Vorlauf Tacho {targetIdx + 1}] -2.0 ms -> T{targetIdx + 1}={val:F1} ms");
                 }
 
                 var activeTachos = cfg.GetActiveTachos();
@@ -218,13 +204,20 @@ internal static class Program
 
                     if (triggered)
                     {
+                        bool isLastBtn = cur == activeTachos.Count - 1;
+
                         // 1. Button sofort betaetigen
                         TriggerClick(cur, activeTachos.Count, detectors[cur], cfg);
                         lastClickUtc = DateTime.UtcNow;
 
-                        // 2. NUR direkt nach dem Klick die Farbe auf den wenigen unteren Pixeln (9x9) dieses Tachos messen
-                        TachoFeedback fb = detectors[cur].MeasureBottomColorAfterClick(
+                        // 2. Klick-Moment sofort visualisieren (gelber Button-Blitz + Foto im Klick-Moment)
+                        Bitmap? clickMomentSnap = detectors[cur].CaptureClickMomentSnapshot(
                             activeTachos[cur].X, activeTachos[cur].Y, cfg);
+                        overlay?.FlashButtonClick(isLastBtn, cur + 1, clickMomentSnap);
+
+                        // 3. NUR direkt nach dem Klick die Farbe auf den wenigen unteren Pixeln (9x9) dieses Tachos messen
+                        TachoFeedback fb = detectors[cur].MeasureBottomColorAfterClick(
+                            cur + 1, activeTachos[cur].X, activeTachos[cur].Y, cfg);
 
                         // 3. Sofort den unabhaengigen Parameter dieses Tachos anpassen
                         double newOffset = HandleTachoFeedback(cur, fb, detectors[cur], cfg);
@@ -256,7 +249,7 @@ internal static class Program
                     }
                     else if (cur > 0 &&
                              detectors[cur].State == DetectorState.WaitingForBlueZone &&
-                             (DateTime.UtcNow - lastClickUtc).TotalMilliseconds >= 1200.0)
+                             (DateTime.UtcNow - lastClickUtc).TotalMilliseconds >= 3500.0)
                     {
                         // Auto-Resync: Falls der Kampf nach Tacho 1/2 vorbei war und nach >1.2 s wieder Tacho 1 startet
                         detectors[0].Reset();
@@ -369,7 +362,7 @@ internal static class Program
 
     private static double HandleTachoFeedback(int tachoIndex, TachoFeedback fb, TachoDetector detector, AppConfig cfg)
     {
-        string counts = $"(Unten 9x9: B={detector.LastPatchBlue}, G={detector.LastPatchGreen}, R={detector.LastPatchRed}, W={detector.LastPatchWhite})";
+        string counts = $"(Spot=({detector.LastPatchScreenX},{detector.LastPatchScreenY}) RGB=({detector.LastAvgR},{detector.LastAvgG},{detector.LastAvgB}) | B={detector.LastPatchBlue} G={detector.LastPatchGreen} R={detector.LastPatchRed} W={detector.LastPatchWhite})";
         switch (fb)
         {
             case TachoFeedback.TooLateRed:
@@ -482,8 +475,7 @@ internal static class Program
         Console.WriteLine("  F6         : Gruenen Schwerter-Button speichern (+ Auto-Start)");
         Console.WriteLine("  F8         : Automatik Start / Pause (startet immer bei Tacho 1)");
         Console.WriteLine("  F7         : Debug-Ausgabe An / Aus");
-        Console.WriteLine("  +/-        : Zeit-Vorlauf Tacho 1 manuell +/- 2 ms");
-        Console.WriteLine("  BildAuf/Ab : Zeit-Vorlauf Tacho 2 manuell +/- 2 ms");
+        Console.WriteLine("  +/-        : Zeit-Vorlauf des aktuell aktiven Tachos +/- 2 ms");
         Console.WriteLine("-----------------------------------------------------------------");
         Console.WriteLine($"Aktives Profil        : {cfg.ActiveProfile}er-Konfiguration (Messpunkte alle {cfg.CheckpointStepDeg:F0}°)");
         for (int i = 0; i < tachos.Count; i++)
