@@ -538,14 +538,24 @@ internal sealed class EnemySetupStore
             if (candidate.ProfileSize != profileSize) continue;
             candidate.EnsureSlots();
 
-            double tachoDist = candidate.Tachos[tachoIndex].DistanceTo(currentFp);
-            if (tachoDist > 1.0) continue;
+            var candSlot = candidate.Tachos[tachoIndex];
+            double tachoDist = candSlot.DistanceTo(currentFp);
 
             if (hasCurVis && candidate.HasVisual)
             {
                 double visDist = DinoVisualMatcher.Distance(candidate.Visual!, currentVisual!);
                 if (visDist > DinoVisualMatcher.VisualMatchThreshold)
                     continue; // Sichtbar ein anderer Dino -> harter Ausschluss!
+
+                // Bei sehr starkem visuellen Match (z.B. VisDist=0.06 bei Ankylosaurus) und passender Grundgeometrie
+                // (GreenEnd, GreenWidth, T55) darf ein einzelner 1-Frame-Speed-Haker niemals ein doppeltes Setup anlegen!
+                if (tachoDist > 1.0)
+                {
+                    if (visDist <= 0.22 && candSlot.MatchesGeometryAndSpinTime(currentFp))
+                        tachoDist = 1.0;
+                    else
+                        continue;
+                }
 
                 double visNorm = visDist / DinoVisualMatcher.VisualMatchThreshold;
                 double combinedDist = tachoDist * 0.45 + visNorm * 0.55;
@@ -563,6 +573,8 @@ internal sealed class EnemySetupStore
             }
             else
             {
+                if (tachoDist > 1.0) continue;
+
                 double effectiveDist = (preferredStickySetup != null && candidate.Id == preferredStickySetup.Id)
                     ? tachoDist * 0.82
                     : tachoDist;
