@@ -8,8 +8,8 @@ internal sealed class TachoPoint
     public int Y { get; set; }
 
     // Unabhaengiger Zeit-Vorlauf in Millisekunden (kompensiert Display- & Klick-Latenz)
-    public double ClickOffsetMs { get; set; } = 25.0;
-    public double DefaultClickOffsetMs { get; set; } = 25.0;
+    public double ClickOffsetMs { get; set; } = 55.0;
+    public double DefaultClickOffsetMs { get; set; } = 55.0;
 
     public bool IsSet => X > 0 && Y > 0;
 }
@@ -21,15 +21,15 @@ internal sealed class AppConfig
 
     public List<TachoPoint> Profile2 { get; set; } = new()
     {
-        new TachoPoint { ClickOffsetMs = 25.0, DefaultClickOffsetMs = 25.0 },
-        new TachoPoint { ClickOffsetMs = 25.0, DefaultClickOffsetMs = 25.0 }
+        new TachoPoint { ClickOffsetMs = 55.0, DefaultClickOffsetMs = 55.0 },
+        new TachoPoint { ClickOffsetMs = 55.0, DefaultClickOffsetMs = 55.0 }
     };
 
     public List<TachoPoint> Profile3 { get; set; } = new()
     {
-        new TachoPoint { ClickOffsetMs = 25.0, DefaultClickOffsetMs = 25.0 },
-        new TachoPoint { ClickOffsetMs = 25.0, DefaultClickOffsetMs = 25.0 },
-        new TachoPoint { ClickOffsetMs = 25.0, DefaultClickOffsetMs = 25.0 }
+        new TachoPoint { ClickOffsetMs = 55.0, DefaultClickOffsetMs = 55.0 },
+        new TachoPoint { ClickOffsetMs = 55.0, DefaultClickOffsetMs = 55.0 },
+        new TachoPoint { ClickOffsetMs = 55.0, DefaultClickOffsetMs = 55.0 }
     };
 
     public int TachoBoxSize { get; set; } = 180;
@@ -42,12 +42,12 @@ internal sealed class AppConfig
 
     public int PollIntervalMs { get; set; } = 2;
     public int ClickHoldMs { get; set; } = 15;
-    public int CooldownMs { get; set; } = 700;
+    public int CooldownMs { get; set; } = 450;
 
     // Abstand der Winkel-Messpunkte fuer die Geschwindigkeits-Hochrechnung
     public double CheckpointStepDeg { get; set; } = 10.0;
 
-    // Minimum green pixels required to consider the tacho green zone active (low for narrow green zones)
+    // Minimum green pixels required to consider the tacho green zone active
     public int MinGreenPixels { get; set; } = 6;
 
     public List<TachoPoint> GetActiveTachos()
@@ -56,7 +56,7 @@ internal sealed class AppConfig
         int expected = ActiveProfile == 3 ? 3 : 2;
         while (list.Count < expected)
         {
-            list.Add(new TachoPoint { ClickOffsetMs = 25.0, DefaultClickOffsetMs = 25.0 });
+            list.Add(new TachoPoint { ClickOffsetMs = 55.0, DefaultClickOffsetMs = 55.0 });
         }
         return list;
     }
@@ -66,7 +66,7 @@ internal sealed class AppConfig
         var tachos = GetActiveTachos();
         if (index >= 0 && index < tachos.Count)
             return tachos[index].ClickOffsetMs;
-        return 25.0;
+        return 55.0;
     }
 
     public double AdjustTachoClickOffsetMs(int index, double deltaMs)
@@ -74,10 +74,10 @@ internal sealed class AppConfig
         var tachos = GetActiveTachos();
         if (index >= 0 && index < tachos.Count)
         {
-            tachos[index].ClickOffsetMs = Math.Clamp(Math.Round(tachos[index].ClickOffsetMs + deltaMs, 2), -40.0, 150.0);
+            tachos[index].ClickOffsetMs = Math.Clamp(Math.Round(tachos[index].ClickOffsetMs + deltaMs, 2), 0.0, 120.0);
             return tachos[index].ClickOffsetMs;
         }
-        return 25.0;
+        return 55.0;
     }
 
     public double ResetTachoClickOffsetToDefault(int index)
@@ -85,11 +85,11 @@ internal sealed class AppConfig
         var tachos = GetActiveTachos();
         if (index >= 0 && index < tachos.Count)
         {
-            double def = tachos[index].DefaultClickOffsetMs > 0 ? tachos[index].DefaultClickOffsetMs : 25.0;
+            double def = tachos[index].DefaultClickOffsetMs > 0 ? tachos[index].DefaultClickOffsetMs : 55.0;
             tachos[index].ClickOffsetMs = def;
             return def;
         }
-        return 25.0;
+        return 55.0;
     }
 
     public bool IsCalibrated

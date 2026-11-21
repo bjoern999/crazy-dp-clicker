@@ -7,32 +7,33 @@ internal sealed class OverlaySnapshot
 {
     public bool Running { get; init; }
     public int ActiveProfile { get; init; }
-    public int ExpectedTachoIndex { get; init; }
-    public Bitmap? BlueButtonPreview { get; init; }
-    public Bitmap? GreenButtonPreview { get; init; }
-    public List<TachoOverlayItem> Tachos { get; init; } = new();
-}
+    public int ActiveTachoIndex { get; init; }
+    public int TotalTachos { get; init; }
+    public string AllOffsetsSummary { get; init; } = "";
 
-internal sealed class TachoOverlayItem
-{
-    public int Index { get; init; }
     public int CenterX { get; init; }
     public int CenterY { get; init; }
-    public bool IsLast { get; init; }
+    public bool IsLastTacho { get; init; }
     public DetectorState State { get; init; }
     public int GreenCount { get; init; }
     public int WhiteCount { get; init; }
-    public double RemainingDeg { get; init; }
     public double ClickOffsetMs { get; init; }
     public double SpeedDegPerSec { get; init; }
     public int CheckpointCount { get; init; }
+    public Bitmap? ActivePreview { get; init; }
+
+    // Ergebnis des letzten Klicks (Tacho-Nummer, Farbe auf den unteren Pixeln, Korrektur)
+    public int LastClickedTachoNumber { get; init; }
     public TachoFeedback LastFeedback { get; init; }
-    public int PeakRed { get; init; }
-    public int PeakGreen { get; init; }
-    public int PeakBlue { get; init; }
-    public int PeakWhite { get; init; }
+    public int PatchRed { get; init; }
+    public int PatchGreen { get; init; }
+    public int PatchBlue { get; init; }
+    public int PatchWhite { get; init; }
     public double LastDeltaMs { get; init; }
-    public Bitmap? Preview { get; init; }
+    public double LastResultNewOffsetMs { get; init; }
+
+    public Bitmap? BlueButtonPreview { get; init; }
+    public Bitmap? GreenButtonPreview { get; init; }
 }
 
 internal sealed class OverlayForm : Form
@@ -42,10 +43,10 @@ internal sealed class OverlayForm : Form
 
     public OverlayForm()
     {
-        Text = "TachoClicker Live-Inspektor (10°-Hochrechnung | F8=Start | F9=Tacho | F10=Blau | F6=Gruen)";
+        Text = "TachoClicker Live-Inspektor (Nur aktiver Tacho)";
         StartPosition = FormStartPosition.Manual;
         Location = new Point(40, 40);
-        ClientSize = new Size(650, 395);
+        ClientSize = new Size(370, 395);
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         ShowInTaskbar = true;
@@ -104,10 +105,9 @@ internal sealed class OverlayForm : Form
     private static void DisposeBitmaps(OverlaySnapshot? snap)
     {
         if (snap == null) return;
+        snap.ActivePreview?.Dispose();
         snap.BlueButtonPreview?.Dispose();
         snap.GreenButtonPreview?.Dispose();
-        foreach (var t in snap.Tachos)
-            t.Preview?.Dispose();
     }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -116,7 +116,7 @@ internal sealed class OverlayForm : Form
         g.Clear(BackColor);
 
         using var titleFont = new Font("Consolas", 10.0f, FontStyle.Bold);
-        using var badgeFont = new Font("Consolas", 9.0f, FontStyle.Bold);
+        using var badgeFont = new Font("Consolas", 9.5f, FontStyle.Bold);
         using var infoFont = new Font("Consolas", 8.5f, FontStyle.Regular);
         using var borderWaiting = new Pen(Color.Gold, 2);
         using var borderArmed = new Pen(Color.Cyan, 3);
@@ -136,97 +136,88 @@ internal sealed class OverlayForm : Form
             if (snap == null)
                 return;
 
-            string statusText = snap.Running ? $"AKTIV -> warte auf T{snap.ExpectedTachoIndex + 1}" : "PAUSIERT (F8)";
+            string statusText = snap.Running
+                ? $"AKTIV: Tacho {snap.ActiveTachoIndex + 1}/{snap.TotalTachos}"
+                : $"PAUSIERT (F8) | Vorschau T{snap.ActiveTachoIndex + 1}/{snap.TotalTachos}";
             Brush statusBrush = snap.Running ? Brushes.LimeGreen : Brushes.Orange;
-            string tachoOffsets = string.Join(" | ", snap.Tachos.Select(t => $"T{t.Index + 1}={t.ClickOffsetMs:F1}ms"));
-            g.DrawString(
-                $"{statusText}  |  {snap.ActiveProfile}er (F2/F3)  |  Offset: {tachoOffsets}",
-                titleFont, statusBrush, 12, 8);
-            g.DrawString(
-                "10°-Hochrechnung: Magenta = Gruen | Gelb = Weiss | Gruene Linie = Ziel (Gruen-Ende)",
-                infoFont, Brushes.LightGray, 12, 28);
 
-            int tileSize = 160;
-            int startX = 12;
-            int startY = 50;
+            g.DrawString($"{statusText}  ({snap.ActiveProfile}er-Modus)", titleFont, statusBrush, 12, 8);
+            g.DrawString($"Offsets: {snap.AllOffsetsSummary}", infoFont, Brushes.LightGray, 12, 26);
 
-            for (int i = 0; i < snap.Tachos.Count; i++)
+            // Nur der aktuell aktive Tacho wird gross angezeigt
+            int tileSize = 210;
+            int x = 12;
+            int y = 48;
+
+            var pen = snap.State switch
             {
-                var t = snap.Tachos[i];
-                int x = startX + i * (tileSize + 14);
-                int y = startY;
+                DetectorState.Armed => borderArmed,
+                DetectorState.Cooldown => borderCooldown,
+                _ => borderWaiting
+            };
 
-                var pen = t.State switch
-                {
-                    DetectorState.Armed => borderArmed,
-                    DetectorState.Cooldown => borderCooldown,
-                    _ => borderWaiting
-                };
-
-                if (t.Preview != null)
-                {
-                    g.DrawImage(t.Preview, new Rectangle(x, y, tileSize, tileSize));
-                }
-                else
-                {
-                    g.FillRectangle(Brushes.Black, x, y, tileSize, tileSize);
-                    g.DrawString("Nicht gesetzt\n(F9 druecken)", infoFont, Brushes.Gray, x + 20, y + 60);
-                }
-
-                g.DrawRectangle(pen, x, y, tileSize, tileSize);
-
-                string btnName = t.IsLast ? "GRUEN" : "BLAU";
-                g.DrawString($"T{t.Index + 1} ({btnName}) [{t.ClickOffsetMs:F1} ms]", titleFont, Brushes.White, x, y + tileSize + 4);
-                g.DrawString($"Pos : ({t.CenterX}, {t.CenterY})", infoFont, Brushes.Silver, x, y + tileSize + 22);
-                g.DrawString($"Gruen: {t.GreenCount} px | Weiss: {t.WhiteCount} px", infoFont,
-                    t.GreenCount > 0 ? Brushes.Magenta : Brushes.Silver, x, y + tileSize + 36);
-                g.DrawString(
-                    t.SpeedDegPerSec > 10
-                        ? $"Speed: {t.SpeedDegPerSec:F0}°/s (n={t.CheckpointCount})"
-                        : $"Status: {t.State}",
-                    infoFont, t.SpeedDegPerSec > 10 ? Brushes.Cyan : Brushes.Silver, x, y + tileSize + 50);
-
-                // Farbige Feedback-Box fuer die nach dem Klick (200 ms) erkannte Tacho-Farbe
-                int badgeY = y + tileSize + 68;
-                string allCounts = $"B={t.PeakBlue} G={t.PeakGreen} R={t.PeakRed} W={t.PeakWhite}";
-                var (badgeBrush, line1, line2) = t.LastFeedback switch
-                {
-                    TachoFeedback.OptimalBlue => (
-                        blueBadgeBg,
-                        "BLAU (OPTIMAL!)",
-                        $"±0.0ms ({allCounts})"),
-                    TachoFeedback.TooEarlyGreen => (
-                        greenBadgeBg,
-                        "GRUEN (ETWAS FRUEH)",
-                        $"{t.LastDeltaMs:+0.0;-0.0}ms ({allCounts})"),
-                    TachoFeedback.TooLateRed => (
-                        redBadgeBg,
-                        "ROT (ZU SPAET!)",
-                        $"{t.LastDeltaMs:+0.0;-0.0}ms ({allCounts})"),
-                    TachoFeedback.WayTooEarlyWhite => (
-                        whiteBadgeBg,
-                        "WEISS (VIEL ZU FRUEH)",
-                        $"Reset->{t.ClickOffsetMs:F0}ms ({allCounts})"),
-                    _ => (
-                        neutralBadgeBg,
-                        "NACH KLICK: -",
-                        t.PeakRed + t.PeakGreen + t.PeakBlue + t.PeakWhite > 0
-                            ? allCounts
-                            : "Noch kein Klick ausgewertet")
-                };
-
-                g.FillRectangle(badgeBrush, x, badgeY, tileSize, 38);
-                g.DrawRectangle(Pens.WhiteSmoke, x, badgeY, tileSize, 38);
-                g.DrawString(line1, badgeFont, Brushes.White, x + 4, badgeY + 3);
-                g.DrawString(line2, infoFont, Brushes.White, x + 4, badgeY + 20);
+            if (snap.ActivePreview != null)
+            {
+                g.DrawImage(snap.ActivePreview, new Rectangle(x, y, tileSize, tileSize));
+            }
+            else
+            {
+                g.FillRectangle(Brushes.Black, x, y, tileSize, tileSize);
+                g.DrawString("Nicht gesetzt\n(F9 druecken)", infoFont, Brushes.Gray, x + 45, y + 85);
             }
 
-            // Button-Vorschauen rechts
-            int btnX = startX + 3 * (tileSize + 14) + 6;
-            int btnSize = 84;
+            g.DrawRectangle(pen, x, y, tileSize, tileSize);
 
-            DrawButtonPreview(g, snap.BlueButtonPreview, "Blau (F10)", btnX, startY, btnSize, Brushes.DeepSkyBlue, infoFont, crossPen);
-            DrawButtonPreview(g, snap.GreenButtonPreview, "Gruen (F6)", btnX, startY + btnSize + 34, btnSize, Brushes.LimeGreen, infoFont, crossPen);
+            string btnName = snap.IsLastTacho ? "-> GRUEN" : "-> BLAU";
+            g.DrawString($"Tacho {snap.ActiveTachoIndex + 1} ({btnName})  [{snap.ClickOffsetMs:F1} ms]", titleFont, Brushes.White, x, y + tileSize + 6);
+            g.DrawString($"Pos: ({snap.CenterX}, {snap.CenterY}) | Gruen: {snap.GreenCount} | Weiss: {snap.WhiteCount}", infoFont, Brushes.Silver, x, y + tileSize + 24);
+            g.DrawString(
+                snap.SpeedDegPerSec > 10
+                    ? $"Speed: {snap.SpeedDegPerSec:F0}°/s (n={snap.CheckpointCount} Messpunkte)"
+                    : $"Orange Box unten = Messpunkt nach Klick ({snap.State})",
+                infoFont, snap.SpeedDegPerSec > 10 ? Brushes.Cyan : Brushes.Silver, x, y + tileSize + 40);
+
+            // Button-Vorschauen rechts neben dem aktiven Tacho
+            int btnX = x + tileSize + 18;
+            int btnSize = 92;
+
+            DrawButtonPreview(g, snap.BlueButtonPreview, "Blau (F10)", btnX, y, btnSize, Brushes.DeepSkyBlue, infoFont, crossPen);
+            DrawButtonPreview(g, snap.GreenButtonPreview, "Gruen (F6)", btnX, y + btnSize + 26, btnSize, Brushes.LimeGreen, infoFont, crossPen);
+
+            // Farb-Box fuer die direkt nach dem letzten Klick gemessenen unteren Tacho-Pixel
+            int badgeY = y + tileSize + 62;
+            int badgeW = ClientSize.Width - 24;
+            string counts = $"B={snap.PatchBlue} G={snap.PatchGreen} R={snap.PatchRed} W={snap.PatchWhite} (von 81 px)";
+            string tLabel = snap.LastClickedTachoNumber > 0 ? $"T{snap.LastClickedTachoNumber}" : "-";
+
+            var (badgeBrush, line1, line2) = snap.LastFeedback switch
+            {
+                TachoFeedback.OptimalBlue => (
+                    blueBadgeBg,
+                    $"{tLabel} nach Klick: BLAU (OPTIMAL!)",
+                    $"Offset bleibt {snap.LastResultNewOffsetMs:F1} ms | {counts}"),
+                TachoFeedback.TooEarlyGreen => (
+                    greenBadgeBg,
+                    $"{tLabel} nach Klick: GRUEN (ETWAS FRUEH)",
+                    $"Offset {snap.LastDeltaMs:+0.0;-0.0} ms -> {snap.LastResultNewOffsetMs:F1} ms | {counts}"),
+                TachoFeedback.TooLateRed => (
+                    redBadgeBg,
+                    $"{tLabel} nach Klick: ROT (ZU SPAET!)",
+                    $"Offset {snap.LastDeltaMs:+0.0;-0.0} ms -> {snap.LastResultNewOffsetMs:F1} ms | {counts}"),
+                TachoFeedback.WayTooEarlyWhite => (
+                    whiteBadgeBg,
+                    $"{tLabel} nach Klick: WEISS (VIEL ZU FRUEH)",
+                    $"Reset -> {snap.LastResultNewOffsetMs:F1} ms | {counts}"),
+                _ => (
+                    neutralBadgeBg,
+                    "Nach letztem Klick: noch keine Farbe",
+                    snap.LastClickedTachoNumber > 0 ? $"{tLabel}: {counts}" : "Warte auf ersten Klick...")
+            };
+
+            g.FillRectangle(badgeBrush, x, badgeY, badgeW, 44);
+            g.DrawRectangle(Pens.WhiteSmoke, x, badgeY, badgeW, 44);
+            g.DrawString(line1, badgeFont, Brushes.White, x + 8, badgeY + 5);
+            g.DrawString(line2, infoFont, Brushes.White, x + 8, badgeY + 24);
         }
     }
 
