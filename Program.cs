@@ -175,12 +175,14 @@ internal static class Program
 
                 if (NativeMethods.IsAnyKeyJustPressed(NativeMethods.VK_OEM_PLUS, NativeMethods.VK_ADD, ref plusPrev))
                 {
-                    AdjustOffsetManually(expectedTachoIndex, +2.0, cfg, enemyStore, activeEnemy);
+                    double manualStep = (activeEnemy != null && activeEnemy.IsFixed) ? +0.5 : +2.0;
+                    AdjustOffsetManually(expectedTachoIndex, manualStep, cfg, enemyStore, activeEnemy);
                 }
 
                 if (NativeMethods.IsAnyKeyJustPressed(NativeMethods.VK_OEM_MINUS, NativeMethods.VK_SUBTRACT, ref minusPrev))
                 {
-                    AdjustOffsetManually(expectedTachoIndex, -2.0, cfg, enemyStore, activeEnemy);
+                    double manualStep = (activeEnemy != null && activeEnemy.IsFixed) ? -0.5 : -2.0;
+                    AdjustOffsetManually(expectedTachoIndex, manualStep, cfg, enemyStore, activeEnemy);
                 }
 
                 var activeTachos = cfg.GetActiveTachos();
@@ -192,11 +194,12 @@ internal static class Program
                 if (running && cfg.IsCalibrated)
                 {
                     int cur = expectedTachoIndex;
+                    (int curX, int curY) = GetEffectiveTachoPos(cur, cfg, activeEnemy);
                     double defaultOffsetMs = GetEffectiveOffsetMs(cur, cfg, activeEnemy);
 
                     bool triggered = detectors[cur].Update(
-                        activeTachos[cur].X,
-                        activeTachos[cur].Y,
+                        curX,
+                        curY,
                         defaultOffsetMs,
                         cfg,
                         fp =>
@@ -212,19 +215,23 @@ internal static class Program
                                 fp,
                                 cur > 0 ? activeEnemy : null,
                                 roundFingerprints,
+                                activeTachos,
                                 cfg.GetClickOffsetMsForTacho(cur));
 
                             bool changedEnemy = activeEnemy == null || activeEnemy.Id != matched.Id || isNew;
                             activeEnemy = matched;
                             activeEnemyIsNew = isNew;
 
-                            double enemyOffset = matched.Tachos[cur].ClickOffsetMs;
+                            var slot = matched.Tachos[cur];
+                            double enemyOffset = slot.ClickOffsetMs;
 
                             if (changedEnemy || cur == 0)
                             {
-                                string tag = isNew ? "NEU ANGELEGT" : $"ERKANNT (Dist={dist:F2})";
+                                string tag = isNew ? "NEU ANGELEGT" : (matched.IsFixed ? $"FEST (Dist={dist:F2})" : $"ERKANNT (Dist={dist:F2})");
+                                var best = slot.GetBestProvenOffset();
+                                string bestStr = best != null ? $", Bewaehrt={best.OffsetMs:F2}ms ({best.BlueHits}/{best.Total} Blau)" : "";
                                 Console.WriteLine(
-                                    $"[Gegner-Setup] {matched.Name} [{tag}] | T{cur + 1}: v={fp.EndSpeedDegPerSec:F0}°/s, a={fp.AccelDegPerSec2:F0}°/s², G={fp.GreenWidthDeg:F0}°, B={fp.BlueWidthDeg:F0}° -> lade Offset {enemyOffset:F1} ms");
+                                    $"[Spieler-Setup] {matched.Name} [{tag}] | T{cur + 1}: v={fp.EndSpeedDegPerSec:F0}°/s, a={fp.AccelDegPerSec2:F0}°/s², G={fp.GreenWidthDeg:F0}° -> Offset {enemyOffset:F2} ms{bestStr}");
                             }
 
                             return enemyOffset;
@@ -257,16 +264,14 @@ internal static class Program
                         lastClickUtc = DateTime.UtcNow;
 
                         // 2. Klick-Moment sofort visualisieren (gelber Button-Blitz + Foto im Klick-Moment)
-                        Bitmap? clickMomentSnap = detectors[cur].CaptureClickMomentSnapshot(
-                            activeTachos[cur].X, activeTachos[cur].Y, cfg);
+                        Bitmap? clickMomentSnap = detectors[cur].CaptureClickMomentSnapshot(curX, curY, cfg);
                         overlay?.FlashButtonClick(isLastBtn, cur + 1, clickMomentSnap);
 
                         // 3. Direkt nach dem Klick die Farbe auf den unteren 9x9 Pixeln messen
-                        TachoFeedback fb = detectors[cur].MeasureBottomColorAfterClick(
-                            cur + 1, activeTachos[cur].X, activeTachos[cur].Y, cfg);
+                        TachoFeedback fb = detectors[cur].MeasureBottomColorAfterClick(cur + 1, curX, curY, cfg);
 
-                        // 4. Sofort den Offset des erkannten Gegner-Setups (und Fallback-Config) anpassen
-                        double newOffset = HandleTachoFeedback(cur, fb, detectors[cur], cfg, enemyStore, activeEnemy);
+                        // 4. Sofort den Offset des erkannten Spieler-Setups (mit Treffer-Quoten & Auto-Revert) anpassen
+                        double newOffset = HandleTachoFeedback(cur, usedOffsetMs, fb, detectors[cur], cfg, enemyStore, activeEnemy);
 
                         // 5. Vollstaendige Telemetrie schreiben
                         LogTelemetryClick(cur, activeTachos.Count, usedOffsetMs, newOffset, activeEnemy?.Name ?? "-", fb, detectors[cur], checkpointsStr);
@@ -356,6 +361,18 @@ internal static class Program
         }
     }
 
+    private static (int X, int Y) GetEffectiveTachoPos(int tachoIndex, AppConfig cfg, EnemySetup? activeEnemy)
+    {
+        if (activeEnemy != null && activeEnemy.IsFixed && activeEnemy.ProfileSize == cfg.ActiveProfile)
+        {
+            activeEnemy.EnsureSlots();
+            if (tachoIndex >= 0 && tachoIndex < activeEnemy.Tachos.Count && activeEnemy.Tachos[tachoIndex].HasPosition)
+                return (activeEnemy.Tachos[tachoIndex].X, activeEnemy.Tachos[tachoIndex].Y);
+        }
+        var tachos = cfg.GetActiveTachos();
+        return (tachos[tachoIndex].X, tachos[tachoIndex].Y);
+    }
+
     private static double GetEffectiveOffsetMs(int tachoIndex, AppConfig cfg, EnemySetup? activeEnemy)
     {
         if (activeEnemy != null && activeEnemy.ProfileSize == cfg.ActiveProfile)
@@ -401,6 +418,15 @@ internal static class Program
         string summary = string.Join(" | ",
             Enumerable.Range(0, tachos.Count).Select(idx => $"T{idx + 1}={GetEffectiveOffsetMs(idx, cfg, activeEnemy):F1}ms"));
 
+        var (posX, posY) = GetEffectiveTachoPos(activeIdx, cfg, activeEnemy);
+        string bestProvenInfo = "";
+        if (activeEnemy != null && activeEnemy.ProfileSize == cfg.ActiveProfile && activeIdx < activeEnemy.Tachos.Count)
+        {
+            var best = activeEnemy.Tachos[activeIdx].GetBestProvenOffset();
+            if (best != null)
+                bestProvenInfo = $"Best T{activeIdx + 1}: {best.OffsetMs:F2}ms ({best.BlueRate * 100:F0}%)";
+        }
+
         return new OverlaySnapshot
         {
             Running = running,
@@ -409,12 +435,14 @@ internal static class Program
             TotalTachos = tachos.Count,
             AllOffsetsSummary = summary,
             EnemySetupName = activeEnemy?.Name ?? "",
+            EnemySetupIsFixed = activeEnemy?.IsFixed ?? false,
             EnemySetupIsNew = activeEnemyIsNew,
             EnemyBlueHits = activeEnemy?.TotalBlueHits ?? 0,
             EnemyTotalClicks = activeEnemy?.TotalClicks ?? 0,
             TotalSavedEnemies = enemyStore.Setups.Count,
-            CenterX = t.X,
-            CenterY = t.Y,
+            BestProvenInfo = bestProvenInfo,
+            CenterX = posX,
+            CenterY = posY,
             IsLastTacho = activeIdx == tachos.Count - 1,
             State = d.State,
             GreenCount = d.LastGreenCount,
@@ -490,73 +518,74 @@ internal static class Program
     }
 
     private static double HandleTachoFeedback(
-        int tachoIndex, TachoFeedback fb, TachoDetector detector,
+        int tachoIndex, double usedOffsetMs, TachoFeedback fb, TachoDetector detector,
         AppConfig cfg, EnemySetupStore enemyStore, EnemySetup? activeEnemy)
     {
         string counts = $"(Spot=({detector.LastPatchScreenX},{detector.LastPatchScreenY}) RGB=({detector.LastAvgR},{detector.LastAvgG},{detector.LastAvgB}) | B={detector.LastPatchBlue} G={detector.LastPatchGreen} R={detector.LastPatchRed} W={detector.LastPatchWhite})";
         string setupLabel = activeEnemy != null ? activeEnemy.Name : "Standard";
 
-        double deltaMs = fb switch
-        {
-            TachoFeedback.TooLateRed => +2.5,
-            TachoFeedback.TooEarlyGreen => -0.5,
-            _ => 0.0
-        };
-        detector.LastCorrectionDeltaMs = deltaMs;
-
         double updated;
+        double appliedDelta;
+        bool reverted = false;
+        OffsetPerformance? revertedStats = null;
+
         if (activeEnemy != null && activeEnemy.ProfileSize == cfg.ActiveProfile)
         {
             activeEnemy.EnsureSlots();
             var slot = activeEnemy.Tachos[tachoIndex];
-            if (fb != TachoFeedback.None)
-            {
-                slot.TotalClicks++;
-                if (fb == TachoFeedback.OptimalBlue) slot.BlueHits++;
-            }
+            (updated, appliedDelta, reverted, revertedStats) = slot.RecordOutcomeAndTune(usedOffsetMs, fb, activeEnemy.IsFixed);
 
-            if (fb == TachoFeedback.WayTooEarlyWhite)
-                slot.ClickOffsetMs = slot.DefaultClickOffsetMs > 0 ? slot.DefaultClickOffsetMs : 41.0;
-            else if (deltaMs != 0.0)
-                slot.ClickOffsetMs = Math.Clamp(Math.Round(slot.ClickOffsetMs + deltaMs, 2), 0.0, 120.0);
-
-            // Refine stored signature with the final converged click-time fingerprint (much cleaner than mid-spin!)
             if (detector.LastFingerprint.EndSpeedDegPerSec > 50.0)
             {
                 slot.UpdateSignatureEma(detector.LastFingerprint);
             }
 
-            updated = slot.ClickOffsetMs;
             enemyStore.Save();
         }
         else
         {
+            appliedDelta = fb switch
+            {
+                TachoFeedback.TooLateRed => +2.5,
+                TachoFeedback.TooEarlyGreen => -0.5,
+                _ => 0.0
+            };
+
             if (fb == TachoFeedback.WayTooEarlyWhite)
                 updated = cfg.ResetTachoClickOffsetToDefault(tachoIndex);
-            else if (deltaMs != 0.0)
-                updated = cfg.AdjustTachoClickOffsetMs(tachoIndex, deltaMs);
+            else if (appliedDelta != 0.0)
+                updated = cfg.AdjustTachoClickOffsetMs(tachoIndex, appliedDelta);
             else
                 updated = cfg.GetClickOffsetMsForTacho(tachoIndex);
 
             cfg.Save();
         }
 
+        detector.LastCorrectionDeltaMs = appliedDelta;
+
+        if (reverted && revertedStats != null)
+        {
+            Console.WriteLine(
+                $"[AUTO-REVERT {setupLabel} T{tachoIndex + 1}] Feedback={fb} -> Kehre zu bewaehrtem Offset {updated:F2} ms zurueck (Blau-Quote: {revertedStats.BlueHits}/{revertedStats.Total} = {revertedStats.BlueRate * 100:F0}%)!");
+            return updated;
+        }
+
         switch (fb)
         {
             case TachoFeedback.TooLateRed:
-                Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> ROT (ZU SPAET!) <<< {counts} -> Offset +{deltaMs:F1} ms auf {updated:F1} ms");
+                Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> ROT (ZU SPAET!) <<< {counts} -> Offset {appliedDelta:+0.00;-0.00} ms auf {updated:F2} ms");
                 break;
             case TachoFeedback.TooEarlyGreen:
-                Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> GRUEN (ETWAS FRUEH) <<< {counts} -> Offset {deltaMs:F1} ms auf {updated:F1} ms");
+                Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> GRUEN (ETWAS FRUEH) <<< {counts} -> Offset {appliedDelta:+0.00;-0.00} ms auf {updated:F2} ms");
                 break;
             case TachoFeedback.OptimalBlue:
-                Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> BLAU (OPTIMAL!) <<< {counts} -> Offset ({updated:F1} ms) bleibt unveraendert.");
+                Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> BLAU (OPTIMAL!) <<< {counts} -> Offset ({updated:F2} ms) bleibt unveraendert.");
                 break;
             case TachoFeedback.WayTooEarlyWhite:
-                Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> WEISS (VIEL ZU FRUEH!) <<< {counts} -> Offset auf Startwert {updated:F1} ms zurueckgesetzt!");
+                Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> WEISS (VIEL ZU FRUEH!) <<< {counts} -> Offset auf Startwert {updated:F2} ms zurueckgesetzt!");
                 break;
             default:
-                Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] Keine eindeutige Farbe erkannt {counts} -> Offset bleibt {updated:F1} ms.");
+                Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] Keine eindeutige Farbe erkannt {counts} -> Offset bleibt {updated:F2} ms.");
                 break;
         }
 
@@ -635,9 +664,12 @@ internal static class Program
         Console.WriteLine($"Aktives Profil        : {cfg.ActiveProfile}er-Konfiguration | Gespeicherte Gegner-Setups: {store.Setups.Count}");
         foreach (var s in store.Setups)
         {
+            string fixedTag = s.IsFixed ? "FEST" : "AUTO";
             string slotDesc = string.Join(" | ", s.Tachos.Select((sl, i) =>
-                sl.HasSignature ? $"T{i + 1}:{sl.ClickOffsetMs:F1}ms(v={sl.EndSpeedDegPerSec:F0},G={sl.GreenWidthDeg:F0}°)" : $"T{i + 1}:-"));
-            Console.WriteLine($"  - {s.Name} ({s.ProfileSize}er): {slotDesc}");
+                sl.HasSignature
+                    ? $"T{i + 1}:{sl.ClickOffsetMs:F2}ms@({sl.X},{sl.Y})[{sl.BlueHits}/{sl.TotalClicks} Blau]"
+                    : $"T{i + 1}:-"));
+            Console.WriteLine($"  - {s.Name} [{fixedTag}, {s.ProfileSize}er]: {slotDesc}");
         }
         Console.WriteLine($"Blauer Schild-Button  : ({cfg.BlueButtonX}, {cfg.BlueButtonY})");
         Console.WriteLine($"Gruener Schwert-Btn   : ({cfg.GreenButtonX}, {cfg.GreenButtonY})");

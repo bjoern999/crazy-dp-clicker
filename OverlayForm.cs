@@ -11,12 +11,14 @@ internal sealed class OverlaySnapshot
     public int TotalTachos { get; init; }
     public string AllOffsetsSummary { get; init; } = "";
 
-    // Erkanntes Gegner-Setup
+    // Erkanntes Spieler-Setup
     public string EnemySetupName { get; init; } = "";
+    public bool EnemySetupIsFixed { get; init; }
     public bool EnemySetupIsNew { get; init; }
     public int EnemyBlueHits { get; init; }
     public int EnemyTotalClicks { get; init; }
     public int TotalSavedEnemies { get; init; }
+    public string BestProvenInfo { get; init; } = "";
 
     public int CenterX { get; init; }
     public int CenterY { get; init; }
@@ -231,11 +233,14 @@ internal sealed class OverlayForm : Form
             }
             else
             {
-                string tag = snap.EnemySetupIsNew ? "NEU GESPEICHERT" : "ERKANNT";
+                string tag = snap.EnemySetupIsNew
+                    ? "NEU"
+                    : (snap.EnemySetupIsFixed ? "FEST / FEIN" : "ERKANNT");
                 string rate = snap.EnemyTotalClicks > 0
                     ? $" | Blau: {snap.EnemyBlueHits}/{snap.EnemyTotalClicks} ({100 * snap.EnemyBlueHits / snap.EnemyTotalClicks}%)"
                     : "";
-                enemyLine = $"TACHO-SETUP: {snap.EnemySetupName} [{tag}]{rate} | Gesamt: {snap.TotalSavedEnemies}";
+                string best = !string.IsNullOrEmpty(snap.BestProvenInfo) ? $" | {snap.BestProvenInfo}" : "";
+                enemyLine = $"SETUP: {snap.EnemySetupName} [{tag}]{rate}{best}";
             }
 
             g.FillRectangle(enemyBg, 12, 28, ClientSize.Width - 24, 24);
