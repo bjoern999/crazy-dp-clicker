@@ -7,6 +7,7 @@ internal sealed class OverlaySnapshot
 {
     public bool Running { get; init; }
     public int ActiveProfile { get; init; }
+    public int ExpectedTachoIndex { get; init; }
     public Bitmap? BlueButtonPreview { get; init; }
     public Bitmap? GreenButtonPreview { get; init; }
     public List<TachoOverlayItem> Tachos { get; init; } = new();
@@ -135,11 +136,11 @@ internal sealed class OverlayForm : Form
             if (snap == null)
                 return;
 
-            string statusText = snap.Running ? "STATUS: AKTIV (F8)" : "STATUS: PAUSIERT (F8)";
+            string statusText = snap.Running ? $"AKTIV -> warte auf T{snap.ExpectedTachoIndex + 1}" : "PAUSIERT (F8)";
             Brush statusBrush = snap.Running ? Brushes.LimeGreen : Brushes.Orange;
             string tachoOffsets = string.Join(" | ", snap.Tachos.Select(t => $"T{t.Index + 1}={t.ClickOffsetMs:F1}ms"));
             g.DrawString(
-                $"{statusText}  |  {snap.ActiveProfile}er (F2/F3)  |  Zeit-Vorlauf: {tachoOffsets}",
+                $"{statusText}  |  {snap.ActiveProfile}er (F2/F3)  |  Offset: {tachoOffsets}",
                 titleFont, statusBrush, 12, 8);
             g.DrawString(
                 "10°-Hochrechnung: Magenta = Gruen | Gelb = Weiss | Gruene Linie = Ziel (Gruen-Ende)",
@@ -192,23 +193,23 @@ internal sealed class OverlayForm : Form
                 {
                     TachoFeedback.OptimalBlue => (
                         blueBadgeBg,
-                        "200ms: BLAU (OPTIMAL)",
+                        "BLAU (OPTIMAL!)",
                         $"±0.0ms ({allCounts})"),
                     TachoFeedback.TooEarlyGreen => (
                         greenBadgeBg,
-                        "200ms: GRUEN (FRUEH)",
+                        "GRUEN (ETWAS FRUEH)",
                         $"{t.LastDeltaMs:+0.0;-0.0}ms ({allCounts})"),
                     TachoFeedback.TooLateRed => (
                         redBadgeBg,
-                        "200ms: ROT (ZU SPAET!)",
+                        "ROT (ZU SPAET!)",
                         $"{t.LastDeltaMs:+0.0;-0.0}ms ({allCounts})"),
                     TachoFeedback.WayTooEarlyWhite => (
                         whiteBadgeBg,
-                        "200ms: WEISS (VIEL ZU FRUEH)",
+                        "WEISS (VIEL ZU FRUEH)",
                         $"Reset->{t.ClickOffsetMs:F0}ms ({allCounts})"),
                     _ => (
                         neutralBadgeBg,
-                        "200ms NACH KLICK: -",
+                        "NACH KLICK: -",
                         t.PeakRed + t.PeakGreen + t.PeakBlue + t.PeakWhite > 0
                             ? allCounts
                             : "Noch kein Klick ausgewertet")

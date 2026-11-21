@@ -10,9 +10,8 @@ internal static class Program
     {
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         NativeMethods.SetProcessDPIAware();
-        Console.Title = "TachoClicker (10°-Hochrechnung | F2=2er | F3=3er | F6=Gruen | F8=Start | F9=Tacho | F10=Blau)";
+        Console.Title = "TachoClicker (Sequenziell + 10°-Hochrechnung | F2=2er | F3=3er | F6=Gruen | F8=Start | F9=Tacho | F10=Blau)";
 
-        // Request 1 ms Windows timer resolution for accurate polling & sub-ms Stopwatch waits
         NativeMethods.timeBeginPeriod(1);
 
         try
@@ -48,6 +47,10 @@ internal static class Program
         bool debugMode = false;
         int nextTachoIndex = 0;
 
+        // Sequenzielle Erkennung: Tacho 2 erscheint erst, wenn Tacho 1 vorueber ist!
+        int expectedTachoIndex = 0;
+        DateTime lastClickUtc = DateTime.MinValue;
+
         bool f2Prev = false;
         bool f3Prev = false;
         bool f6Prev = false;
@@ -71,12 +74,12 @@ internal static class Program
             {
                 if (NativeMethods.IsKeyJustPressed(NativeMethods.VK_F2, ref f2Prev))
                 {
-                    SwitchProfile(cfg, detectors, 2, ref nextTachoIndex, ref running);
+                    SwitchProfile(cfg, detectors, 2, ref nextTachoIndex, ref expectedTachoIndex, ref running);
                 }
 
                 if (NativeMethods.IsKeyJustPressed(NativeMethods.VK_F3, ref f3Prev))
                 {
-                    SwitchProfile(cfg, detectors, 3, ref nextTachoIndex, ref running);
+                    SwitchProfile(cfg, detectors, 3, ref nextTachoIndex, ref expectedTachoIndex, ref running);
                 }
 
                 if (NativeMethods.IsKeyJustPressed(NativeMethods.VK_F9, ref f9Prev))
@@ -108,6 +111,7 @@ internal static class Program
                         cfg.BlueButtonY = pt.Y;
                         cfg.Save();
                         ResetDetectors(detectors);
+                        expectedTachoIndex = 0;
                         Console.WriteLine($"[Kalibrierung] Blauer Schild-Button gesetzt auf: ({pt.X}, {pt.Y})");
                         TryAutoStart(cfg, ref running);
                     }
@@ -121,6 +125,7 @@ internal static class Program
                         cfg.GreenButtonY = pt.Y;
                         cfg.Save();
                         ResetDetectors(detectors);
+                        expectedTachoIndex = 0;
                         Console.WriteLine($"[Kalibrierung] Gruener Schwerter-Button gesetzt auf: ({pt.X}, {pt.Y})");
                         TryAutoStart(cfg, ref running);
                     }
@@ -136,9 +141,10 @@ internal static class Program
                     {
                         running = !running;
                         ResetDetectors(detectors);
+                        expectedTachoIndex = 0;
                         overlay?.EnsureVisibleOnTop();
                         Console.WriteLine(running
-                            ? $"[Status] AKTIV ({cfg.ActiveProfile}er-Modus) - Ueberwache Tachos mit 10°-Hochrechnung..."
+                            ? $"[Status] AKTIV ({cfg.ActiveProfile}er-Modus) - Starte sequenziell bei Tacho 1..."
                             : "[Status] PAUSIERT.");
                     }
                 }
@@ -179,61 +185,90 @@ internal static class Program
                 }
 
                 var activeTachos = cfg.GetActiveTachos();
+                if (expectedTachoIndex >= activeTachos.Count)
+                    expectedTachoIndex = 0;
+
                 bool anyArmed = false;
 
                 if (running && cfg.IsCalibrated)
                 {
+                    // 1. Nicht-blockierende Nach-Klick-Farbmessung (30..165 ms) fuer bereits geklickte Tachos ausfuehren
                     for (int i = 0; i < activeTachos.Count; i++)
                     {
-                        double clickOffsetMs = cfg.GetClickOffsetMsForTacho(i);
-                        bool triggered = detectors[i].Update(activeTachos[i].X, activeTachos[i].Y, clickOffsetMs, cfg);
-
-                        if (detectors[i].JustArmed)
+                        if (i == expectedTachoIndex) continue;
+                        if (detectors[i].State == DetectorState.AwaitFeedback || detectors[i].State == DetectorState.Cooldown)
                         {
-                            // Maus sofort auf den Ziel-Button vorpositionieren
-                            bool isLast = i == activeTachos.Count - 1;
-                            int targetX = isLast ? cfg.GreenButtonX : cfg.BlueButtonX;
-                            int targetY = isLast ? cfg.GreenButtonY : cfg.BlueButtonY;
-                            NativeMethods.SetCursorPos(targetX, targetY);
-                        }
-
-                        if (detectors[i].State == DetectorState.Armed)
-                            anyArmed = true;
-
-                        if (triggered)
-                        {
-                            // 1. Exakt zum hochgerechneten Zeitpunkt Button betaetigen
-                            TriggerClick(i, activeTachos.Count, detectors[i], cfg);
-
-                            // 2. Exakt 200 ms nach dem Klick die Tacho-Farbe (Blau / Gruen / Rot / Weiss) messen
-                            TachoFeedback fb = detectors[i].MeasureFeedbackRightAfterClick(
-                                activeTachos[i].X, activeTachos[i].Y, cfg);
-
-                            // 3. Sofort den Zeit-Vorlauf (ClickOffsetMs) dieses Tachos anpassen
-                            HandleTachoFeedback(i, fb, detectors[i], cfg);
-
-                            // 4. Live-Inspektor sofort mit +200 ms Bild & neuem Offset aktualisieren
-                            if (overlay != null)
+                            detectors[i].PollPostClickFeedback(activeTachos[i].X, activeTachos[i].Y, cfg);
+                            if (detectors[i].ConsumeFeedback(out TachoFeedback fb))
                             {
-                                lastOverlayUpdate = DateTime.UtcNow;
-                                overlay.UpdateSnapshot(BuildOverlaySnapshot(cfg, detectors, running));
+                                HandleTachoFeedback(i, fb, detectors[i], cfg);
+                                if (overlay != null)
+                                {
+                                    lastOverlayUpdate = DateTime.UtcNow;
+                                    overlay.UpdateSnapshot(BuildOverlaySnapshot(cfg, detectors, expectedTachoIndex, running));
+                                }
                             }
+                        }
+                    }
 
-                            anyArmed = false;
-                            break;
+                    // 2. Aktuell erwarteten Tacho in strenger Reihenfolge (Tacho 1 -> Tacho 2 -> Tacho 3 -> Tacho 1) scannen
+                    int cur = expectedTachoIndex;
+                    double clickOffsetMs = cfg.GetClickOffsetMsForTacho(cur);
+                    bool triggered = detectors[cur].Update(activeTachos[cur].X, activeTachos[cur].Y, clickOffsetMs, cfg);
+
+                    if (detectors[cur].ConsumeFeedback(out TachoFeedback curFb))
+                    {
+                        HandleTachoFeedback(cur, curFb, detectors[cur], cfg);
+                    }
+
+                    if (detectors[cur].JustArmed)
+                    {
+                        // Maus sofort auf den Ziel-Button dieses Tachos vorpositionieren
+                        bool isLast = cur == activeTachos.Count - 1;
+                        int targetX = isLast ? cfg.GreenButtonX : cfg.BlueButtonX;
+                        int targetY = isLast ? cfg.GreenButtonY : cfg.BlueButtonY;
+                        NativeMethods.SetCursorPos(targetX, targetY);
+                    }
+
+                    if (detectors[cur].State == DetectorState.Armed)
+                        anyArmed = true;
+
+                    if (triggered)
+                    {
+                        // Klick sofort ausfuehren
+                        TriggerClick(cur, activeTachos.Count, detectors[cur], cfg);
+
+                        // Nach-Klick-Farbmessung (30..165 ms) nicht-blockierend starten
+                        detectors[cur].StartPostClickFeedback(cfg);
+                        lastClickUtc = DateTime.UtcNow;
+
+                        // Sofort zum naechsten Tacho in der Sequenz wechseln (T1 -> T2 -> (T3) -> T1), ohne Tacho 2 zu blockieren!
+                        expectedTachoIndex = (cur + 1) % activeTachos.Count;
+                        detectors[expectedTachoIndex].Reset();
+                        anyArmed = false;
+                    }
+                    else if (cur > 0 &&
+                             detectors[cur].State == DetectorState.WaitingForBlueZone &&
+                             detectors[0].State == DetectorState.WaitingForBlueZone &&
+                             (DateTime.UtcNow - lastClickUtc).TotalMilliseconds >= 1200.0)
+                    {
+                        // Auto-Resync: Falls ein Kampf vorzeitig endet und nach >1.2 s direkt wieder Tacho 1 erscheint
+                        detectors[0].Update(activeTachos[0].X, activeTachos[0].Y, cfg.GetClickOffsetMsForTacho(0), cfg);
+                        if (detectors[0].State == DetectorState.Armed)
+                        {
+                            Console.WriteLine("[Sequenz] Neuer Durchgang erkannt -> springe zurueck auf Tacho 1.");
+                            expectedTachoIndex = 0;
+                            anyArmed = true;
+                            NativeMethods.SetCursorPos(cfg.BlueButtonX, cfg.BlueButtonY);
                         }
                     }
 
                     if (debugMode && (DateTime.UtcNow - lastDebugPrint).TotalMilliseconds >= 200)
                     {
                         lastDebugPrint = DateTime.UtcNow;
-                        var parts = new string[activeTachos.Count];
-                        for (int i = 0; i < activeTachos.Count; i++)
-                        {
-                            var d = detectors[i];
-                            parts[i] = $"T{i + 1}[{d.State}, G={d.LastBlueCount}, Rem={d.LastRemainingDeg:F0}°, n={d.LastCheckpointCount}, v={d.LastSpeedDegPerSec:F0}°/s]";
-                        }
-                        Console.WriteLine(string.Join(" | ", parts));
+                        var d = detectors[expectedTachoIndex];
+                        Console.WriteLine(
+                            $"Erwarte T{expectedTachoIndex + 1}/{activeTachos.Count} | State={d.State} | G={d.LastBlueCount} | Rem={d.LastRemainingDeg:F0}° | n={d.LastCheckpointCount} | v={d.LastSpeedDegPerSec:F0}°/s");
                     }
 
                     Thread.Sleep(anyArmed ? 1 : Math.Max(1, cfg.PollIntervalMs));
@@ -254,7 +289,7 @@ internal static class Program
                 if (overlay != null && !anyArmed && (DateTime.UtcNow - lastOverlayUpdate).TotalMilliseconds >= 80)
                 {
                     lastOverlayUpdate = DateTime.UtcNow;
-                    overlay.UpdateSnapshot(BuildOverlaySnapshot(cfg, detectors, running));
+                    overlay.UpdateSnapshot(BuildOverlaySnapshot(cfg, detectors, expectedTachoIndex, running));
                 }
             }
         }
@@ -269,7 +304,7 @@ internal static class Program
         }
     }
 
-    private static OverlaySnapshot BuildOverlaySnapshot(AppConfig cfg, TachoDetector[] detectors, bool running)
+    private static OverlaySnapshot BuildOverlaySnapshot(AppConfig cfg, TachoDetector[] detectors, int expectedIdx, bool running)
     {
         var tachos = cfg.GetActiveTachos();
         var items = new List<TachoOverlayItem>(tachos.Count);
@@ -302,6 +337,7 @@ internal static class Program
         {
             Running = running,
             ActiveProfile = cfg.ActiveProfile,
+            ExpectedTachoIndex = expectedIdx,
             BlueButtonPreview = CaptureSmallPreview(cfg.BlueButtonX, cfg.BlueButtonY, 70),
             GreenButtonPreview = CaptureSmallPreview(cfg.GreenButtonX, cfg.GreenButtonY, 70),
             Tachos = items
@@ -331,7 +367,7 @@ internal static class Program
                 detector.LastCorrectionDeltaMs = deltaMs;
                 double updated = cfg.AdjustTachoClickOffsetMs(tachoIndex, deltaMs);
                 cfg.Save();
-                Console.WriteLine($"[200ms-Farbe Tacho {tachoIndex + 1}] >>> ROT (ZU SPAET!) <<< {counts} -> Zeit-Vorlauf T{tachoIndex + 1} +{deltaMs:F1} ms auf {updated:F1} ms");
+                Console.WriteLine($"[Nach-Klick-Farbe Tacho {tachoIndex + 1}] >>> ROT (ZU SPAET!) <<< {counts} -> Zeit-Vorlauf T{tachoIndex + 1} +{deltaMs:F1} ms auf {updated:F1} ms");
                 break;
             }
             case TachoFeedback.TooEarlyGreen:
@@ -340,14 +376,14 @@ internal static class Program
                 detector.LastCorrectionDeltaMs = deltaMs;
                 double updated = cfg.AdjustTachoClickOffsetMs(tachoIndex, deltaMs);
                 cfg.Save();
-                Console.WriteLine($"[200ms-Farbe Tacho {tachoIndex + 1}] >>> GRUEN (ETWAS FRUEH) <<< {counts} -> Zeit-Vorlauf T{tachoIndex + 1} {deltaMs:F1} ms auf {updated:F1} ms");
+                Console.WriteLine($"[Nach-Klick-Farbe Tacho {tachoIndex + 1}] >>> GRUEN (ETWAS FRUEH) <<< {counts} -> Zeit-Vorlauf T{tachoIndex + 1} {deltaMs:F1} ms auf {updated:F1} ms");
                 break;
             }
             case TachoFeedback.OptimalBlue:
             {
                 detector.LastCorrectionDeltaMs = 0.0;
                 double current = cfg.GetClickOffsetMsForTacho(tachoIndex);
-                Console.WriteLine($"[200ms-Farbe Tacho {tachoIndex + 1}] >>> BLAU (OPTIMAL!) <<< {counts} -> Zeit-Vorlauf T{tachoIndex + 1} ({current:F1} ms) bleibt unveraendert.");
+                Console.WriteLine($"[Nach-Klick-Farbe Tacho {tachoIndex + 1}] >>> BLAU (OPTIMAL!) <<< {counts} -> Zeit-Vorlauf T{tachoIndex + 1} ({current:F1} ms) bleibt unveraendert.");
                 break;
             }
             case TachoFeedback.WayTooEarlyWhite:
@@ -355,12 +391,7 @@ internal static class Program
                 detector.LastCorrectionDeltaMs = 0.0;
                 double resetVal = cfg.ResetTachoClickOffsetToDefault(tachoIndex);
                 cfg.Save();
-                Console.WriteLine($"[200ms-Farbe Tacho {tachoIndex + 1}] >>> WEISS (VIEL ZU FRUEH!) <<< {counts} -> Zeit-Vorlauf T{tachoIndex + 1} auf Startwert {resetVal:F1} ms zurueckgesetzt!");
-                break;
-            }
-            default:
-            {
-                Console.WriteLine($"[200ms-Farbe Tacho {tachoIndex + 1}] Keine eindeutige Farbe erkannt {counts}.");
+                Console.WriteLine($"[Nach-Klick-Farbe Tacho {tachoIndex + 1}] >>> WEISS (VIEL ZU FRUEH!) <<< {counts} -> Zeit-Vorlauf T{tachoIndex + 1} auf Startwert {resetVal:F1} ms zurueckgesetzt!");
                 break;
             }
         }
@@ -383,19 +414,22 @@ internal static class Program
         if (cfg.IsCalibrated && !running)
         {
             running = true;
-            Console.WriteLine($"[Status] AKTIV ({cfg.ActiveProfile}er-Modus) - Ueberwache Tachos...");
+            Console.WriteLine($"[Status] AKTIV ({cfg.ActiveProfile}er-Modus) - Starte sequenziell bei Tacho 1...");
         }
     }
 
-    private static void SwitchProfile(AppConfig cfg, TachoDetector[] detectors, int profile, ref int nextTachoIndex, ref bool running)
+    private static void SwitchProfile(
+        AppConfig cfg, TachoDetector[] detectors, int profile,
+        ref int nextTachoIndex, ref int expectedTachoIndex, ref bool running)
     {
         cfg.ActiveProfile = profile;
         cfg.Save();
         nextTachoIndex = 0;
+        expectedTachoIndex = 0;
         ResetDetectors(detectors);
 
         var tachos = cfg.GetActiveTachos();
-        Console.WriteLine($"[Modus] Umgeschaltet auf {profile}er-Konfiguration ({tachos.Count} Tachos).");
+        Console.WriteLine($"[Modus] Umgeschaltet auf {profile}er-Konfiguration ({tachos.Count} Tachos, sequenziell).");
 
         for (int i = 0; i < tachos.Count; i++)
         {
@@ -420,15 +454,15 @@ internal static class Program
     {
         var tachos = cfg.GetActiveTachos();
         Console.WriteLine("=================================================================");
-        Console.WriteLine("  TachoClicker - 10°-Hochrechnung + 200ms Farb-Tuning");
+        Console.WriteLine("  TachoClicker - Sequenziell + 10°-Hochrechnung");
         Console.WriteLine("=================================================================");
         Console.WriteLine("Hotkeys:");
-        Console.WriteLine("  F2         : Auf 2er-Konfiguration umschalten (T1=Blau, T2=Gruen)");
-        Console.WriteLine("  F3         : Auf 3er-Konfiguration umschalten (T1=Blau, T2=Blau, T3=Gruen)");
+        Console.WriteLine("  F2         : Auf 2er-Konfiguration umschalten (T1=Blau -> T2=Gruen)");
+        Console.WriteLine("  F3         : Auf 3er-Konfiguration umschalten (T1=Blau -> T2=Blau -> T3=Gruen)");
         Console.WriteLine("  F9         : Naechste Tacho-Mitte speichern (zyklisch Tacho 1..N)");
         Console.WriteLine("  F10        : Blauen Schild-Button speichern (+ Auto-Start)");
         Console.WriteLine("  F6         : Gruenen Schwerter-Button speichern (+ Auto-Start)");
-        Console.WriteLine("  F8         : Automatik Start / Pause");
+        Console.WriteLine("  F8         : Automatik Start / Pause (startet immer bei Tacho 1)");
         Console.WriteLine("  F7         : Debug-Ausgabe An / Aus");
         Console.WriteLine("  +/-        : Zeit-Vorlauf Tacho 1 manuell +/- 2 ms");
         Console.WriteLine("  BildAuf/Ab : Zeit-Vorlauf Tacho 2 manuell +/- 2 ms");

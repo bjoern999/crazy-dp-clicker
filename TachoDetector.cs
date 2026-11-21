@@ -8,6 +8,7 @@ internal enum DetectorState
 {
     WaitingForBlueZone,
     Armed,
+    AwaitFeedback,
     Cooldown
 }
 
@@ -51,16 +52,25 @@ internal sealed class TachoDetector : IDisposable
 
     public double LastSpeedDegPerSec { get; private set; }
     public int LastCheckpointCount => _checkpoints.Count;
-    public double LastPredictedTimeToEndMs { get; private set; } = -1;
 
+    private TachoFeedback _pendingFeedback = TachoFeedback.None;
     private readonly List<AngleCheckpoint> _checkpoints = new(32);
     private double _nextCheckpointDeg = -1;
     private double _greenEndDeg;
+    private int _greenStableFrames;
     private bool _greenEndLocked;
     private double _prevRemainingDeg = 360.0;
     private int _zeroGreenFrames;
     private DateTime _armedSince = DateTime.MinValue;
+    private DateTime _clickTime = DateTime.MinValue;
+    private DateTime _lastFeedbackSample = DateTime.MinValue;
     private DateTime _cooldownUntil = DateTime.MinValue;
+
+    private int _peakRed;
+    private int _peakGreen;
+    private int _peakBlue;
+    private int _peakWhite;
+    private int _bestFlashScore;
 
     private static double NowMs() => Stopwatch.GetTimestamp() * 1000.0 / Stopwatch.Frequency;
 
@@ -75,22 +85,218 @@ internal sealed class TachoDetector : IDisposable
         JustArmed = false;
         _zeroGreenFrames = 0;
         _prevRemainingDeg = 360.0;
+        _greenStableFrames = 0;
         _greenEndLocked = false;
         _checkpoints.Clear();
         _nextCheckpointDeg = -1;
-        LastPredictedTimeToEndMs = -1;
+        _pendingFeedback = TachoFeedback.None;
+    }
+
+    public bool ConsumeFeedback(out TachoFeedback feedback)
+    {
+        if (_pendingFeedback != TachoFeedback.None)
+        {
+            feedback = _pendingFeedback;
+            _pendingFeedback = TachoFeedback.None;
+            return true;
+        }
+        feedback = TachoFeedback.None;
+        return false;
+    }
+
+    public void StartPostClickFeedback(AppConfig cfg)
+    {
+        State = DetectorState.AwaitFeedback;
+        _clickTime = DateTime.UtcNow;
+        _lastFeedbackSample = DateTime.MinValue;
+        _cooldownUntil = _clickTime.AddMilliseconds(cfg.CooldownMs);
+        _peakRed = 0;
+        _peakGreen = 0;
+        _peakBlue = 0;
+        _peakWhite = 0;
+        _bestFlashScore = 0;
+    }
+
+    /// <summary>
+    /// Non-blocking post-click color feedback check (30 ms .. 165 ms after click).
+    /// Catches even very short flashes on Tacho 2 without blocking the next Tacho!
+    /// </summary>
+    public void PollPostClickFeedback(int centerX, int centerY, AppConfig cfg)
+    {
+        if (State == DetectorState.Cooldown)
+        {
+            if (DateTime.UtcNow >= _cooldownUntil)
+                Reset();
+            return;
+        }
+
+        if (State != DetectorState.AwaitFeedback || centerX <= 0 || centerY <= 0)
+            return;
+
+        var now = DateTime.UtcNow;
+        double elapsedMs = (now - _clickTime).TotalMilliseconds;
+
+        // Wait 30 ms after ClickAt so the game renders the first post-click flash frame
+        if (elapsedMs < 30.0)
+            return;
+
+        if (elapsedMs > 165.0)
+        {
+            FinalizeFeedback();
+            State = DetectorState.Cooldown;
+            return;
+        }
+
+        if ((now - _lastFeedbackSample).TotalMilliseconds < 10.0)
+            return;
+        _lastFeedbackSample = now;
+
+        EnsureBitmap(cfg.TachoBoxSize);
+
+        int half = _size / 2;
+        int left = Math.Max(0, centerX - half);
+        int top = Math.Max(0, centerY - half);
+
+        double minR = _size * 0.12;
+        double maxR = _size * 0.47;
+        double minRSq = minR * minR;
+        double maxRSq = maxR * maxR;
+
+        _graphics!.CopyFromScreen(left, top, 0, 0, new Size(_size, _size), CopyPixelOperation.SourceCopy);
+
+        var rect = new Rectangle(0, 0, _size, _size);
+        BitmapData data = _bitmap!.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+
+        int leftRed = 0;
+        int leftGreen = 0;
+        int leftBlue = 0;
+        int totalGreen = 0;
+        int totalWhite = 0;
+        int rightWhite = 0;
+
+        try
+        {
+            unsafe
+            {
+                byte* ptr = (byte*)data.Scan0;
+                int stride = data.Stride;
+
+                for (int y = 0; y < _size; y++)
+                {
+                    byte* row = ptr + (y * stride);
+                    double dy = y - half;
+                    double dySq = dy * dy;
+
+                    for (int x = 0; x < _size; x++)
+                    {
+                        double dx = x - half;
+                        double distSq = dx * dx + dySq;
+                        if (distSq < minRSq || distSq > maxRSq)
+                            continue;
+
+                        byte b = row[x * 4 + 0];
+                        byte g = row[x * 4 + 1];
+                        byte r = row[x * 4 + 2];
+
+                        if (IsTachoWhite(r, g, b))
+                        {
+                            totalWhite++;
+                            if (dx > 6) rightWhite++;
+                            continue;
+                        }
+
+                        if (IsFeedbackRed(r, g, b))
+                        {
+                            if (dx < -4) leftRed++;
+                        }
+                        else if (IsFeedbackGreen(r, g, b))
+                        {
+                            totalGreen++;
+                            if (dx < -4) leftGreen++;
+                        }
+                        else if (IsFeedbackBlue(r, g, b))
+                        {
+                            if (dx < -4) leftBlue++;
+                        }
+                    }
+                }
+            }
+        }
+        finally
+        {
+            _bitmap.UnlockBits(data);
+        }
+
+        // Before the click, the left half (dx < -4) is 100% WHITE (0 Red, 0 Green, 0 Blue).
+        // When the whole Tacho flashes its result color, the left half immediately turns Red, Green, or Blue!
+        // For White (way too early), the whole ring jumps to white (right half white, green gone).
+        int fullWhiteScore = (totalGreen < 12 && rightWhite >= 40 && totalWhite >= 120) ? totalWhite / 2 : 0;
+
+        if (leftRed > _peakRed) _peakRed = leftRed;
+        if (leftGreen > _peakGreen) _peakGreen = leftGreen;
+        if (leftBlue > _peakBlue) _peakBlue = leftBlue;
+        if (fullWhiteScore > _peakWhite) _peakWhite = fullWhiteScore;
+
+        int colorScore = Math.Max(leftRed, Math.Max(leftGreen, leftBlue));
+        int frameScore = Math.Max(colorScore, fullWhiteScore);
+
+        if (frameScore > _bestFlashScore && frameScore >= 25)
+        {
+            _bestFlashScore = frameScore;
+            _flashSnapshot?.Dispose();
+            _flashSnapshot = (Bitmap)_bitmap.Clone();
+            using var g = Graphics.FromImage(_flashSnapshot);
+            int minRi = (int)minR;
+            int maxRi = (int)maxR;
+            using var ringPen = new Pen(Color.FromArgb(140, 255, 255, 0), 1);
+            g.DrawEllipse(ringPen, half - minRi, half - minRi, minRi * 2, minRi * 2);
+            g.DrawEllipse(ringPen, half - maxRi, half - maxRi, maxRi * 2, maxRi * 2);
+        }
+
+        // If we already captured a clear color flash (>= 60 px on the left ring half) and it started fading, finish immediately
+        if (elapsedMs >= 75.0 && _bestFlashScore >= 60 && frameScore < _bestFlashScore / 2)
+        {
+            FinalizeFeedback();
+            State = DetectorState.Cooldown;
+        }
+    }
+
+    private void FinalizeFeedback()
+    {
+        LastPeakRed = _peakRed;
+        LastPeakGreen = _peakGreen;
+        LastPeakBlue = _peakBlue;
+        LastPeakWhite = _peakWhite;
+
+        int maxColor = Math.Max(_peakRed, Math.Max(_peakGreen, _peakBlue));
+        if (maxColor >= 25)
+        {
+            if (_peakBlue == maxColor)
+                _pendingFeedback = TachoFeedback.OptimalBlue;
+            else if (_peakGreen == maxColor)
+                _pendingFeedback = TachoFeedback.TooEarlyGreen;
+            else
+                _pendingFeedback = TachoFeedback.TooLateRed;
+
+            LastFeedback = _pendingFeedback;
+            return;
+        }
+
+        if (_peakWhite >= 60)
+        {
+            _pendingFeedback = TachoFeedback.WayTooEarlyWhite;
+            LastFeedback = _pendingFeedback;
+        }
     }
 
     public bool Update(int centerX, int centerY, double clickOffsetMs, AppConfig cfg)
     {
         JustArmed = false;
 
-        if (State == DetectorState.Cooldown)
+        if (State == DetectorState.AwaitFeedback || State == DetectorState.Cooldown)
         {
-            if (DateTime.UtcNow < _cooldownUntil)
-                return false;
-
-            Reset();
+            PollPostClickFeedback(centerX, centerY, cfg);
+            return false;
         }
 
         if (centerX <= 0 || centerY <= 0)
@@ -119,10 +325,11 @@ internal sealed class TachoDetector : IDisposable
 
         double greenSinSum = 0;
         double greenCosSum = 0;
-        double minRemainingDeg = 360.0;
 
         Span<int> greenAngleBins = stackalloc int[360];
+        Span<int> whiteAngleBins = stackalloc int[360];
         greenAngleBins.Clear();
+        whiteAngleBins.Clear();
 
         try
         {
@@ -179,21 +386,10 @@ internal sealed class TachoDetector : IDisposable
                             whiteCount++;
                             if (dy > 15) bottomWhiteCount++;
 
-                            if (State == DetectorState.Armed)
-                            {
-                                double whiteDeg = Math.Atan2(dy, dx) * (180.0 / Math.PI);
-                                if (whiteDeg < 0) whiteDeg += 360.0;
-
-                                // Counter-clockwise in screen coords = decreasing angle toward _greenEndDeg
-                                double rem = (whiteDeg - _greenEndDeg + 360.0) % 360.0;
-                                if (rem >= 342.0 && _prevRemainingDeg < 55.0)
-                                    rem -= 360.0;
-
-                                if (rem < minRemainingDeg)
-                                {
-                                    minRemainingDeg = rem;
-                                }
-                            }
+                            double deg = Math.Atan2(dy, dx) * (180.0 / Math.PI);
+                            if (deg < 0) deg += 360.0;
+                            int bin = ((int)Math.Round(deg)) % 360;
+                            whiteAngleBins[bin]++;
                         }
                     }
                 }
@@ -214,6 +410,7 @@ internal sealed class TachoDetector : IDisposable
             if (greenCount >= minGreen && TryComputeGreenEndDeg(greenSinSum, greenCosSum, greenAngleBins, out double endDeg))
             {
                 _greenEndDeg = endDeg;
+                _greenStableFrames = 1;
                 _greenEndLocked = false;
                 _zeroGreenFrames = 0;
                 _prevRemainingDeg = 360.0;
@@ -221,7 +418,6 @@ internal sealed class TachoDetector : IDisposable
                 _checkpoints.Clear();
                 _nextCheckpointDeg = -1;
                 LastSpeedDegPerSec = 0;
-                LastPredictedTimeToEndMs = -1;
                 _flashSnapshot?.Dispose();
                 _flashSnapshot = null;
                 State = DetectorState.Armed;
@@ -230,14 +426,16 @@ internal sealed class TachoDetector : IDisposable
             return false;
         }
 
-        // State == Armed: refine _greenEndDeg briefly before locking it so all 10° checkpoints share one exact reference
+        // State == Armed: refine _greenEndDeg for the first 3 frames so pop-in animation is complete before locking it
         if (greenCount >= minGreen)
         {
             _zeroGreenFrames = 0;
-            if (!_greenEndLocked && _checkpoints.Count == 0 &&
-                TryComputeGreenEndDeg(greenSinSum, greenCosSum, greenAngleBins, out double updatedEndDeg))
+            if (!_greenEndLocked && TryComputeGreenEndDeg(greenSinSum, greenCosSum, greenAngleBins, out double updatedEndDeg))
             {
                 _greenEndDeg = updatedEndDeg;
+                _greenStableFrames++;
+                if (_greenStableFrames >= 3)
+                    _greenEndLocked = true;
             }
         }
         else
@@ -245,29 +443,28 @@ internal sealed class TachoDetector : IDisposable
             _zeroGreenFrames++;
         }
 
+        // Compute noise-free leading front edge of the white progress bar using whiteAngleBins (>= 4 px per degree bin)
+        double minRemainingDeg = FindWhiteFrontRemainingDeg(_greenEndDeg, whiteAngleBins, _prevRemainingDeg);
         LastRemainingDeg = minRemainingDeg;
 
-        // 1. Record a timestamped checkpoint every CheckpointStepDeg (default 10°) as the white front moves counter-clockwise
+        // 1. Record timestamped checkpoints every CheckpointStepDeg (default 10°)
         double stepDeg = Math.Clamp(cfg.CheckpointStepDeg, 5.0, 20.0);
-        if (whiteCount >= 12 && minRemainingDeg < 275.0 && minRemainingDeg > 2.0)
+        if (_greenEndLocked && whiteCount >= 15 && minRemainingDeg < 280.0 && minRemainingDeg > 2.0)
         {
             if (_nextCheckpointDeg < 0)
             {
-                // Lock _greenEndDeg once we start collecting 10° checkpoints
-                _greenEndLocked = true;
                 _checkpoints.Add(new AngleCheckpoint { TimeMs = captureTimeMs, RemainingDeg = minRemainingDeg });
                 _nextCheckpointDeg = Math.Floor(minRemainingDeg / stepDeg) * stepDeg - stepDeg;
             }
             else if (minRemainingDeg <= _nextCheckpointDeg)
             {
-                // Only accept monotonically decreasing angles with realistic speed (not glitches)
                 var last = _checkpoints[_checkpoints.Count - 1];
                 double dt = captureTimeMs - last.TimeMs;
                 double dDeg = last.RemainingDeg - minRemainingDeg;
                 if (dt >= 4.0 && dDeg >= 3.0)
                 {
                     double instSpeed = dDeg / dt;
-                    if (instSpeed >= 0.08 && instSpeed <= 2.2)
+                    if (instSpeed >= 0.08 && instSpeed <= 2.4)
                     {
                         _checkpoints.Add(new AngleCheckpoint { TimeMs = captureTimeMs, RemainingDeg = minRemainingDeg });
                     }
@@ -284,31 +481,23 @@ internal sealed class TachoDetector : IDisposable
         {
             LastSpeedDegPerSec = speedDegPerMs * 1000.0;
             double now = NowMs();
-            double timeToEndMs = predictedZeroTimeMs - now;
-            LastPredictedTimeToEndMs = timeToEndMs;
-
             double clickTargetTimeMs = predictedZeroTimeMs - clickOffsetMs;
             double waitMs = clickTargetTimeMs - now;
 
-            // Once we are within <= 26 ms of the exact extrapolated click moment (and close to the green zone),
-            // stop waiting for another 60 Hz monitor frame and sleep/spin with sub-ms Stopwatch precision!
-            if (minRemainingDeg <= 75.0 && waitMs <= 26.0)
+            // Once we are within <= 26 ms of the exact extrapolated click moment, wait with sub-ms Stopwatch precision
+            if (minRemainingDeg <= 105.0 && waitMs <= 26.0)
             {
                 if (waitMs > 0.5)
                 {
                     PreciseWaitUntil(clickTargetTimeMs);
                 }
 
-                State = DetectorState.Cooldown;
-                _cooldownUntil = DateTime.UtcNow.AddMilliseconds(cfg.CooldownMs);
                 return true;
             }
         }
-        else if (whiteCount >= 20 && bottomWhiteCount >= 6 && minRemainingDeg <= 14.0)
+        else if (whiteCount >= 20 && bottomWhiteCount >= 6 && minRemainingDeg <= 16.0)
         {
-            // Safety fallback if too few checkpoints were seen before reaching the green zone
-            State = DetectorState.Cooldown;
-            _cooldownUntil = DateTime.UtcNow.AddMilliseconds(cfg.CooldownMs);
+            // Safety fallback if too few checkpoints were collected
             return true;
         }
 
@@ -323,9 +512,27 @@ internal sealed class TachoDetector : IDisposable
     }
 
     /// <summary>
-    /// Performs Ordinary Least Squares (linear regression) over the most recent 10°-checkpoints
-    /// to compute the exact angular speed (deg/ms) and exact Stopwatch timestamp when RemainingDeg == 0°.
+    /// Walks clockwise from greenEndDeg to find the exact noise-free leading edge of the white progress bar.
+    /// Requiring >= 4 white pixels in a 1° bin rejects all single-pixel noise and anti-aliasing artifacts.
     /// </summary>
+    private static double FindWhiteFrontRemainingDeg(double greenEndDeg, ReadOnlySpan<int> whiteBins, double prevRemainingDeg)
+    {
+        int endBin = ((int)Math.Round(greenEndDeg) % 360 + 360) % 360;
+        int startRem = prevRemainingDeg < 45.0 ? -15 : 0;
+
+        for (int minPx = 4; minPx >= 2; minPx -= 2)
+        {
+            for (int rem = startRem; rem <= 295; rem++)
+            {
+                int bin = (endBin + rem + 360) % 360;
+                if (whiteBins[bin] >= minPx)
+                    return rem;
+            }
+        }
+
+        return 360.0;
+    }
+
     private bool TryPredictArrivalTimeMs(out double zeroTimeMs, out double speedDegPerMs)
     {
         zeroTimeMs = 0;
@@ -335,7 +542,6 @@ internal sealed class TachoDetector : IDisposable
         if (total < 4)
             return false;
 
-        // Use up to the most recent 12 checkpoints (~120° of travel) for optimal smoothness & local accuracy
         int startIdx = Math.Max(0, total - 12);
         int n = total - startIdx;
         double t0 = _checkpoints[startIdx].TimeMs;
@@ -364,12 +570,11 @@ internal sealed class TachoDetector : IDisposable
         if (den <= 1e-6)
             return false;
 
-        double slope = num / den; // deg / ms (must be negative since RemainingDeg decreases)
-        if (slope >= -0.08 || slope <= -2.2)
+        double slope = num / den; // deg / ms (negative)
+        if (slope >= -0.08 || slope <= -2.4)
             return false;
 
         speedDegPerMs = -slope;
-        // y(x) = meanY + slope * (x - meanX) = 0  ==>  x_zero = meanX + meanY / speedDegPerMs
         double xZero = meanX + (meanY / speedDegPerMs);
         zeroTimeMs = t0 + xZero;
         return true;
@@ -390,121 +595,6 @@ internal sealed class TachoDetector : IDisposable
         }
     }
 
-    /// <summary>
-    /// Called ONLY immediately after the button click for this specific Tacho.
-    /// Waits exactly 200 ms (1/5 second) after the click, captures the Tacho once,
-    /// and determines which of the 4 feedback colors (Blue, Green, Red, White) dominates the ring.
-    /// </summary>
-    public TachoFeedback MeasureFeedbackRightAfterClick(int centerX, int centerY, AppConfig cfg)
-    {
-        EnsureBitmap(cfg.TachoBoxSize);
-
-        int half = _size / 2;
-        int left = Math.Max(0, centerX - half);
-        int top = Math.Max(0, centerY - half);
-
-        double minR = _size * 0.12;
-        double maxR = _size * 0.47;
-        double minRSq = minR * minR;
-        double maxRSq = maxR * maxR;
-
-        // Wait 1/5 second (200 ms) after the button click so the Tacho displays its result color
-        Thread.Sleep(200);
-
-        _graphics!.CopyFromScreen(left, top, 0, 0, new Size(_size, _size), CopyPixelOperation.SourceCopy);
-
-        var rect = new Rectangle(0, 0, _size, _size);
-        BitmapData data = _bitmap!.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
-
-        int redCount = 0;
-        int greenCount = 0;
-        int blueCount = 0;
-        int whiteCount = 0;
-
-        try
-        {
-            unsafe
-            {
-                byte* ptr = (byte*)data.Scan0;
-                int stride = data.Stride;
-
-                for (int y = 0; y < _size; y++)
-                {
-                    byte* row = ptr + (y * stride);
-                    double dy = y - half;
-                    double dySq = dy * dy;
-
-                    for (int x = 0; x < _size; x++)
-                    {
-                        double dx = x - half;
-                        double distSq = dx * dx + dySq;
-                        if (distSq < minRSq || distSq > maxRSq)
-                            continue;
-
-                        byte b = row[x * 4 + 0];
-                        byte g = row[x * 4 + 1];
-                        byte r = row[x * 4 + 2];
-
-                        if (IsTachoWhite(r, g, b))
-                        {
-                            whiteCount++;
-                        }
-                        else if (IsFeedbackRed(r, g, b))
-                        {
-                            redCount++;
-                        }
-                        else if (IsFeedbackGreen(r, g, b))
-                        {
-                            greenCount++;
-                        }
-                        else if (IsFeedbackBlue(r, g, b))
-                        {
-                            blueCount++;
-                        }
-                    }
-                }
-            }
-        }
-        finally
-        {
-            _bitmap.UnlockBits(data);
-        }
-
-        // Freeze this exact +200 ms snapshot for the Live-Inspektor
-        _flashSnapshot?.Dispose();
-        _flashSnapshot = (Bitmap)_bitmap.Clone();
-        using (var g = Graphics.FromImage(_flashSnapshot))
-        {
-            int minRi = (int)minR;
-            int maxRi = (int)maxR;
-            using var ringPen = new Pen(Color.FromArgb(140, 255, 255, 0), 1);
-            g.DrawEllipse(ringPen, half - minRi, half - minRi, minRi * 2, minRi * 2);
-            g.DrawEllipse(ringPen, half - maxRi, half - maxRi, maxRi * 2, maxRi * 2);
-        }
-
-        LastPeakRed = redCount;
-        LastPeakGreen = greenCount;
-        LastPeakBlue = blueCount;
-        LastPeakWhite = whiteCount;
-
-        int maxCount = Math.Max(Math.Max(redCount, greenCount), Math.Max(blueCount, whiteCount));
-        if (maxCount < 40)
-        {
-            return TachoFeedback.None;
-        }
-
-        if (blueCount == maxCount)
-            LastFeedback = TachoFeedback.OptimalBlue;
-        else if (greenCount == maxCount)
-            LastFeedback = TachoFeedback.TooEarlyGreen;
-        else if (redCount == maxCount)
-            LastFeedback = TachoFeedback.TooLateRed;
-        else
-            LastFeedback = TachoFeedback.WayTooEarlyWhite;
-
-        return LastFeedback;
-    }
-
     private static bool TryComputeGreenEndDeg(double sinSum, double cosSum, ReadOnlySpan<int> bins, out double endDeg)
     {
         double meanDeg = Math.Atan2(sinSum, cosSum) * (180.0 / Math.PI);
@@ -514,7 +604,6 @@ internal sealed class TachoDetector : IDisposable
         int minOffset = 0;
         bool found = false;
 
-        // First try >= 2 pixels per degree bin for noise rejection; fall back to >= 1 for ultra-narrow green zones
         for (int minBinCount = 2; minBinCount >= 1 && !found; minBinCount--)
         {
             for (int offset = -100; offset <= 20; offset++)
@@ -541,8 +630,7 @@ internal sealed class TachoDetector : IDisposable
 
     public Bitmap? CreateDiagnosticBitmap()
     {
-        // While in Cooldown right after a click, show the frozen +200 ms snapshot if captured!
-        if (State == DetectorState.Cooldown && _flashSnapshot != null)
+        if ((State == DetectorState.AwaitFeedback || State == DetectorState.Cooldown) && _flashSnapshot != null)
         {
             return (Bitmap)_flashSnapshot.Clone();
         }

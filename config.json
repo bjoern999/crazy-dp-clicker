@@ -4,34 +4,39 @@
     {
       "X": 1690,
       "Y": 1126,
-      "ClickOffsetMs": 25.0,
-      "DefaultClickOffsetMs": 25.0
+      "ClickOffsetMs": 57,
+      "DefaultClickOffsetMs": 25,
+      "IsSet": true
     },
     {
       "X": 1871,
       "Y": 1131,
-      "ClickOffsetMs": 25.0,
-      "DefaultClickOffsetMs": 25.0
+      "ClickOffsetMs": 65,
+      "DefaultClickOffsetMs": 25,
+      "IsSet": true
     }
   ],
   "Profile3": [
     {
       "X": 1688,
       "Y": 1131,
-      "ClickOffsetMs": 25.0,
-      "DefaultClickOffsetMs": 25.0
+      "ClickOffsetMs": 25,
+      "DefaultClickOffsetMs": 25,
+      "IsSet": true
     },
     {
       "X": 0,
       "Y": 0,
-      "ClickOffsetMs": 25.0,
-      "DefaultClickOffsetMs": 25.0
+      "ClickOffsetMs": 25,
+      "DefaultClickOffsetMs": 25,
+      "IsSet": false
     },
     {
       "X": 0,
       "Y": 0,
-      "ClickOffsetMs": 25.0,
-      "DefaultClickOffsetMs": 25.0
+      "ClickOffsetMs": 25,
+      "DefaultClickOffsetMs": 25,
+      "IsSet": false
     }
   ],
   "TachoBoxSize": 180,
@@ -42,6 +47,7 @@
   "PollIntervalMs": 2,
   "ClickHoldMs": 15,
   "CooldownMs": 700,
-  "CheckpointStepDeg": 10.0,
-  "MinGreenPixels": 6
+  "CheckpointStepDeg": 10,
+  "MinGreenPixels": 6,
+  "IsCalibrated": true
 }
