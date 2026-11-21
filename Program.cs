@@ -384,7 +384,7 @@ internal static class Program
         {
             string line =
                 $"{DateTime.Now:HH:mm:ss.fff} | CLICK | T{tachoIndex + 1}/{totalTachos} | " +
-                $"Reason={d.LastTriggerReason} | Speed={d.LastSpeedDegPerSec:F1}°/s | R2={d.LastRegressionR2:F4} | " +
+                $"Reason={d.LastTriggerReason} | Speed={d.LastSpeedDegPerSec:F1}°/s Accel={d.LastAccelDegPerSec2:F0}°/s2 | R2={d.LastRegressionR2:F4} | " +
                 $"RemAtTrig={d.LastRemDegAtTrigger:F1}° | WaitMs={d.LastWaitMsAtTrigger:F1} | " +
                 $"Offset={usedOffsetMs:F1}->{newOffsetMs:F1}ms | " +
                 $"GreenEnd={d.LastTargetEndDeg:F0}° Width={d.LastGreenWidthDeg:F0}° GreenPx={d.LastInitialGreenCount} BlueSliverPx={d.LastBlueSliverCount} | " +
@@ -417,7 +417,7 @@ internal static class Program
         {
             case TachoFeedback.TooLateRed:
             {
-                const double deltaMs = +3.0;
+                const double deltaMs = +2.0;
                 detector.LastCorrectionDeltaMs = deltaMs;
                 double updated = cfg.AdjustTachoClickOffsetMs(tachoIndex, deltaMs);
                 cfg.Save();
@@ -426,7 +426,7 @@ internal static class Program
             }
             case TachoFeedback.TooEarlyGreen:
             {
-                const double deltaMs = -1.0;
+                const double deltaMs = -0.5;
                 detector.LastCorrectionDeltaMs = deltaMs;
                 double updated = cfg.AdjustTachoClickOffsetMs(tachoIndex, deltaMs);
                 cfg.Save();

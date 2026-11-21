@@ -56,6 +56,7 @@ internal sealed class TachoDetector : IDisposable
     public double LastCorrectionDeltaMs { get; set; }
 
     public double LastSpeedDegPerSec { get; private set; }
+    public double LastAccelDegPerSec2 { get; private set; }
     public int LastCheckpointCount => _checkpoints.Count;
 
     // Telemetry fields for diagnosing timing precision
@@ -287,7 +288,10 @@ internal sealed class TachoDetector : IDisposable
 
         if (State == DetectorState.WaitingForBlueZone)
         {
-            if (greenCount >= minGreen && TryComputeGreenArc(greenSinSum, greenCosSum, greenAngleBins, out double endDeg, out double widthDeg))
+            // Reject full-screen green attack/victory effects (real Tacho green zone has Width <= 85° and GreenPx <= 2800)
+            if (greenCount >= minGreen && greenCount <= 2800 &&
+                TryComputeGreenArc(greenSinSum, greenCosSum, greenAngleBins, out double endDeg, out double widthDeg) &&
+                widthDeg <= 85.0)
             {
                 _greenEndDeg = endDeg;
                 LastGreenWidthDeg = widthDeg;
@@ -301,6 +305,7 @@ internal sealed class TachoDetector : IDisposable
                 _checkpoints.Clear();
                 _nextCheckpointDeg = -1;
                 LastSpeedDegPerSec = 0;
+                LastAccelDegPerSec2 = 0;
                 LastRegressionR2 = 0;
                 State = DetectorState.Armed;
                 JustArmed = true;
@@ -309,10 +314,12 @@ internal sealed class TachoDetector : IDisposable
         }
 
         // State == Armed: refine _greenEndDeg for the first 3 frames before locking it
-        if (greenCount >= minGreen)
+        if (greenCount >= minGreen && greenCount <= 2800)
         {
             _zeroGreenFrames = 0;
-            if (!_greenEndLocked && TryComputeGreenArc(greenSinSum, greenCosSum, greenAngleBins, out double updatedEndDeg, out double updatedWidthDeg))
+            if (!_greenEndLocked &&
+                TryComputeGreenArc(greenSinSum, greenCosSum, greenAngleBins, out double updatedEndDeg, out double updatedWidthDeg) &&
+                updatedWidthDeg <= 85.0)
             {
                 _greenEndDeg = updatedEndDeg;
                 LastGreenWidthDeg = updatedWidthDeg;
@@ -361,9 +368,12 @@ internal sealed class TachoDetector : IDisposable
         _prevRemainingDeg = minRemainingDeg;
 
         // 2. Extrapolate the exact arrival time at RemainingDeg = 0° (end of green / blue optimum)
-        if (bottomWhiteCount >= 6 && TryPredictArrivalTimeMs(out double predictedZeroTimeMs, out double speedDegPerMs, out double r2))
+        //    using Quadratic Regression (models ease-in acceleration r(t) = a*t^2 + b*t + c)
+        if (bottomWhiteCount >= 6 &&
+            TryPredictArrivalTimeMs(out double predictedZeroTimeMs, out double endSpeedDegPerSec, out double accelDegPerSec2, out double r2, out bool usedQuadratic))
         {
-            LastSpeedDegPerSec = speedDegPerMs * 1000.0;
+            LastSpeedDegPerSec = endSpeedDegPerSec;
+            LastAccelDegPerSec2 = accelDegPerSec2;
             LastRegressionR2 = r2;
             double now = NowMs();
             double clickTargetTimeMs = predictedZeroTimeMs - clickOffsetMs;
@@ -371,7 +381,7 @@ internal sealed class TachoDetector : IDisposable
 
             if (minRemainingDeg <= 105.0 && waitMs <= 26.0)
             {
-                LastTriggerReason = "REGRESSION";
+                LastTriggerReason = usedQuadratic ? "QUAD" : "LINEAR";
                 LastRemDegAtTrigger = minRemainingDeg;
                 LastWaitMsAtTrigger = waitMs;
 
@@ -385,7 +395,7 @@ internal sealed class TachoDetector : IDisposable
                 return true;
             }
         }
-        else if (whiteCount >= 20 && bottomWhiteCount >= 6 && minRemainingDeg <= 16.0)
+        else if (_checkpoints.Count >= 2 && whiteCount >= 20 && bottomWhiteCount >= 6 && minRemainingDeg <= 16.0)
         {
             LastTriggerReason = $"FALLBACK(n={_checkpoints.Count})";
             LastRemDegAtTrigger = minRemainingDeg;
@@ -625,17 +635,37 @@ internal sealed class TachoDetector : IDisposable
         return 360.0;
     }
 
-    private bool TryPredictArrivalTimeMs(out double zeroTimeMs, out double speedDegPerMs, out double rSquared)
+    /// <summary>
+    /// Fits a quadratic ease-in curve r(t) = a*t^2 + b*t + c over the most recent up to 14 checkpoints
+    /// (capturing constant angular acceleration) and solves for r(t_zero) = 0°.
+    /// Falls back cleanly to linear regression if fewer than 6 checkpoints exist or curvature is non-accelerating.
+    /// </summary>
+    private bool TryPredictArrivalTimeMs(
+        out double zeroTimeMs,
+        out double endSpeedDegPerSec,
+        out double accelDegPerSec2,
+        out double rSquared,
+        out bool usedQuadratic)
     {
         zeroTimeMs = 0;
-        speedDegPerMs = 0;
+        endSpeedDegPerSec = 0;
+        accelDegPerSec2 = 0;
         rSquared = 0;
+        usedQuadratic = false;
 
         int total = _checkpoints.Count;
         if (total < 4)
             return false;
 
-        int startIdx = Math.Max(0, total - 12);
+        // 1. Try Quadratic Regression when >= 6 checkpoints are available
+        if (total >= 6 && TryFitQuadratic(total, out zeroTimeMs, out endSpeedDegPerSec, out accelDegPerSec2, out rSquared))
+        {
+            usedQuadratic = true;
+            return true;
+        }
+
+        // 2. Fallback: Linear Regression over most recent up to 8 checkpoints
+        int startIdx = Math.Max(0, total - 8);
         int n = total - startIdx;
         double t0 = _checkpoints[startIdx].TimeMs;
 
@@ -665,7 +695,7 @@ internal sealed class TachoDetector : IDisposable
         if (den <= 1e-6)
             return false;
 
-        double slope = num / den;
+        double slope = num / den; // deg / ms (negative)
         if (slope >= -0.08 || slope <= -2.4)
             return false;
 
@@ -678,9 +708,149 @@ internal sealed class TachoDetector : IDisposable
         }
         rSquared = ssTot > 1e-6 ? Math.Max(0.0, 1.0 - (ssRes / ssTot)) : 0.0;
 
-        speedDegPerMs = -slope;
+        double speedDegPerMs = -slope;
+        endSpeedDegPerSec = speedDegPerMs * 1000.0;
+        accelDegPerSec2 = 0;
         double xZero = meanX + (meanY / speedDegPerMs);
         zeroTimeMs = t0 + xZero;
+        return true;
+    }
+
+    private bool TryFitQuadratic(
+        int total,
+        out double zeroTimeMs,
+        out double endSpeedDegPerSec,
+        out double accelDegPerSec2,
+        out double rSquared)
+    {
+        zeroTimeMs = 0;
+        endSpeedDegPerSec = 0;
+        accelDegPerSec2 = 0;
+        rSquared = 0;
+
+        int startIdx = Math.Max(0, total - 14);
+        int n = total - startIdx;
+        double t0 = _checkpoints[startIdx].TimeMs;
+
+        // Time x in seconds relative to t0 for clean numerical conditioning
+        double s0 = n, s1 = 0, s2 = 0, s3 = 0, s4 = 0;
+        double y0 = 0, y1 = 0, y2 = 0;
+
+        for (int i = startIdx; i < total; i++)
+        {
+            double x = (_checkpoints[i].TimeMs - t0) / 1000.0;
+            double y = _checkpoints[i].RemainingDeg;
+            double x2 = x * x;
+            s1 += x;
+            s2 += x2;
+            s3 += x2 * x;
+            s4 += x2 * x2;
+            y0 += y;
+            y1 += x * y;
+            y2 += x2 * y;
+        }
+
+        // Solve 3x3 normal equations via Gaussian elimination with partial pivoting
+        double[,] m =
+        {
+            { s0, s1, s2, y0 },
+            { s1, s2, s3, y1 },
+            { s2, s3, s4, y2 }
+        };
+
+        for (int col = 0; col < 3; col++)
+        {
+            int pivotRow = col;
+            for (int r = col + 1; r < 3; r++)
+            {
+                if (Math.Abs(m[r, col]) > Math.Abs(m[pivotRow, col]))
+                    pivotRow = r;
+            }
+
+            if (Math.Abs(m[pivotRow, col]) < 1e-9)
+                return false;
+
+            if (pivotRow != col)
+            {
+                for (int j = col; j < 4; j++)
+                    (m[col, j], m[pivotRow, j]) = (m[pivotRow, j], m[col, j]);
+            }
+
+            double piv = m[col, col];
+            for (int j = col; j < 4; j++)
+                m[col, j] /= piv;
+
+            for (int r = 0; r < 3; r++)
+            {
+                if (r == col) continue;
+                double factor = m[r, col];
+                for (int j = col; j < 4; j++)
+                    m[r, j] -= factor * m[col, j];
+            }
+        }
+
+        double c = m[0, 3];
+        double b = m[1, 3];
+        double a = m[2, 3];
+
+        // Require accelerating or near-linear decreasing curve (a <= +15 deg/s^2)
+        if (a > 15.0)
+            return false;
+
+        double xLast = (_checkpoints[total - 1].TimeMs - t0) / 1000.0;
+        double xZeroSec;
+
+        if (Math.Abs(a) < 1e-4)
+        {
+            if (b >= -80.0) return false;
+            xZeroSec = -c / b;
+        }
+        else
+        {
+            double disc = b * b - 4.0 * a * c;
+            if (disc < 0)
+                return false;
+
+            double sqrtDisc = Math.Sqrt(disc);
+            double root1 = (-b - sqrtDisc) / (2.0 * a);
+            double root2 = (-b + sqrtDisc) / (2.0 * a);
+
+            // Choose the root that lies right ahead of (or just near) xLast
+            bool r1Valid = root1 >= xLast - 0.05 && root1 <= xLast + 1.5;
+            bool r2Valid = root2 >= xLast - 0.05 && root2 <= xLast + 1.5;
+
+            if (r1Valid && r2Valid)
+                xZeroSec = Math.Min(root1, root2);
+            else if (r1Valid)
+                xZeroSec = root1;
+            else if (r2Valid)
+                xZeroSec = root2;
+            else
+                return false;
+        }
+
+        double endSpeed = -(b + 2.0 * a * xZeroSec);
+        if (endSpeed < 80.0 || endSpeed > 2400.0)
+            return false;
+
+        double meanY = y0 / n;
+        double ssTot = 0, ssRes = 0;
+        for (int i = startIdx; i < total; i++)
+        {
+            double x = (_checkpoints[i].TimeMs - t0) / 1000.0;
+            double y = _checkpoints[i].RemainingDeg;
+            double pred = c + b * x + a * x * x;
+            ssTot += (y - meanY) * (y - meanY);
+            ssRes += (y - pred) * (y - pred);
+        }
+
+        rSquared = ssTot > 1e-6 ? Math.Max(0.0, 1.0 - (ssRes / ssTot)) : 0.0;
+        if (rSquared < 0.96)
+            return false;
+
+        zeroTimeMs = t0 + xZeroSec * 1000.0;
+        endSpeedDegPerSec = endSpeed;
+        accelDegPerSec2 = -2.0 * a;
         return true;
     }
 

@@ -7,9 +7,9 @@ internal sealed class TachoPoint
     public int X { get; set; }
     public int Y { get; set; }
 
-    // Unabhaengiger Zeit-Vorlauf in Millisekunden (kompensiert Display- & Klick-Latenz)
-    public double ClickOffsetMs { get; set; } = 55.0;
-    public double DefaultClickOffsetMs { get; set; } = 55.0;
+    // Unabhaengiger Zeit-Vorlauf in Millisekunden (kalibriert fuer quadratische Regression)
+    public double ClickOffsetMs { get; set; } = 41.0;
+    public double DefaultClickOffsetMs { get; set; } = 41.0;
 
     public bool IsSet => X > 0 && Y > 0;
 }
@@ -21,15 +21,15 @@ internal sealed class AppConfig
 
     public List<TachoPoint> Profile2 { get; set; } = new()
     {
-        new TachoPoint { ClickOffsetMs = 55.0, DefaultClickOffsetMs = 55.0 },
-        new TachoPoint { ClickOffsetMs = 55.0, DefaultClickOffsetMs = 55.0 }
+        new TachoPoint { ClickOffsetMs = 41.0, DefaultClickOffsetMs = 41.0 },
+        new TachoPoint { ClickOffsetMs = 41.0, DefaultClickOffsetMs = 41.0 }
     };
 
     public List<TachoPoint> Profile3 { get; set; } = new()
     {
-        new TachoPoint { ClickOffsetMs = 55.0, DefaultClickOffsetMs = 55.0 },
-        new TachoPoint { ClickOffsetMs = 55.0, DefaultClickOffsetMs = 55.0 },
-        new TachoPoint { ClickOffsetMs = 55.0, DefaultClickOffsetMs = 55.0 }
+        new TachoPoint { ClickOffsetMs = 41.0, DefaultClickOffsetMs = 41.0 },
+        new TachoPoint { ClickOffsetMs = 41.0, DefaultClickOffsetMs = 41.0 },
+        new TachoPoint { ClickOffsetMs = 41.0, DefaultClickOffsetMs = 41.0 }
     };
 
     public int TachoBoxSize { get; set; } = 180;
@@ -41,7 +41,7 @@ internal sealed class AppConfig
     public int GreenButtonY { get; set; } = 0;
 
     public int PollIntervalMs { get; set; } = 2;
-    public int ClickHoldMs { get; set; } = 15;
+    public int ClickHoldMs { get; set; } = 10;
     public int CooldownMs { get; set; } = 450;
 
     // Abstand der Winkel-Messpunkte fuer die Geschwindigkeits-Hochrechnung
@@ -85,11 +85,11 @@ internal sealed class AppConfig
         var tachos = GetActiveTachos();
         if (index >= 0 && index < tachos.Count)
         {
-            double def = tachos[index].DefaultClickOffsetMs > 0 ? tachos[index].DefaultClickOffsetMs : 55.0;
+            double def = tachos[index].DefaultClickOffsetMs > 0 ? tachos[index].DefaultClickOffsetMs : 41.0;
             tachos[index].ClickOffsetMs = def;
             return def;
         }
-        return 55.0;
+        return 41.0;
     }
 
     public bool IsCalibrated
