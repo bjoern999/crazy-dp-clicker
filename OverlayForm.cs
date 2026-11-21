@@ -184,29 +184,30 @@ internal sealed class OverlayForm : Form
 
                 // Farbige Feedback-Box fuer die nach dem Klick erkannte Tacho-Farbe
                 int badgeY = y + tileSize + 68;
+                string allCounts = $"B={t.PeakBlue} G={t.PeakGreen} R={t.PeakRed} W={t.PeakWhite}";
                 var (badgeBrush, line1, line2) = t.LastFeedback switch
                 {
                     TachoFeedback.OptimalBlue => (
                         blueBadgeBg,
-                        "FARBE: BLAU (OPTIMAL)",
-                        $"Vorlauf ±0.0° (B={t.PeakBlue} R={t.PeakRed} G={t.PeakGreen})"),
+                        "200ms: BLAU (OPTIMAL)",
+                        $"±0.0° ({allCounts})"),
                     TachoFeedback.TooEarlyGreen => (
                         greenBadgeBg,
-                        "FARBE: GRUEN (FRUEH)",
-                        $"Vorlauf {t.LastDelta:+0.0;-0.0}° (G={t.PeakGreen} B={t.PeakBlue} R={t.PeakRed})"),
+                        "200ms: GRUEN (FRUEH)",
+                        $"{t.LastDelta:+0.0;-0.0}° ({allCounts})"),
                     TachoFeedback.TooLateRed => (
                         redBadgeBg,
-                        "FARBE: ROT (ZU SPAET!)",
-                        $"Vorlauf {t.LastDelta:+0.0;-0.0}° (R={t.PeakRed} G={t.PeakGreen} B={t.PeakBlue})"),
+                        "200ms: ROT (ZU SPAET!)",
+                        $"{t.LastDelta:+0.0;-0.0}° ({allCounts})"),
                     TachoFeedback.WayTooEarlyWhite => (
                         whiteBadgeBg,
-                        "FARBE: WEISS (VIEL ZU FRUEH)",
-                        $"Reset auf Startwert ({t.TachoLeadDeg:F1}° | W={t.PeakWhite})"),
+                        "200ms: WEISS (VIEL ZU FRUEH)",
+                        $"Reset->{t.TachoLeadDeg:F0}° ({allCounts})"),
                     _ => (
                         neutralBadgeBg,
-                        "FARBE NACH KLICK: -",
-                        t.PeakRed + t.PeakGreen + t.PeakBlue > 0
-                            ? $"Letzte Px: R={t.PeakRed} G={t.PeakGreen} B={t.PeakBlue}"
+                        "200ms NACH KLICK: -",
+                        t.PeakRed + t.PeakGreen + t.PeakBlue + t.PeakWhite > 0
+                            ? allCounts
                             : "Noch kein Klick ausgewertet")
                 };
 

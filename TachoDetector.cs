@@ -293,8 +293,8 @@ internal sealed class TachoDetector : IDisposable
 
     /// <summary>
     /// Called ONLY immediately after the button click for this specific Tacho.
-    /// Measures the brief full-tacho color flash (Blue = optimal, Green = slightly early, Red = too late)
-    /// over ~20..220 ms right after the click and freezes the peak flash image for the Live-Inspektor.
+    /// Waits exactly 200 ms (1/5 second) after the click, captures the Tacho once,
+    /// and determines which of the 4 feedback colors (Blue, Green, Red, White) dominates the ring.
     /// </summary>
     public TachoFeedback MeasureFeedbackRightAfterClick(int centerX, int centerY, AppConfig cfg)
     {
@@ -309,137 +309,101 @@ internal sealed class TachoDetector : IDisposable
         double minRSq = minR * minR;
         double maxRSq = maxR * maxR;
 
-        int peakRed = 0;
-        int peakGreen = 0;
-        int peakBlue = 0;
-        int peakFullWhite = 0;
-        int bestOverallPeak = 0;
+        // Wait 1/5 second (200 ms) after the button click so the Tacho displays its result color
+        Thread.Sleep(200);
 
-        DateTime start = DateTime.UtcNow;
+        _graphics!.CopyFromScreen(left, top, 0, 0, new Size(_size, _size), CopyPixelOperation.SourceCopy);
 
-        // Short pause after ClickAt so the game renders the post-click color flash on the tacho
-        Thread.Sleep(20);
+        var rect = new Rectangle(0, 0, _size, _size);
+        BitmapData data = _bitmap!.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
 
-        while ((DateTime.UtcNow - start).TotalMilliseconds <= 230.0)
+        int redCount = 0;
+        int greenCount = 0;
+        int blueCount = 0;
+        int whiteCount = 0;
+
+        try
         {
-            _graphics!.CopyFromScreen(left, top, 0, 0, new Size(_size, _size), CopyPixelOperation.SourceCopy);
-
-            var rect = new Rectangle(0, 0, _size, _size);
-            BitmapData data = _bitmap!.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
-
-            int redCount = 0;
-            int greenCount = 0;
-            int blueCount = 0;
-            int leftGreenCount = 0;
-            int whiteCount = 0;
-            int rightWhiteCount = 0;
-
-            try
+            unsafe
             {
-                unsafe
+                byte* ptr = (byte*)data.Scan0;
+                int stride = data.Stride;
+
+                for (int y = 0; y < _size; y++)
                 {
-                    byte* ptr = (byte*)data.Scan0;
-                    int stride = data.Stride;
+                    byte* row = ptr + (y * stride);
+                    double dy = y - half;
+                    double dySq = dy * dy;
 
-                    for (int y = 0; y < _size; y++)
+                    for (int x = 0; x < _size; x++)
                     {
-                        byte* row = ptr + (y * stride);
-                        double dy = y - half;
-                        double dySq = dy * dy;
+                        double dx = x - half;
+                        double distSq = dx * dx + dySq;
+                        if (distSq < minRSq || distSq > maxRSq)
+                            continue;
 
-                        for (int x = 0; x < _size; x++)
+                        byte b = row[x * 4 + 0];
+                        byte g = row[x * 4 + 1];
+                        byte r = row[x * 4 + 2];
+
+                        if (IsTachoWhite(r, g, b))
                         {
-                            double dx = x - half;
-                            double distSq = dx * dx + dySq;
-                            if (distSq < minRSq || distSq > maxRSq)
-                                continue;
-
-                            byte b = row[x * 4 + 0];
-                            byte g = row[x * 4 + 1];
-                            byte r = row[x * 4 + 2];
-
-                            if (IsTachoWhite(r, g, b))
-                            {
-                                whiteCount++;
-                                if (dx > 6) rightWhiteCount++;
-                                continue;
-                            }
-
-                            if (IsFeedbackRed(r, g, b))
-                            {
-                                redCount++;
-                            }
-                            else if (IsFeedbackGreen(r, g, b))
-                            {
-                                greenCount++;
-                                if (dx < -4) leftGreenCount++;
-                            }
-                            else if (IsFeedbackBlue(r, g, b))
-                            {
-                                blueCount++;
-                            }
+                            whiteCount++;
+                        }
+                        else if (IsFeedbackRed(r, g, b))
+                        {
+                            redCount++;
+                        }
+                        else if (IsFeedbackGreen(r, g, b))
+                        {
+                            greenCount++;
+                        }
+                        else if (IsFeedbackBlue(r, g, b))
+                        {
+                            blueCount++;
                         }
                     }
                 }
             }
-            finally
-            {
-                _bitmap.UnlockBits(data);
-            }
-
-            // For Green, require that the whole tacho flashed green (left half also has green, or green > white)
-            // so we never count the small pre-click green target arc on the right!
-            int validGreen = (leftGreenCount >= 25 || greenCount > whiteCount) ? greenCount : 0;
-
-            // For White (way too early), the whole tacho jumps to white (including the right half where green was, so green disappears)
-            int validFullWhite = (greenCount < 15 && rightWhiteCount >= 40 && whiteCount >= 120) ? whiteCount : 0;
-
-            if (redCount > peakRed) peakRed = redCount;
-            if (validGreen > peakGreen) peakGreen = validGreen;
-            if (blueCount > peakBlue) peakBlue = blueCount;
-            if (validFullWhite > peakFullWhite) peakFullWhite = validFullWhite;
-
-            int currentColorMax = Math.Max(redCount, Math.Max(validGreen, blueCount));
-            int currentMax = Math.Max(currentColorMax, validFullWhite);
-            if (currentMax > bestOverallPeak && currentMax >= 60)
-            {
-                bestOverallPeak = currentMax;
-                _flashSnapshot?.Dispose();
-                _flashSnapshot = (Bitmap)_bitmap.Clone();
-            }
-
-            // Once we have captured a strong color flash peak (>= 120 px) and it starts fading, finish immediately
-            if (currentColorMax >= 120 && currentColorMax < bestOverallPeak / 2)
-                break;
-
-            Thread.Sleep(10);
+        }
+        finally
+        {
+            _bitmap.UnlockBits(data);
         }
 
-        LastPeakRed = peakRed;
-        LastPeakGreen = peakGreen;
-        LastPeakBlue = peakBlue;
-        LastPeakWhite = peakFullWhite;
-
-        int maxColorPeak = Math.Max(peakRed, Math.Max(peakGreen, peakBlue));
-        if (maxColorPeak >= 60)
+        // Freeze this exact +200 ms snapshot for the Live-Inspektor
+        _flashSnapshot?.Dispose();
+        _flashSnapshot = (Bitmap)_bitmap.Clone();
+        using (var g = Graphics.FromImage(_flashSnapshot))
         {
-            if (peakRed == maxColorPeak)
-                LastFeedback = TachoFeedback.TooLateRed;
-            else if (peakBlue == maxColorPeak)
-                LastFeedback = TachoFeedback.OptimalBlue;
-            else
-                LastFeedback = TachoFeedback.TooEarlyGreen;
-
-            return LastFeedback;
+            int minRi = (int)minR;
+            int maxRi = (int)maxR;
+            using var ringPen = new Pen(Color.FromArgb(140, 255, 255, 0), 1);
+            g.DrawEllipse(ringPen, half - minRi, half - minRi, minRi * 2, minRi * 2);
+            g.DrawEllipse(ringPen, half - maxRi, half - maxRi, maxRi * 2, maxRi * 2);
         }
 
-        if (peakFullWhite >= 120)
+        LastPeakRed = redCount;
+        LastPeakGreen = greenCount;
+        LastPeakBlue = blueCount;
+        LastPeakWhite = whiteCount;
+
+        int maxCount = Math.Max(Math.Max(redCount, greenCount), Math.Max(blueCount, whiteCount));
+        if (maxCount < 40)
         {
+            return TachoFeedback.None;
+        }
+
+        if (blueCount == maxCount)
+            LastFeedback = TachoFeedback.OptimalBlue;
+        else if (greenCount == maxCount)
+            LastFeedback = TachoFeedback.TooEarlyGreen;
+        else if (redCount == maxCount)
+            LastFeedback = TachoFeedback.TooLateRed;
+        else
             LastFeedback = TachoFeedback.WayTooEarlyWhite;
-            return LastFeedback;
-        }
 
-        return TachoFeedback.None;
+        return LastFeedback;
     }
 
     private static bool TryComputeGreenEndDeg(double sinSum, double cosSum, ReadOnlySpan<int> bins, out double endDeg)

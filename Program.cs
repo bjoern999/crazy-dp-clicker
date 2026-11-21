@@ -324,7 +324,7 @@ internal static class Program
 
     private static void HandleTachoFeedback(int tachoIndex, TachoFeedback fb, TachoDetector detector, AppConfig cfg)
     {
-        string counts = $"(R={detector.LastPeakRed}, G={detector.LastPeakGreen}, B={detector.LastPeakBlue})";
+        string counts = $"(B={detector.LastPeakBlue}, G={detector.LastPeakGreen}, R={detector.LastPeakRed}, W={detector.LastPeakWhite})";
         switch (fb)
         {
             case TachoFeedback.TooLateRed:
