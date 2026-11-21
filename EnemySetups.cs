@@ -523,11 +523,15 @@ internal sealed class EnemySetupStore
         // Case 2: Tacho 1 (start of a round)
         // Kombination aus Tacho-Signatur UND visueller Dino-Erkennung:
         // - Wenn beide eine visuelle Signatur haben und visDist > 0.26 -> harter Ausschluss (trennt Stegosaurus & Oviraptor trotz identischem Tacho!).
-        // - Kandidaten mit passendem visuellen Match werden gegenueber noch unkalibrierten Legacy-Setups bevorzugt.
-        EnemySetup? bestMatch = null;
-        double bestEffectiveDist = double.MaxValue;
-        double bestRawDist = double.MaxValue;
+        // - Ein visuell bestaetigter Kandidat (Tacho + Bild passen) hat IMMER Vorrang vor einem alten NO-VIS-Kandidaten.
+        EnemySetup? bestVisMatch = null;
+        double bestVisEffective = double.MaxValue;
+        double bestVisRawTacho = double.MaxValue;
         double bestVisDist = -1.0;
+
+        EnemySetup? bestLegacyMatch = null;
+        double bestLegacyEffective = double.MaxValue;
+        double bestLegacyRawTacho = double.MaxValue;
 
         foreach (var candidate in Setups)
         {
@@ -537,30 +541,44 @@ internal sealed class EnemySetupStore
             double tachoDist = candidate.Tachos[tachoIndex].DistanceTo(currentFp);
             if (tachoDist > 1.0) continue;
 
-            double visDist = -1.0;
-            double combinedDist = tachoDist;
             if (hasCurVis && candidate.HasVisual)
             {
-                visDist = DinoVisualMatcher.Distance(candidate.Visual!, currentVisual!);
+                double visDist = DinoVisualMatcher.Distance(candidate.Visual!, currentVisual!);
                 if (visDist > DinoVisualMatcher.VisualMatchThreshold)
-                    continue; // Sichtbar ein anderer Dino -> nicht matchen!
+                    continue; // Sichtbar ein anderer Dino -> harter Ausschluss!
 
                 double visNorm = visDist / DinoVisualMatcher.VisualMatchThreshold;
-                combinedDist = (tachoDist * 0.45 + visNorm * 0.55) * 0.88; // Bonus fuer doppelt bestaetigten Match
+                double combinedDist = tachoDist * 0.45 + visNorm * 0.55;
+                double effectiveDist = (preferredStickySetup != null && candidate.Id == preferredStickySetup.Id)
+                    ? combinedDist * 0.82
+                    : combinedDist;
+
+                if (effectiveDist < bestVisEffective)
+                {
+                    bestVisEffective = effectiveDist;
+                    bestVisRawTacho = tachoDist;
+                    bestVisDist = visDist;
+                    bestVisMatch = candidate;
+                }
             }
-
-            double effectiveDist = (preferredStickySetup != null && candidate.Id == preferredStickySetup.Id)
-                ? combinedDist * 0.82
-                : combinedDist;
-
-            if (effectiveDist < bestEffectiveDist)
+            else
             {
-                bestEffectiveDist = effectiveDist;
-                bestRawDist = tachoDist;
-                bestVisDist = visDist;
-                bestMatch = candidate;
+                double effectiveDist = (preferredStickySetup != null && candidate.Id == preferredStickySetup.Id)
+                    ? tachoDist * 0.82
+                    : tachoDist;
+
+                if (effectiveDist < bestLegacyEffective)
+                {
+                    bestLegacyEffective = effectiveDist;
+                    bestLegacyRawTacho = tachoDist;
+                    bestLegacyMatch = candidate;
+                }
             }
         }
+
+        EnemySetup? bestMatch = bestVisMatch ?? bestLegacyMatch;
+        double bestRawDist = bestVisMatch != null ? bestVisRawTacho : bestLegacyRawTacho;
+        if (bestVisMatch == null) bestVisDist = -1.0;
 
         if (bestMatch != null)
         {
