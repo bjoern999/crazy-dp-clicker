@@ -11,6 +11,13 @@ internal sealed class OverlaySnapshot
     public int TotalTachos { get; init; }
     public string AllOffsetsSummary { get; init; } = "";
 
+    // Erkanntes Gegner-Setup
+    public string EnemySetupName { get; init; } = "";
+    public bool EnemySetupIsNew { get; init; }
+    public int EnemyBlueHits { get; init; }
+    public int EnemyTotalClicks { get; init; }
+    public int TotalSavedEnemies { get; init; }
+
     public int CenterX { get; init; }
     public int CenterY { get; init; }
     public bool IsLastTacho { get; init; }
@@ -52,10 +59,10 @@ internal sealed class OverlayForm : Form
 
     public OverlayForm()
     {
-        Text = "TachoClicker Live-Inspektor (Aktiver Tacho + Klick-Moment)";
+        Text = "TachoClicker Live-Inspektor (Gegner-Erkennung + Klick-Moment)";
         StartPosition = FormStartPosition.Manual;
         Location = new Point(40, 40);
-        ClientSize = new Size(575, 400);
+        ClientSize = new Size(575, 434);
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         ShowInTaskbar = true;
@@ -210,10 +217,35 @@ internal sealed class OverlayForm : Form
             Brush statusBrush = snap.Running ? Brushes.LimeGreen : Brushes.Orange;
 
             g.DrawString($"{statusText}  ({snap.ActiveProfile}er-Modus)  |  Offsets: {snap.AllOffsetsSummary}", titleFont, statusBrush, 12, 8);
-            g.DrawString("Links: Live-Bild aktiver Tacho | Mitte: Foto IM KLICK-MOMENT | Rechts: Button-Klick-Blitz", infoFont, Brushes.LightGray, 12, 26);
+
+            // Prominenter Gegner-Setup-Balken (Name/Nummer des erkannten Setups)
+            using var enemyKnownBg = new SolidBrush(Color.FromArgb(20, 95, 130));
+            using var enemyNewBg = new SolidBrush(Color.FromArgb(145, 95, 15));
+            bool hasEnemy = !string.IsNullOrEmpty(snap.EnemySetupName);
+            Brush enemyBg = !hasEnemy ? neutralBadgeBg : (snap.EnemySetupIsNew ? enemyNewBg : enemyKnownBg);
+
+            string enemyLine;
+            if (!hasEnemy)
+            {
+                enemyLine = $"GEGNER-SETUP: noch nicht erkannt (gespeicherte Gegner: {snap.TotalSavedEnemies})";
+            }
+            else
+            {
+                string tag = snap.EnemySetupIsNew ? "NEU GESPEICHERT" : "ERKANNT";
+                string rate = snap.EnemyTotalClicks > 0
+                    ? $" | Blau: {snap.EnemyBlueHits}/{snap.EnemyTotalClicks} ({100 * snap.EnemyBlueHits / snap.EnemyTotalClicks}%)"
+                    : "";
+                enemyLine = $"GEGNER-SETUP: {snap.EnemySetupName} [{tag}]{rate} | Gesamt: {snap.TotalSavedEnemies}";
+            }
+
+            g.FillRectangle(enemyBg, 12, 28, ClientSize.Width - 24, 24);
+            g.DrawRectangle(hasEnemy ? Pens.Cyan : Pens.Gray, 12, 28, ClientSize.Width - 24, 24);
+            g.DrawString(enemyLine, badgeFont, Brushes.White, 18, 32);
+
+            g.DrawString("Links: Live aktiver Tacho | Mitte: Foto IM KLICK-MOMENT | Rechts: Button-Klick-Blitz", infoFont, Brushes.LightGray, 12, 56);
 
             int tileSize = 195;
-            int y = 48;
+            int y = 76;
 
             // 1. Links: Nur der aktuell aktive Tacho (Live)
             int xLive = 12;

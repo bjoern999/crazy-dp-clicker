@@ -65,8 +65,11 @@ internal sealed class TachoDetector : IDisposable
     public double LastWaitMsAtTrigger { get; private set; }
     public double LastRegressionR2 { get; private set; }
     public double LastGreenWidthDeg { get; private set; }
+    public double LastBlueWidthDeg { get; private set; }
     public int LastBlueSliverCount { get; private set; }
     public int LastInitialGreenCount { get; private set; }
+    public double LastUsedClickOffsetMs { get; private set; }
+    public TachoFingerprint LastFingerprint { get; private set; }
     public bool JustAbortedWithoutClick { get; private set; }
     public string LastAbortReason { get; private set; } = "";
     public string LastAbortCheckpointSummary { get; private set; } = "";
@@ -89,6 +92,8 @@ internal sealed class TachoDetector : IDisposable
     private double _greenEndDeg;
     private int _greenStableFrames;
     private bool _greenEndLocked;
+    private bool _setupResolvedForSpin;
+    private double _activeSpinClickOffsetMs;
     private double _prevRemainingDeg = 360.0;
     private int _zeroGreenFrames;
     private DateTime _armedSince = DateTime.MinValue;
@@ -109,11 +114,17 @@ internal sealed class TachoDetector : IDisposable
         _prevRemainingDeg = 360.0;
         _greenStableFrames = 0;
         _greenEndLocked = false;
+        _setupResolvedForSpin = false;
         _checkpoints.Clear();
         _nextCheckpointDeg = -1;
     }
 
-    public bool Update(int centerX, int centerY, double clickOffsetMs, AppConfig cfg)
+    public bool Update(
+        int centerX,
+        int centerY,
+        double defaultClickOffsetMs,
+        AppConfig cfg,
+        Func<TachoFingerprint, double>? onFingerprintReady = null)
     {
         JustArmed = false;
         JustAbortedWithoutClick = false;
@@ -162,8 +173,10 @@ internal sealed class TachoDetector : IDisposable
         double greenCosSum = 0;
 
         Span<int> greenAngleBins = stackalloc int[360];
+        Span<int> blueAngleBins = stackalloc int[360];
         Span<int> whiteAngleBins = stackalloc int[360];
         greenAngleBins.Clear();
+        blueAngleBins.Clear();
         whiteAngleBins.Clear();
 
         try
@@ -230,6 +243,10 @@ internal sealed class TachoDetector : IDisposable
                         else if (IsFeedbackBlue(r, g, b))
                         {
                             blueSliverCount++;
+                            double deg = Math.Atan2(dy, dx) * (180.0 / Math.PI);
+                            if (deg < 0) deg += 360.0;
+                            int bin = ((int)Math.Round(deg)) % 360;
+                            blueAngleBins[bin]++;
                         }
                         else if (dy > 15 && Math.Abs(dx) <= 12 && IsFeedbackRed(r, g, b))
                         {
@@ -295,10 +312,13 @@ internal sealed class TachoDetector : IDisposable
             {
                 _greenEndDeg = endDeg;
                 LastGreenWidthDeg = widthDeg;
+                LastBlueWidthDeg = ComputeBlueSliverWidthDeg(endDeg, blueAngleBins);
                 LastInitialGreenCount = greenCount;
                 LastBlueSliverCount = blueSliverCount;
                 _greenStableFrames = 1;
                 _greenEndLocked = false;
+                _setupResolvedForSpin = false;
+                _activeSpinClickOffsetMs = defaultClickOffsetMs;
                 _zeroGreenFrames = 0;
                 _prevRemainingDeg = 360.0;
                 _armedSince = DateTime.UtcNow;
@@ -323,6 +343,8 @@ internal sealed class TachoDetector : IDisposable
             {
                 _greenEndDeg = updatedEndDeg;
                 LastGreenWidthDeg = updatedWidthDeg;
+                double bw = ComputeBlueSliverWidthDeg(updatedEndDeg, blueAngleBins);
+                if (bw > LastBlueWidthDeg) LastBlueWidthDeg = bw;
                 if (greenCount > LastInitialGreenCount) LastInitialGreenCount = greenCount;
                 if (blueSliverCount > LastBlueSliverCount) LastBlueSliverCount = blueSliverCount;
                 _greenStableFrames++;
@@ -375,12 +397,50 @@ internal sealed class TachoDetector : IDisposable
             LastSpeedDegPerSec = endSpeedDegPerSec;
             LastAccelDegPerSec2 = accelDegPerSec2;
             LastRegressionR2 = r2;
+
+            // Identify enemy setup ONCE mid-spin (~200-350 ms BEFORE clicking!) so its saved offset is used for this very click
+            if (!_setupResolvedForSpin && onFingerprintReady != null && usedQuadratic && _checkpoints.Count >= 7 && minRemainingDeg <= 145.0)
+            {
+                _setupResolvedForSpin = true;
+                var fp = new TachoFingerprint
+                {
+                    GreenEndDeg = _greenEndDeg,
+                    GreenWidthDeg = LastGreenWidthDeg,
+                    BlueWidthDeg = LastBlueWidthDeg,
+                    EndSpeedDegPerSec = endSpeedDegPerSec,
+                    AccelDegPerSec2 = accelDegPerSec2
+                };
+                LastFingerprint = fp;
+                _activeSpinClickOffsetMs = onFingerprintReady(fp);
+            }
+
+            double usedOffset = _setupResolvedForSpin ? _activeSpinClickOffsetMs : defaultClickOffsetMs;
             double now = NowMs();
-            double clickTargetTimeMs = predictedZeroTimeMs - clickOffsetMs;
+            double clickTargetTimeMs = predictedZeroTimeMs - usedOffset;
             double waitMs = clickTargetTimeMs - now;
 
             if (minRemainingDeg <= 105.0 && waitMs <= 26.0)
             {
+                // If not resolved yet (e.g. fast tacho), resolve right before clicking
+                if (!_setupResolvedForSpin && onFingerprintReady != null)
+                {
+                    _setupResolvedForSpin = true;
+                    var fp = new TachoFingerprint
+                    {
+                        GreenEndDeg = _greenEndDeg,
+                        GreenWidthDeg = LastGreenWidthDeg,
+                        BlueWidthDeg = LastBlueWidthDeg,
+                        EndSpeedDegPerSec = endSpeedDegPerSec,
+                        AccelDegPerSec2 = accelDegPerSec2
+                    };
+                    LastFingerprint = fp;
+                    usedOffset = onFingerprintReady(fp);
+                    _activeSpinClickOffsetMs = usedOffset;
+                    clickTargetTimeMs = predictedZeroTimeMs - usedOffset;
+                    waitMs = clickTargetTimeMs - NowMs();
+                }
+
+                LastUsedClickOffsetMs = usedOffset;
                 LastTriggerReason = usedQuadratic ? "QUAD" : "LINEAR";
                 LastRemDegAtTrigger = minRemainingDeg;
                 LastWaitMsAtTrigger = waitMs;
@@ -397,6 +457,7 @@ internal sealed class TachoDetector : IDisposable
         }
         else if (_checkpoints.Count >= 2 && whiteCount >= 20 && bottomWhiteCount >= 6 && minRemainingDeg <= 16.0)
         {
+            LastUsedClickOffsetMs = _setupResolvedForSpin ? _activeSpinClickOffsetMs : defaultClickOffsetMs;
             LastTriggerReason = $"FALLBACK(n={_checkpoints.Count})";
             LastRemDegAtTrigger = minRemainingDeg;
             LastWaitMsAtTrigger = 0;
@@ -867,6 +928,20 @@ internal sealed class TachoDetector : IDisposable
             else
                 Thread.SpinWait(50);
         }
+    }
+
+    private static double ComputeBlueSliverWidthDeg(double greenEndDeg, ReadOnlySpan<int> blueBins)
+    {
+        int endBin = ((int)Math.Round(greenEndDeg) % 360 + 360) % 360;
+        int blueDegCount = 0;
+        // Count degree bins with royal-blue pixels right around the counter-clockwise end of the green zone
+        for (int offset = -20; offset <= 10; offset++)
+        {
+            int bin = (endBin + offset + 360) % 360;
+            if (blueBins[bin] >= 2)
+                blueDegCount++;
+        }
+        return blueDegCount;
     }
 
     private static bool TryComputeGreenArc(double sinSum, double cosSum, ReadOnlySpan<int> bins, out double endDeg, out double widthDeg)

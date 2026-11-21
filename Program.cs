@@ -10,7 +10,7 @@ internal static class Program
     {
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         NativeMethods.SetProcessDPIAware();
-        Console.Title = "TachoClicker (Sequenziell | F2=2er | F3=3er | F6=Gruen | F8=Start | F9=Tacho | F10=Blau)";
+        Console.Title = "TachoClicker (Gegner-Erkennung | F2=2er | F3=3er | F6=Gruen | F8=Start | F9=Tacho | F10=Blau)";
 
         NativeMethods.timeBeginPeriod(1);
 
@@ -27,6 +27,7 @@ internal static class Program
     private static void RunLoop()
     {
         AppConfig cfg = AppConfig.Load();
+        EnemySetupStore enemyStore = EnemySetupStore.Load();
         var detectors = new[] { new TachoDetector(), new TachoDetector(), new TachoDetector() };
 
         OverlayForm? overlay = null;
@@ -51,6 +52,11 @@ internal static class Program
         int expectedTachoIndex = 0;
         DateTime lastClickUtc = DateTime.MinValue;
 
+        // Aktuell erkannter Gegner & Fingerabdruecke der laufenden Runde
+        EnemySetup? activeEnemy = null;
+        bool activeEnemyIsNew = false;
+        var roundFingerprints = new Dictionary<int, TachoFingerprint>();
+
         // Letztes Feedback fuer die Anzeige im Live-Inspektor
         int lastClickedTachoNumber = 0;
         TachoFeedback lastFeedback = TachoFeedback.None;
@@ -68,7 +74,7 @@ internal static class Program
         bool plusPrev = false;
         bool minusPrev = false;
 
-        PrintHeader(cfg, running, debugMode);
+        PrintHeader(cfg, enemyStore, running, debugMode);
 
         DateTime lastDebugPrint = DateTime.MinValue;
         DateTime lastOverlayUpdate = DateTime.MinValue;
@@ -80,11 +86,15 @@ internal static class Program
                 if (NativeMethods.IsKeyJustPressed(NativeMethods.VK_F2, ref f2Prev))
                 {
                     SwitchProfile(cfg, detectors, 2, ref nextTachoIndex, ref expectedTachoIndex, ref running);
+                    activeEnemy = null;
+                    roundFingerprints.Clear();
                 }
 
                 if (NativeMethods.IsKeyJustPressed(NativeMethods.VK_F3, ref f3Prev))
                 {
                     SwitchProfile(cfg, detectors, 3, ref nextTachoIndex, ref expectedTachoIndex, ref running);
+                    activeEnemy = null;
+                    roundFingerprints.Clear();
                 }
 
                 if (NativeMethods.IsKeyJustPressed(NativeMethods.VK_F9, ref f9Prev))
@@ -101,11 +111,11 @@ internal static class Program
                         detectors[nextTachoIndex].Reset();
 
                         int justSetIndex = nextTachoIndex;
-                        expectedTachoIndex = justSetIndex; // Zeige im Inspektor direkt den eben kalibrierten Tacho
+                        expectedTachoIndex = justSetIndex;
                         nextTachoIndex = (nextTachoIndex + 1) % tachos.Count;
 
                         Console.WriteLine(
-                            $"[Kalibrierung {cfg.ActiveProfile}er-Modus] Tacho {justSetIndex + 1}/{tachos.Count} gesetzt auf: ({pt.X}, {pt.Y}) [Offset: {tachos[justSetIndex].ClickOffsetMs:F1} ms] | Naechster mit F9: Tacho {nextTachoIndex + 1}/{tachos.Count}");
+                            $"[Kalibrierung {cfg.ActiveProfile}er-Modus] Tacho {justSetIndex + 1}/{tachos.Count} gesetzt auf: ({pt.X}, {pt.Y}) | Naechster mit F9: Tacho {nextTachoIndex + 1}/{tachos.Count}");
                     }
                 }
 
@@ -148,6 +158,7 @@ internal static class Program
                         running = !running;
                         ResetDetectors(detectors);
                         expectedTachoIndex = 0;
+                        roundFingerprints.Clear();
                         overlay?.EnsureVisibleOnTop();
                         Console.WriteLine(running
                             ? $"[Status] AKTIV ({cfg.ActiveProfile}er-Modus) - Starte sequenziell bei Tacho 1..."
@@ -164,18 +175,12 @@ internal static class Program
 
                 if (NativeMethods.IsAnyKeyJustPressed(NativeMethods.VK_OEM_PLUS, NativeMethods.VK_ADD, ref plusPrev))
                 {
-                    int targetIdx = expectedTachoIndex;
-                    double val = cfg.AdjustTachoClickOffsetMs(targetIdx, +2.0);
-                    cfg.Save();
-                    Console.WriteLine($"[Zeit-Vorlauf Tacho {targetIdx + 1}] +2.0 ms -> T{targetIdx + 1}={val:F1} ms");
+                    AdjustOffsetManually(expectedTachoIndex, +2.0, cfg, enemyStore, activeEnemy);
                 }
 
                 if (NativeMethods.IsAnyKeyJustPressed(NativeMethods.VK_OEM_MINUS, NativeMethods.VK_SUBTRACT, ref minusPrev))
                 {
-                    int targetIdx = expectedTachoIndex;
-                    double val = cfg.AdjustTachoClickOffsetMs(targetIdx, -2.0);
-                    cfg.Save();
-                    Console.WriteLine($"[Zeit-Vorlauf Tacho {targetIdx + 1}] -2.0 ms -> T{targetIdx + 1}={val:F1} ms");
+                    AdjustOffsetManually(expectedTachoIndex, -2.0, cfg, enemyStore, activeEnemy);
                 }
 
                 var activeTachos = cfg.GetActiveTachos();
@@ -186,10 +191,44 @@ internal static class Program
 
                 if (running && cfg.IsCalibrated)
                 {
-                    // Identische Logik fuer JEDEN Tacho (T1 -> T2 -> (T3) -> T1)
                     int cur = expectedTachoIndex;
-                    double clickOffsetMs = cfg.GetClickOffsetMsForTacho(cur);
-                    bool triggered = detectors[cur].Update(activeTachos[cur].X, activeTachos[cur].Y, clickOffsetMs, cfg);
+                    double defaultOffsetMs = GetEffectiveOffsetMs(cur, cfg, activeEnemy);
+
+                    bool triggered = detectors[cur].Update(
+                        activeTachos[cur].X,
+                        activeTachos[cur].Y,
+                        defaultOffsetMs,
+                        cfg,
+                        fp =>
+                        {
+                            if (cur == 0)
+                                roundFingerprints.Clear();
+
+                            roundFingerprints[cur] = fp;
+
+                            var (matched, isNew, dist) = enemyStore.MatchOrCreate(
+                                cfg.ActiveProfile,
+                                cur,
+                                fp,
+                                cur > 0 ? activeEnemy : null,
+                                roundFingerprints,
+                                cfg.GetClickOffsetMsForTacho(cur));
+
+                            bool changedEnemy = activeEnemy == null || activeEnemy.Id != matched.Id || isNew;
+                            activeEnemy = matched;
+                            activeEnemyIsNew = isNew;
+
+                            double enemyOffset = matched.Tachos[cur].ClickOffsetMs;
+
+                            if (changedEnemy || cur == 0)
+                            {
+                                string tag = isNew ? "NEU ANGELEGT" : $"ERKANNT (Dist={dist:F2})";
+                                Console.WriteLine(
+                                    $"[Gegner-Setup] {matched.Name} [{tag}] | T{cur + 1}: v={fp.EndSpeedDegPerSec:F0}°/s, a={fp.AccelDegPerSec2:F0}°/s², G={fp.GreenWidthDeg:F0}°, B={fp.BlueWidthDeg:F0}° -> lade Offset {enemyOffset:F1} ms");
+                            }
+
+                            return enemyOffset;
+                        });
 
                     if (detectors[cur].JustArmed)
                     {
@@ -204,16 +243,17 @@ internal static class Program
 
                     if (detectors[cur].JustAbortedWithoutClick)
                     {
-                        LogTelemetryAbort(cur, activeTachos.Count, clickOffsetMs, detectors[cur]);
+                        LogTelemetryAbort(cur, activeTachos.Count, defaultOffsetMs, activeEnemy?.Name ?? "-", detectors[cur]);
                     }
 
                     if (triggered)
                     {
                         bool isLastBtn = cur == activeTachos.Count - 1;
                         string checkpointsStr = detectors[cur].FormatCheckpointsSummary();
+                        double usedOffsetMs = detectors[cur].LastUsedClickOffsetMs;
 
                         // 1. Button sofort betaetigen
-                        TriggerClick(cur, activeTachos.Count, detectors[cur], cfg);
+                        TriggerClick(cur, activeTachos.Count, activeEnemy?.Name ?? "-", detectors[cur], cfg);
                         lastClickUtc = DateTime.UtcNow;
 
                         // 2. Klick-Moment sofort visualisieren (gelber Button-Blitz + Foto im Klick-Moment)
@@ -221,15 +261,15 @@ internal static class Program
                             activeTachos[cur].X, activeTachos[cur].Y, cfg);
                         overlay?.FlashButtonClick(isLastBtn, cur + 1, clickMomentSnap);
 
-                        // 3. NUR direkt nach dem Klick die Farbe auf den wenigen unteren Pixeln (9x9) dieses Tachos messen
+                        // 3. Direkt nach dem Klick die Farbe auf den unteren 9x9 Pixeln messen
                         TachoFeedback fb = detectors[cur].MeasureBottomColorAfterClick(
                             cur + 1, activeTachos[cur].X, activeTachos[cur].Y, cfg);
 
-                        // 4. Sofort den unabhaengigen Parameter dieses Tachos anpassen
-                        double newOffset = HandleTachoFeedback(cur, fb, detectors[cur], cfg);
+                        // 4. Sofort den Offset des erkannten Gegner-Setups (und Fallback-Config) anpassen
+                        double newOffset = HandleTachoFeedback(cur, fb, detectors[cur], cfg, enemyStore, activeEnemy);
 
-                        // 5. Vollstaendige Telemetrie fuer Analyse in tacho_telemetry.log schreiben
-                        LogTelemetryClick(cur, activeTachos.Count, clickOffsetMs, newOffset, fb, detectors[cur], checkpointsStr);
+                        // 5. Vollstaendige Telemetrie schreiben
+                        LogTelemetryClick(cur, activeTachos.Count, usedOffsetMs, newOffset, activeEnemy?.Name ?? "-", fb, detectors[cur], checkpointsStr);
 
                         lastClickedTachoNumber = cur + 1;
                         lastFeedback = fb;
@@ -240,17 +280,17 @@ internal static class Program
                         lastDeltaMs = detectors[cur].LastCorrectionDeltaMs;
                         lastResultNewOffsetMs = newOffset;
 
-                        // 4. Zum naechsten Tacho in der Reihenfolge wechseln (T1 -> T2 -> (T3) -> T1)
+                        // 6. Zum naechsten Tacho in der Reihenfolge wechseln
                         expectedTachoIndex = (cur + 1) % activeTachos.Count;
                         detectors[expectedTachoIndex].Reset();
                         isArmed = false;
 
-                        // 5. Live-Inspektor sofort auf den naechsten aktiven Tacho umschalten + Feedback anzeigen
                         if (overlay != null)
                         {
                             lastOverlayUpdate = DateTime.UtcNow;
                             overlay.UpdateSnapshot(BuildOverlaySnapshot(
-                                cfg, detectors, expectedTachoIndex, running,
+                                cfg, enemyStore, activeEnemy, activeEnemyIsNew,
+                                detectors, expectedTachoIndex, running,
                                 lastClickedTachoNumber, lastFeedback,
                                 lastPatchR, lastPatchG, lastPatchB, lastPatchW,
                                 lastDeltaMs, lastResultNewOffsetMs));
@@ -260,13 +300,13 @@ internal static class Program
                              detectors[cur].State == DetectorState.WaitingForBlueZone &&
                              (DateTime.UtcNow - lastClickUtc).TotalMilliseconds >= 3500.0)
                     {
-                        // Auto-Resync: Falls der Kampf nach Tacho 1/2 vorbei war und nach >1.2 s wieder Tacho 1 startet
                         detectors[0].Reset();
-                        detectors[0].Update(activeTachos[0].X, activeTachos[0].Y, cfg.GetClickOffsetMsForTacho(0), cfg);
+                        detectors[0].Update(activeTachos[0].X, activeTachos[0].Y, GetEffectiveOffsetMs(0, cfg, activeEnemy), cfg);
                         if (detectors[0].State == DetectorState.Armed)
                         {
                             Console.WriteLine("[Sequenz] Neuer Durchgang erkannt -> wechsle zurueck auf Tacho 1.");
                             expectedTachoIndex = 0;
+                            roundFingerprints.Clear();
                             isArmed = true;
                             NativeMethods.SetCursorPos(cfg.BlueButtonX, cfg.BlueButtonY);
                         }
@@ -277,7 +317,7 @@ internal static class Program
                         lastDebugPrint = DateTime.UtcNow;
                         var d = detectors[expectedTachoIndex];
                         Console.WriteLine(
-                            $"Aktiv T{expectedTachoIndex + 1}/{activeTachos.Count} | State={d.State} | G={d.LastGreenCount} | Rem={d.LastRemainingDeg:F0}° | n={d.LastCheckpointCount} | v={d.LastSpeedDegPerSec:F0}°/s");
+                            $"Aktiv T{expectedTachoIndex + 1}/{activeTachos.Count} [{activeEnemy?.Name ?? "-"}] | State={d.State} | G={d.LastGreenCount} | Rem={d.LastRemainingDeg:F0}° | n={d.LastCheckpointCount} | v={d.LastSpeedDegPerSec:F0}°/s");
                     }
 
                     Thread.Sleep(isArmed ? 1 : Math.Max(1, cfg.PollIntervalMs));
@@ -287,7 +327,7 @@ internal static class Program
                     int cur = expectedTachoIndex;
                     if (activeTachos[cur].IsSet)
                     {
-                        detectors[cur].Update(activeTachos[cur].X, activeTachos[cur].Y, cfg.GetClickOffsetMsForTacho(cur), cfg);
+                        detectors[cur].Update(activeTachos[cur].X, activeTachos[cur].Y, GetEffectiveOffsetMs(cur, cfg, activeEnemy), cfg);
                         detectors[cur].Reset();
                     }
                     Thread.Sleep(40);
@@ -297,7 +337,8 @@ internal static class Program
                 {
                     lastOverlayUpdate = DateTime.UtcNow;
                     overlay.UpdateSnapshot(BuildOverlaySnapshot(
-                        cfg, detectors, expectedTachoIndex, running,
+                        cfg, enemyStore, activeEnemy, activeEnemyIsNew,
+                        detectors, expectedTachoIndex, running,
                         lastClickedTachoNumber, lastFeedback,
                         lastPatchR, lastPatchG, lastPatchB, lastPatchW,
                         lastDeltaMs, lastResultNewOffsetMs));
@@ -315,8 +356,40 @@ internal static class Program
         }
     }
 
+    private static double GetEffectiveOffsetMs(int tachoIndex, AppConfig cfg, EnemySetup? activeEnemy)
+    {
+        if (activeEnemy != null && activeEnemy.ProfileSize == cfg.ActiveProfile)
+        {
+            activeEnemy.EnsureSlots();
+            if (tachoIndex >= 0 && tachoIndex < activeEnemy.Tachos.Count && activeEnemy.Tachos[tachoIndex].HasSignature)
+                return activeEnemy.Tachos[tachoIndex].ClickOffsetMs;
+        }
+        return cfg.GetClickOffsetMsForTacho(tachoIndex);
+    }
+
+    private static void AdjustOffsetManually(int tachoIndex, double deltaMs, AppConfig cfg, EnemySetupStore store, EnemySetup? activeEnemy)
+    {
+        if (activeEnemy != null && activeEnemy.ProfileSize == cfg.ActiveProfile)
+        {
+            activeEnemy.EnsureSlots();
+            if (tachoIndex >= 0 && tachoIndex < activeEnemy.Tachos.Count)
+            {
+                var slot = activeEnemy.Tachos[tachoIndex];
+                slot.ClickOffsetMs = Math.Clamp(Math.Round(slot.ClickOffsetMs + deltaMs, 2), 0.0, 120.0);
+                store.Save();
+                Console.WriteLine($"[Manuell {activeEnemy.Name} Tacho {tachoIndex + 1}] {deltaMs:+0.0;-0.0} ms -> {slot.ClickOffsetMs:F1} ms");
+                return;
+            }
+        }
+
+        double val = cfg.AdjustTachoClickOffsetMs(tachoIndex, deltaMs);
+        cfg.Save();
+        Console.WriteLine($"[Manuell Standard Tacho {tachoIndex + 1}] {deltaMs:+0.0;-0.0} ms -> {val:F1} ms");
+    }
+
     private static OverlaySnapshot BuildOverlaySnapshot(
-        AppConfig cfg, TachoDetector[] detectors, int activeIdx, bool running,
+        AppConfig cfg, EnemySetupStore enemyStore, EnemySetup? activeEnemy, bool activeEnemyIsNew,
+        TachoDetector[] detectors, int activeIdx, bool running,
         int lastClickedTachoNumber, TachoFeedback lastFeedback,
         int patchR, int patchG, int patchB, int patchW,
         double lastDeltaMs, double lastResultNewOffsetMs)
@@ -325,7 +398,8 @@ internal static class Program
         var t = tachos[activeIdx];
         var d = detectors[activeIdx];
 
-        string summary = string.Join(" | ", tachos.Select((tp, idx) => $"T{idx + 1}={tp.ClickOffsetMs:F1}ms"));
+        string summary = string.Join(" | ",
+            Enumerable.Range(0, tachos.Count).Select(idx => $"T{idx + 1}={GetEffectiveOffsetMs(idx, cfg, activeEnemy):F1}ms"));
 
         return new OverlaySnapshot
         {
@@ -334,13 +408,18 @@ internal static class Program
             ActiveTachoIndex = activeIdx,
             TotalTachos = tachos.Count,
             AllOffsetsSummary = summary,
+            EnemySetupName = activeEnemy?.Name ?? "",
+            EnemySetupIsNew = activeEnemyIsNew,
+            EnemyBlueHits = activeEnemy?.TotalBlueHits ?? 0,
+            EnemyTotalClicks = activeEnemy?.TotalClicks ?? 0,
+            TotalSavedEnemies = enemyStore.Setups.Count,
             CenterX = t.X,
             CenterY = t.Y,
             IsLastTacho = activeIdx == tachos.Count - 1,
             State = d.State,
             GreenCount = d.LastGreenCount,
             WhiteCount = d.LastWhiteCount,
-            ClickOffsetMs = t.ClickOffsetMs,
+            ClickOffsetMs = GetEffectiveOffsetMs(activeIdx, cfg, activeEnemy),
             SpeedDegPerSec = d.LastSpeedDegPerSec,
             CheckpointCount = d.LastCheckpointCount,
             ActivePreview = t.IsSet ? d.CreateDiagnosticBitmap() : null,
@@ -378,16 +457,16 @@ internal static class Program
 
     private static void LogTelemetryClick(
         int tachoIndex, int totalTachos, double usedOffsetMs, double newOffsetMs,
-        TachoFeedback fb, TachoDetector d, string checkpointsStr)
+        string enemyName, TachoFeedback fb, TachoDetector d, string checkpointsStr)
     {
         try
         {
             string line =
-                $"{DateTime.Now:HH:mm:ss.fff} | CLICK | T{tachoIndex + 1}/{totalTachos} | " +
+                $"{DateTime.Now:HH:mm:ss.fff} | CLICK | Setup={enemyName} | T{tachoIndex + 1}/{totalTachos} | " +
                 $"Reason={d.LastTriggerReason} | Speed={d.LastSpeedDegPerSec:F1}°/s Accel={d.LastAccelDegPerSec2:F0}°/s2 | R2={d.LastRegressionR2:F4} | " +
                 $"RemAtTrig={d.LastRemDegAtTrigger:F1}° | WaitMs={d.LastWaitMsAtTrigger:F1} | " +
                 $"Offset={usedOffsetMs:F1}->{newOffsetMs:F1}ms | " +
-                $"GreenEnd={d.LastTargetEndDeg:F0}° Width={d.LastGreenWidthDeg:F0}° GreenPx={d.LastInitialGreenCount} BlueSliverPx={d.LastBlueSliverCount} | " +
+                $"GreenEnd={d.LastTargetEndDeg:F0}° GreenW={d.LastGreenWidthDeg:F0}° BlueW={d.LastBlueWidthDeg:F0}° GreenPx={d.LastInitialGreenCount} BluePx={d.LastBlueSliverCount} | " +
                 $"Feedback={fb} (RGB={d.LastAvgR},{d.LastAvgG},{d.LastAvgB} B={d.LastPatchBlue} G={d.LastPatchGreen} R={d.LastPatchRed} W={d.LastPatchWhite}) | " +
                 $"Checkpoints={checkpointsStr}";
             File.AppendAllText(GetTelemetryLogPath(), line + Environment.NewLine);
@@ -395,70 +474,90 @@ internal static class Program
         catch { }
     }
 
-    private static void LogTelemetryAbort(int tachoIndex, int totalTachos, double usedOffsetMs, TachoDetector d)
+    private static void LogTelemetryAbort(int tachoIndex, int totalTachos, double usedOffsetMs, string enemyName, TachoDetector d)
     {
         try
         {
             string line =
-                $"{DateTime.Now:HH:mm:ss.fff} | ABORT_NO_CLICK | T{tachoIndex + 1}/{totalTachos} | " +
+                $"{DateTime.Now:HH:mm:ss.fff} | ABORT_NO_CLICK | Setup={enemyName} | T{tachoIndex + 1}/{totalTachos} | " +
                 $"Reason={d.LastAbortReason} | LastRem={d.LastAbortMinRemDeg:F1}° | BottomRedPx={d.LastAbortRedOnBottom} | " +
-                $"Offset={usedOffsetMs:F1}ms | GreenEnd={d.LastTargetEndDeg:F0}° Width={d.LastGreenWidthDeg:F0}° GreenPx={d.LastInitialGreenCount} BlueSliverPx={d.LastBlueSliverCount} | " +
+                $"Offset={usedOffsetMs:F1}ms | GreenEnd={d.LastTargetEndDeg:F0}° GreenW={d.LastGreenWidthDeg:F0}° BlueW={d.LastBlueWidthDeg:F0}° | " +
                 $"Checkpoints={d.LastAbortCheckpointSummary}";
             File.AppendAllText(GetTelemetryLogPath(), line + Environment.NewLine);
-            Console.WriteLine($"[ABBRUCH OHNE KLICK Tacho {tachoIndex + 1}] {d.LastAbortReason} (LastRem={d.LastAbortMinRemDeg:F0}°, BottomRed={d.LastAbortRedOnBottom})");
+            Console.WriteLine($"[ABBRUCH OHNE KLICK Tacho {tachoIndex + 1}] {d.LastAbortReason} (LastRem={d.LastAbortMinRemDeg:F0}°)");
         }
         catch { }
     }
 
-    private static double HandleTachoFeedback(int tachoIndex, TachoFeedback fb, TachoDetector detector, AppConfig cfg)
+    private static double HandleTachoFeedback(
+        int tachoIndex, TachoFeedback fb, TachoDetector detector,
+        AppConfig cfg, EnemySetupStore enemyStore, EnemySetup? activeEnemy)
     {
         string counts = $"(Spot=({detector.LastPatchScreenX},{detector.LastPatchScreenY}) RGB=({detector.LastAvgR},{detector.LastAvgG},{detector.LastAvgB}) | B={detector.LastPatchBlue} G={detector.LastPatchGreen} R={detector.LastPatchRed} W={detector.LastPatchWhite})";
+        string setupLabel = activeEnemy != null ? activeEnemy.Name : "Standard";
+
+        double deltaMs = fb switch
+        {
+            TachoFeedback.TooLateRed => +2.0,
+            TachoFeedback.TooEarlyGreen => -0.5,
+            _ => 0.0
+        };
+        detector.LastCorrectionDeltaMs = deltaMs;
+
+        double updated;
+        if (activeEnemy != null && activeEnemy.ProfileSize == cfg.ActiveProfile)
+        {
+            activeEnemy.EnsureSlots();
+            var slot = activeEnemy.Tachos[tachoIndex];
+            if (fb != TachoFeedback.None)
+            {
+                slot.TotalClicks++;
+                if (fb == TachoFeedback.OptimalBlue) slot.BlueHits++;
+            }
+
+            if (fb == TachoFeedback.WayTooEarlyWhite)
+                slot.ClickOffsetMs = slot.DefaultClickOffsetMs > 0 ? slot.DefaultClickOffsetMs : 41.0;
+            else if (deltaMs != 0.0)
+                slot.ClickOffsetMs = Math.Clamp(Math.Round(slot.ClickOffsetMs + deltaMs, 2), 0.0, 120.0);
+
+            updated = slot.ClickOffsetMs;
+            enemyStore.Save();
+        }
+        else
+        {
+            if (fb == TachoFeedback.WayTooEarlyWhite)
+                updated = cfg.ResetTachoClickOffsetToDefault(tachoIndex);
+            else if (deltaMs != 0.0)
+                updated = cfg.AdjustTachoClickOffsetMs(tachoIndex, deltaMs);
+            else
+                updated = cfg.GetClickOffsetMsForTacho(tachoIndex);
+
+            cfg.Save();
+        }
+
         switch (fb)
         {
             case TachoFeedback.TooLateRed:
-            {
-                const double deltaMs = +2.0;
-                detector.LastCorrectionDeltaMs = deltaMs;
-                double updated = cfg.AdjustTachoClickOffsetMs(tachoIndex, deltaMs);
-                cfg.Save();
-                Console.WriteLine($"[Nach-Klick Tacho {tachoIndex + 1}] >>> ROT (ZU SPAET!) <<< {counts} -> Offset T{tachoIndex + 1} +{deltaMs:F1} ms auf {updated:F1} ms");
-                return updated;
-            }
+                Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> ROT (ZU SPAET!) <<< {counts} -> Offset +{deltaMs:F1} ms auf {updated:F1} ms");
+                break;
             case TachoFeedback.TooEarlyGreen:
-            {
-                const double deltaMs = -0.5;
-                detector.LastCorrectionDeltaMs = deltaMs;
-                double updated = cfg.AdjustTachoClickOffsetMs(tachoIndex, deltaMs);
-                cfg.Save();
-                Console.WriteLine($"[Nach-Klick Tacho {tachoIndex + 1}] >>> GRUEN (ETWAS FRUEH) <<< {counts} -> Offset T{tachoIndex + 1} {deltaMs:F1} ms auf {updated:F1} ms");
-                return updated;
-            }
+                Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> GRUEN (ETWAS FRUEH) <<< {counts} -> Offset {deltaMs:F1} ms auf {updated:F1} ms");
+                break;
             case TachoFeedback.OptimalBlue:
-            {
-                detector.LastCorrectionDeltaMs = 0.0;
-                double current = cfg.GetClickOffsetMsForTacho(tachoIndex);
-                Console.WriteLine($"[Nach-Klick Tacho {tachoIndex + 1}] >>> BLAU (OPTIMAL!) <<< {counts} -> Offset T{tachoIndex + 1} ({current:F1} ms) bleibt unveraendert.");
-                return current;
-            }
+                Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> BLAU (OPTIMAL!) <<< {counts} -> Offset ({updated:F1} ms) bleibt unveraendert.");
+                break;
             case TachoFeedback.WayTooEarlyWhite:
-            {
-                detector.LastCorrectionDeltaMs = 0.0;
-                double resetVal = cfg.ResetTachoClickOffsetToDefault(tachoIndex);
-                cfg.Save();
-                Console.WriteLine($"[Nach-Klick Tacho {tachoIndex + 1}] >>> WEISS (VIEL ZU FRUEH!) <<< {counts} -> Offset T{tachoIndex + 1} auf Startwert {resetVal:F1} ms zurueckgesetzt!");
-                return resetVal;
-            }
+                Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> WEISS (VIEL ZU FRUEH!) <<< {counts} -> Offset auf Startwert {updated:F1} ms zurueckgesetzt!");
+                break;
             default:
-            {
-                detector.LastCorrectionDeltaMs = 0.0;
-                double current = cfg.GetClickOffsetMsForTacho(tachoIndex);
-                Console.WriteLine($"[Nach-Klick Tacho {tachoIndex + 1}] Keine eindeutige Farbe erkannt {counts} -> Offset bleibt {current:F1} ms.");
-                return current;
-            }
+                Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] Keine eindeutige Farbe erkannt {counts} -> Offset bleibt {updated:F1} ms.");
+                break;
         }
+
+        return updated;
     }
 
-    private static void TriggerClick(int tachoIndex, int totalTachos, TachoDetector detector, AppConfig cfg)
+    private static void TriggerClick(int tachoIndex, int totalTachos, string enemyName, TachoDetector detector, AppConfig cfg)
     {
         bool isLast = tachoIndex == totalTachos - 1;
         int targetX = isLast ? cfg.GreenButtonX : cfg.BlueButtonX;
@@ -466,7 +565,7 @@ internal static class Program
         string btnLabel = isLast ? "Gruener Schwerter-Button" : "Blauer Schild-Button";
 
         Console.WriteLine(
-            $"[TREFFER Tacho {tachoIndex + 1}/{totalTachos}!] v={detector.LastSpeedDegPerSec:F0}°/s (n={detector.LastCheckpointCount}) -> Klicke {btnLabel} ({targetX}, {targetY})");
+            $"[TREFFER {enemyName} T{tachoIndex + 1}/{totalTachos}!] {detector.LastTriggerReason} v={detector.LastSpeedDegPerSec:F0}°/s (Offset={detector.LastUsedClickOffsetMs:F1}ms) -> Klicke {btnLabel}");
         NativeMethods.ClickAt(targetX, targetY, cfg.ClickHoldMs);
     }
 
@@ -495,7 +594,7 @@ internal static class Program
         for (int i = 0; i < tachos.Count; i++)
         {
             string btn = (i == tachos.Count - 1) ? "Gruen" : "Blau";
-            Console.WriteLine($"  Tacho {i + 1} ({btn}) [Offset: {tachos[i].ClickOffsetMs:F1} ms]: {(tachos[i].IsSet ? $"({tachos[i].X}, {tachos[i].Y})" : "noch nicht gesetzt (mit F9 festlegen)")}");
+            Console.WriteLine($"  Tacho {i + 1} ({btn}): {(tachos[i].IsSet ? $"({tachos[i].X}, {tachos[i].Y})" : "noch nicht gesetzt (mit F9 festlegen)")}");
         }
 
         if (!cfg.IsCalibrated && running)
@@ -511,27 +610,28 @@ internal static class Program
             d.Reset();
     }
 
-    private static void PrintHeader(AppConfig cfg, bool running, bool debugMode)
+    private static void PrintHeader(AppConfig cfg, EnemySetupStore store, bool running, bool debugMode)
     {
         var tachos = cfg.GetActiveTachos();
         Console.WriteLine("=================================================================");
-        Console.WriteLine("  TachoClicker - Sequenziell (nur aktiver Tacho) + 9x9 Unten-Check");
+        Console.WriteLine("  TachoClicker - Automatische Gegner-Erkennung & Setups");
         Console.WriteLine("=================================================================");
         Console.WriteLine("Hotkeys:");
-        Console.WriteLine("  F2         : Auf 2er-Konfiguration umschalten (T1=Blau -> T2=Gruen)");
-        Console.WriteLine("  F3         : Auf 3er-Konfiguration umschalten (T1=Blau -> T2=Blau -> T3=Gruen)");
-        Console.WriteLine("  F9         : Naechste Tacho-Mitte speichern (zyklisch Tacho 1..N)");
-        Console.WriteLine("  F10        : Blauen Schild-Button speichern (+ Auto-Start)");
-        Console.WriteLine("  F6         : Gruenen Schwerter-Button speichern (+ Auto-Start)");
-        Console.WriteLine("  F8         : Automatik Start / Pause (startet immer bei Tacho 1)");
-        Console.WriteLine("  F7         : Debug-Ausgabe An / Aus");
-        Console.WriteLine("  +/-        : Zeit-Vorlauf des aktuell aktiven Tachos +/- 2 ms");
+        Console.WriteLine("  F2  : Auf 2er-Konfiguration umschalten (T1=Blau -> T2=Gruen)");
+        Console.WriteLine("  F3  : Auf 3er-Konfiguration umschalten (T1=Blau -> T2=Blau -> T3=Gruen)");
+        Console.WriteLine("  F9  : Naechste Tacho-Mitte speichern (zyklisch Tacho 1..N)");
+        Console.WriteLine("  F10 : Blauen Schild-Button speichern (+ Auto-Start)");
+        Console.WriteLine("  F6  : Gruenen Schwerter-Button speichern (+ Auto-Start)");
+        Console.WriteLine("  F8  : Automatik Start / Pause (startet immer bei Tacho 1)");
+        Console.WriteLine("  F7  : Debug-Ausgabe An / Aus");
+        Console.WriteLine("  +/- : Zeit-Vorlauf des aktuell aktiven Tachos / Gegners +/- 2 ms");
         Console.WriteLine("-----------------------------------------------------------------");
-        Console.WriteLine($"Aktives Profil        : {cfg.ActiveProfile}er-Konfiguration (Messpunkte alle {cfg.CheckpointStepDeg:F0}°)");
-        for (int i = 0; i < tachos.Count; i++)
+        Console.WriteLine($"Aktives Profil        : {cfg.ActiveProfile}er-Konfiguration | Gespeicherte Gegner-Setups: {store.Setups.Count}");
+        foreach (var s in store.Setups)
         {
-            string btn = (i == tachos.Count - 1) ? "Gruen" : "Blau ";
-            Console.WriteLine($"  Tacho {i + 1}/{tachos.Count} [{btn}]    : {(tachos[i].IsSet ? $"({tachos[i].X}, {tachos[i].Y})" : "noch nicht gesetzt")} | Offset: {tachos[i].ClickOffsetMs:F1} ms");
+            string slotDesc = string.Join(" | ", s.Tachos.Select((sl, i) =>
+                sl.HasSignature ? $"T{i + 1}:{sl.ClickOffsetMs:F1}ms(v={sl.EndSpeedDegPerSec:F0},G={sl.GreenWidthDeg:F0}°)" : $"T{i + 1}:-"));
+            Console.WriteLine($"  - {s.Name} ({s.ProfileSize}er): {slotDesc}");
         }
         Console.WriteLine($"Blauer Schild-Button  : ({cfg.BlueButtonX}, {cfg.BlueButtonY})");
         Console.WriteLine($"Gruener Schwert-Btn   : ({cfg.GreenButtonX}, {cfg.GreenButtonY})");

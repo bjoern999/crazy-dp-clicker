@@ -12,6 +12,7 @@
 
   <ItemGroup>
     <None Update="config.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="enemy_setups.json" CopyToOutputDirectory="PreserveNewest" Condition="Exists('enemy_setups.json')" />
   </ItemGroup>
 
 </Project>
