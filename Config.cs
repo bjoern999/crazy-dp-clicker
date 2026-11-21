@@ -40,6 +40,12 @@ internal sealed class AppConfig
     public int GreenButtonX { get; set; } = 0;
     public int GreenButtonY { get; set; } = 0;
 
+    // Position fuer die visuelle Dino-Erkennung (0 = automatisch direkt ueber Tacho 1)
+    public int DinoBoxX { get; set; } = 0;
+    public int DinoBoxY { get; set; } = 0;
+    public int DinoBoxWidth { get; set; } = DinoVisualMatcher.DefaultBoxWidth;
+    public int DinoBoxHeight { get; set; } = DinoVisualMatcher.DefaultBoxHeight;
+
     public int PollIntervalMs { get; set; } = 2;
     public int ClickHoldMs { get; set; } = 10;
     public int CooldownMs { get; set; } = 450;
@@ -90,6 +96,21 @@ internal sealed class AppConfig
             return def;
         }
         return 41.0;
+    }
+
+    public (int X, int Y) GetEffectiveDinoBoxCenter()
+    {
+        if (DinoBoxX > 0 && DinoBoxY > 0)
+            return (DinoBoxX, DinoBoxY);
+
+        var tachos = GetActiveTachos();
+        if (tachos.Count > 0 && tachos[0].IsSet)
+        {
+            // Im Spiel steht der aktive eigene Dino direkt ueber Tacho 1 (auf 4K: dx=-45, dy=-225)
+            return (Math.Max(140, tachos[0].X - 45), Math.Max(120, tachos[0].Y - 225));
+        }
+
+        return (0, 0);
     }
 
     public bool IsCalibrated

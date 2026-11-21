@@ -57,6 +57,9 @@ internal static class Program
         EnemySetup? lastConfirmedEnemy = null;
         bool activeEnemyIsNew = false;
         var roundFingerprints = new Dictionary<int, TachoFingerprint>();
+        DinoVisualFingerprint? currentRoundVisual = null;
+        Bitmap? lastDinoPreview = null;
+        string lastDinoVisualInfo = "";
 
         // Letztes Feedback fuer die Anzeige im Live-Inspektor
         int lastClickedTachoNumber = 0;
@@ -67,6 +70,7 @@ internal static class Program
 
         bool f2Prev = false;
         bool f3Prev = false;
+        bool f5Prev = false;
         bool f6Prev = false;
         bool f7Prev = false;
         bool f8Prev = false;
@@ -133,6 +137,23 @@ internal static class Program
                         expectedTachoIndex = 0;
                         Console.WriteLine($"[Kalibrierung] Blauer Schild-Button gesetzt auf: ({pt.X}, {pt.Y})");
                         TryAutoStart(cfg, ref running);
+                    }
+                }
+
+                if (NativeMethods.IsKeyJustPressed(NativeMethods.VK_F5, ref f5Prev))
+                {
+                    if (NativeMethods.GetCursorPos(out var pt))
+                    {
+                        cfg.DinoBoxX = pt.X;
+                        cfg.DinoBoxY = pt.Y;
+                        cfg.Save();
+                        var (visFp, visPreview) = DinoVisualMatcher.CaptureAndExtract(pt.X, pt.Y, cfg.DinoBoxWidth, cfg.DinoBoxHeight);
+                        lastDinoPreview?.Dispose();
+                        lastDinoPreview = visPreview;
+                        lastDinoVisualInfo = visFp.HasVisual
+                            ? $"Kalibriert: {visFp.ForegroundPixels}px AR={visFp.AspectRatio:F2}"
+                            : "Kalibriert (kein Vordergrund)";
+                        Console.WriteLine($"[Kalibrierung] Aktive Dino-Position gesetzt auf: ({pt.X}, {pt.Y}) | {lastDinoVisualInfo}");
                     }
                 }
 
@@ -212,10 +233,11 @@ internal static class Program
 
                             roundFingerprints[cur] = fp;
 
-                            var (matched, isNew, dist) = enemyStore.MatchOrCreate(
+                            var (matched, isNew, dist, visDist, learnedVisual) = enemyStore.MatchOrCreate(
                                 cfg.ActiveProfile,
                                 cur,
                                 fp,
+                                currentRoundVisual,
                                 cur > 0 ? activeEnemy : null,
                                 lastConfirmedEnemy,
                                 roundFingerprints,
@@ -228,16 +250,29 @@ internal static class Program
                             if (cur == activeTachos.Count - 1)
                                 lastConfirmedEnemy = matched;
 
+                            if ((learnedVisual || isNew) && lastDinoPreview != null)
+                            {
+                                DinoVisualMatcher.SaveReferenceThumbnail(matched.Id, matched.Name, lastDinoPreview);
+                            }
+
+                            if (cur == 0)
+                            {
+                                lastDinoVisualInfo = visDist >= 0
+                                    ? (learnedVisual ? $"Dino NEU gelernt!" : $"VisDist={visDist:F2} (OK)")
+                                    : (currentRoundVisual?.HasVisual == true ? "Dino gespeichert" : "Kein Dino-Bild");
+                            }
+
                             var slot = matched.Tachos[cur];
                             double enemyOffset = slot.ClickOffsetMs;
 
                             if (changedEnemy || cur == 0)
                             {
                                 string tag = isNew ? "NEU ANGELEGT" : (matched.IsFixed ? $"FEST (Dist={dist:F2})" : $"ERKANNT (Dist={dist:F2})");
+                                string visStr = visDist >= 0 ? $", Vis={visDist:F2}{(learnedVisual ? " [NEU]" : "")}" : "";
                                 var best = slot.GetBestProvenOffset();
                                 string bestStr = best != null ? $", Bewaehrt={best.OffsetMs:F2}ms ({best.BlueHits}/{best.Total} Blau)" : "";
                                 Console.WriteLine(
-                                    $"[Spieler-Setup] {matched.Name} [{tag}] | T{cur + 1}: v={fp.EndSpeedDegPerSec:F1}°/s, a={fp.AccelDegPerSec2:F0}°/s², T55={fp.SpinTimeTo55Ms:F0}ms, G={fp.GreenWidthDeg:F0}° -> Offset {enemyOffset:F2} ms{bestStr}");
+                                    $"[Spieler-Setup] {matched.Name} [{tag}{visStr}] | T{cur + 1}: v={fp.EndSpeedDegPerSec:F1}°/s, a={fp.AccelDegPerSec2:F0}°/s², T55={fp.SpinTimeTo55Ms:F0}ms, G={fp.GreenWidthDeg:F0}° -> Offset {enemyOffset:F2} ms{bestStr}");
                             }
 
                             return enemyOffset;
@@ -249,6 +284,22 @@ internal static class Program
                         int targetX = isLast ? cfg.GreenButtonX : cfg.BlueButtonX;
                         int targetY = isLast ? cfg.GreenButtonY : cfg.BlueButtonY;
                         NativeMethods.SetCursorPos(targetX, targetY);
+
+                        // Visuellen Dino-Fingerabdruck 1x direkt beim Start von Tacho 1 erfassen (~0.8 ms, ~1200 ms vor Klick!)
+                        if (cur == 0)
+                        {
+                            var (dx, dy) = cfg.GetEffectiveDinoBoxCenter();
+                            if (dx > 0 && dy > 0)
+                            {
+                                var (visFp, visPreview) = DinoVisualMatcher.CaptureAndExtract(dx, dy, cfg.DinoBoxWidth, cfg.DinoBoxHeight);
+                                currentRoundVisual = visFp;
+                                lastDinoPreview?.Dispose();
+                                lastDinoPreview = visPreview;
+                                lastDinoVisualInfo = visFp.HasVisual
+                                    ? $"Fg={visFp.ForegroundPixels}px AR={visFp.AspectRatio:F2}"
+                                    : "Kein Dino erkannt (F5?)";
+                            }
+                        }
                     }
 
                     if (detectors[cur].State == DetectorState.Armed)
@@ -304,7 +355,8 @@ internal static class Program
                                 detectors, expectedTachoIndex, running,
                                 lastClickedTachoNumber, lastFeedback,
                                 lastPatchR, lastPatchG, lastPatchB, lastPatchW,
-                                lastDeltaMs, lastResultNewOffsetMs));
+                                lastDeltaMs, lastResultNewOffsetMs,
+                                lastDinoPreview, lastDinoVisualInfo));
                         }
                     }
                     else if (cur > 0 &&
@@ -352,12 +404,14 @@ internal static class Program
                         detectors, expectedTachoIndex, running,
                         lastClickedTachoNumber, lastFeedback,
                         lastPatchR, lastPatchG, lastPatchB, lastPatchW,
-                        lastDeltaMs, lastResultNewOffsetMs));
+                        lastDeltaMs, lastResultNewOffsetMs,
+                        lastDinoPreview, lastDinoVisualInfo));
                 }
             }
         }
         finally
         {
+            lastDinoPreview?.Dispose();
             if (overlay != null && overlay.IsHandleCreated && !overlay.IsDisposed)
             {
                 overlay.BeginInvoke(() => overlay.Close());
@@ -415,7 +469,8 @@ internal static class Program
         TachoDetector[] detectors, int activeIdx, bool running,
         int lastClickedTachoNumber, TachoFeedback lastFeedback,
         int patchR, int patchG, int patchB, int patchW,
-        double lastDeltaMs, double lastResultNewOffsetMs)
+        double lastDeltaMs, double lastResultNewOffsetMs,
+        Bitmap? lastDinoPreview, string dinoVisualInfo)
     {
         var tachos = cfg.GetActiveTachos();
         var t = tachos[activeIdx];
@@ -425,6 +480,7 @@ internal static class Program
             Enumerable.Range(0, tachos.Count).Select(idx => $"T{idx + 1}={GetEffectiveOffsetMs(idx, cfg, activeEnemy):F1}ms"));
 
         var (posX, posY) = GetEffectiveTachoPos(activeIdx, cfg, activeEnemy);
+        var (dinoX, dinoY) = cfg.GetEffectiveDinoBoxCenter();
         string bestProvenInfo = "";
         if (activeEnemy != null && activeEnemy.ProfileSize == cfg.ActiveProfile && activeIdx < activeEnemy.Tachos.Count)
         {
@@ -466,7 +522,11 @@ internal static class Program
             LastDeltaMs = lastDeltaMs,
             LastResultNewOffsetMs = lastResultNewOffsetMs,
             BlueButtonPreview = CaptureSmallPreview(cfg.BlueButtonX, cfg.BlueButtonY, 70),
-            GreenButtonPreview = CaptureSmallPreview(cfg.GreenButtonX, cfg.GreenButtonY, 70)
+            GreenButtonPreview = CaptureSmallPreview(cfg.GreenButtonX, cfg.GreenButtonY, 70),
+            DinoPreview = lastDinoPreview != null ? (Bitmap)lastDinoPreview.Clone() : null,
+            DinoBoxX = dinoX,
+            DinoBoxY = dinoY,
+            DinoVisualInfo = dinoVisualInfo
         };
     }
 
@@ -662,6 +722,7 @@ internal static class Program
         Console.WriteLine("  F3  : Auf 3er-Konfiguration umschalten (T1=Blau -> T2=Blau -> T3=Gruen)");
         Console.WriteLine("  F9  : Naechste Tacho-Mitte speichern (zyklisch Tacho 1..N)");
         Console.WriteLine("  F10 : Blauen Schild-Button speichern (+ Auto-Start)");
+        Console.WriteLine("  F5  : Position des aktiven eigenen Dinos speichern (optional, sonst automatisch ueber T1)");
         Console.WriteLine("  F6  : Gruenen Schwerter-Button speichern (+ Auto-Start)");
         Console.WriteLine("  F8  : Automatik Start / Pause (startet immer bei Tacho 1)");
         Console.WriteLine("  F7  : Debug-Ausgabe An / Aus");
@@ -671,12 +732,15 @@ internal static class Program
         foreach (var s in store.Setups)
         {
             string fixedTag = s.IsFixed ? "FEST" : "AUTO";
+            string visTag = s.HasVisual ? "VIS" : "NO-VIS";
             string slotDesc = string.Join(" | ", s.Tachos.Select((sl, i) =>
                 sl.HasSignature
                     ? $"T{i + 1}:{sl.ClickOffsetMs:F2}ms@({sl.X},{sl.Y})[{sl.BlueHits}/{sl.TotalClicks} Blau]"
                     : $"T{i + 1}:-"));
-            Console.WriteLine($"  - {s.Name} [{fixedTag}, {s.ProfileSize}er]: {slotDesc}");
+            Console.WriteLine($"  - {s.Name} [{fixedTag}, {visTag}, {s.ProfileSize}er]: {slotDesc}");
         }
+        var (dx0, dy0) = cfg.GetEffectiveDinoBoxCenter();
+        Console.WriteLine($"Dino-Sichtfeld        : ({dx0}, {dy0}) [{cfg.DinoBoxWidth}x{cfg.DinoBoxHeight}] {(cfg.DinoBoxX > 0 ? "(manuell F5)" : "(auto ueber T1)")}");
         Console.WriteLine($"Blauer Schild-Button  : ({cfg.BlueButtonX}, {cfg.BlueButtonY})");
         Console.WriteLine($"Gruener Schwert-Btn   : ({cfg.GreenButtonX}, {cfg.GreenButtonY})");
         Console.WriteLine($"Status                : {(running ? "AKTIV" : "PAUSIERT")} | Debug: {(debugMode ? "AN" : "AUS")}");

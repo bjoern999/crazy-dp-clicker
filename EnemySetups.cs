@@ -324,8 +324,11 @@ internal sealed class EnemySetup
     public string Name { get; set; } = "";
     public bool IsFixed { get; set; }
     public int ProfileSize { get; set; } = 2;
+    public DinoVisualFingerprint? Visual { get; set; }
     public List<TachoSetupSlot> Tachos { get; set; } = new();
     public DateTime LastSeenUtc { get; set; } = DateTime.UtcNow;
+
+    public bool HasVisual => Visual != null && Visual.HasVisual;
 
     public void EnsureSlots()
     {
@@ -388,10 +391,11 @@ internal sealed class EnemySetupStore
         }
     }
 
-    public (EnemySetup Setup, bool IsNew, double MatchDistance) MatchOrCreate(
+    public (EnemySetup Setup, bool IsNew, double MatchDistance, double VisualDistance, bool JustLearnedVisual) MatchOrCreate(
         int profileSize,
         int tachoIndex,
         TachoFingerprint currentFp,
+        DinoVisualFingerprint? currentVisual,
         EnemySetup? currentRoundSetup,
         EnemySetup? preferredStickySetup,
         IReadOnlyDictionary<int, TachoFingerprint> roundFingerprints,
@@ -400,19 +404,23 @@ internal sealed class EnemySetupStore
     {
         int curX = tachoIndex < activePositions.Count ? activePositions[tachoIndex].X : 0;
         int curY = tachoIndex < activePositions.Count ? activePositions[tachoIndex].Y : 0;
+        bool hasCurVis = currentVisual != null && currentVisual.HasVisual;
 
         // Case 1: Mid-round (Tacho 2 or Tacho 3) with an already active setup from Tacho 1
         if (tachoIndex > 0 && currentRoundSetup != null && currentRoundSetup.ProfileSize == profileSize)
         {
             currentRoundSetup.EnsureSlots();
             var slot = currentRoundSetup.Tachos[tachoIndex];
+            double curVisDist = (hasCurVis && currentRoundSetup.HasVisual)
+                ? DinoVisualMatcher.Distance(currentRoundSetup.Visual!, currentVisual!)
+                : -1.0;
 
             if (!slot.HasSignature)
             {
                 slot.InitFrom(currentFp, fallbackOffsetMs, curX, curY);
                 currentRoundSetup.LastSeenUtc = DateTime.UtcNow;
                 Save();
-                return (currentRoundSetup, false, 0.0);
+                return (currentRoundSetup, false, 0.0, curVisDist, false);
             }
 
             double dCurrent = slot.DistanceTo(currentFp);
@@ -422,15 +430,25 @@ internal sealed class EnemySetupStore
                 slot.UpdateSignatureEma(currentFp, currentRoundSetup.IsFixed);
                 currentRoundSetup.LastSeenUtc = DateTime.UtcNow;
                 Save();
-                return (currentRoundSetup, false, dCurrent);
+                return (currentRoundSetup, false, dCurrent, curVisDist, false);
             }
 
             EnemySetup? bestJoint = null;
             double bestJointDist = double.MaxValue;
+            double bestJointVisDist = -1.0;
             foreach (var candidate in Setups)
             {
                 if (candidate.ProfileSize != profileSize) continue;
                 candidate.EnsureSlots();
+
+                // Visueller Ausschluss: niemals auf einen sichtbar anderen Dino umschalten!
+                double candVisDist = -1.0;
+                if (hasCurVis && candidate.HasVisual)
+                {
+                    candVisDist = DinoVisualMatcher.Distance(candidate.Visual!, currentVisual!);
+                    if (candVisDist > DinoVisualMatcher.VisualMatchThreshold)
+                        continue;
+                }
 
                 double dThis = candidate.Tachos[tachoIndex].DistanceTo(currentFp);
                 if (dThis > 1.0) continue;
@@ -455,9 +473,12 @@ internal sealed class EnemySetupStore
                 if (allOk)
                 {
                     double avg = sumDist / count;
+                    if (candVisDist >= 0)
+                        avg = avg * 0.65 + (candVisDist / DinoVisualMatcher.VisualMatchThreshold) * 0.35;
                     if (avg < bestJointDist)
                     {
                         bestJointDist = avg;
+                        bestJointVisDist = candVisDist;
                         bestJoint = candidate;
                     }
                 }
@@ -468,48 +489,75 @@ internal sealed class EnemySetupStore
                 var matchedSlot = bestJoint.Tachos[tachoIndex];
                 if (!matchedSlot.HasPosition && curX > 0 && curY > 0) { matchedSlot.X = curX; matchedSlot.Y = curY; }
                 matchedSlot.UpdateSignatureEma(currentFp, bestJoint.IsFixed);
+                bool learned = false;
+                if (hasCurVis)
+                {
+                    if (!bestJoint.HasVisual)
+                    {
+                        bestJoint.Visual = new DinoVisualFingerprint();
+                        DinoVisualMatcher.BlendInto(bestJoint.Visual, currentVisual!);
+                        learned = true;
+                    }
+                    else
+                    {
+                        DinoVisualMatcher.BlendInto(bestJoint.Visual!, currentVisual!);
+                    }
+                }
                 bestJoint.LastSeenUtc = DateTime.UtcNow;
                 Save();
-                return (bestJoint, false, bestJointDist);
+                return (bestJoint, false, bestJointDist, bestJointVisDist, learned);
             }
 
             // Schutz gegen einzelne Frame-Haker bei festen Spielern:
-            // Wenn Geometrie (GreenEnd, GreenWidth) und Laufzeit (T55) weiterhin exakt zum aktuellen festen Spieler passen,
-            // kein doppeltes Setup anlegen, sondern auf dem festen Spieler bleiben.
             if (currentRoundSetup.IsFixed && slot.MatchesGeometryAndSpinTime(currentFp))
             {
                 currentRoundSetup.LastSeenUtc = DateTime.UtcNow;
                 Save();
-                return (currentRoundSetup, false, 0.99);
+                return (currentRoundSetup, false, 0.99, curVisDist, false);
             }
 
-            var splitSetup = CreateNewSetup(profileSize, tachoIndex, currentFp, roundFingerprints, activePositions, fallbackOffsetMs, currentRoundSetup);
-            return (splitSetup, true, 0.0);
+            var splitSetup = CreateNewSetup(profileSize, tachoIndex, currentFp, currentVisual, roundFingerprints, activePositions, fallbackOffsetMs, currentRoundSetup);
+            return (splitSetup, true, 0.0, 0.0, hasCurVis);
         }
 
         // Case 2: Tacho 1 (start of a round)
-        // Mit sanfter Hysterese (0.80x Bonus fuer den zuletzt durch T2 bestaetigten Spieler),
-        // damit minimale Messschwankungen niemals zu Ping-Pong fuehren, ein echter Spielerwechsel aber sofort umschaltet.
+        // Kombination aus Tacho-Signatur UND visueller Dino-Erkennung:
+        // - Wenn beide eine visuelle Signatur haben und visDist > 0.26 -> harter Ausschluss (trennt Stegosaurus & Oviraptor trotz identischem Tacho!).
+        // - Kandidaten mit passendem visuellen Match werden gegenueber noch unkalibrierten Legacy-Setups bevorzugt.
         EnemySetup? bestMatch = null;
         double bestEffectiveDist = double.MaxValue;
         double bestRawDist = double.MaxValue;
+        double bestVisDist = -1.0;
 
         foreach (var candidate in Setups)
         {
             if (candidate.ProfileSize != profileSize) continue;
             candidate.EnsureSlots();
 
-            double rawDist = candidate.Tachos[tachoIndex].DistanceTo(currentFp);
-            if (rawDist > 1.0) continue;
+            double tachoDist = candidate.Tachos[tachoIndex].DistanceTo(currentFp);
+            if (tachoDist > 1.0) continue;
+
+            double visDist = -1.0;
+            double combinedDist = tachoDist;
+            if (hasCurVis && candidate.HasVisual)
+            {
+                visDist = DinoVisualMatcher.Distance(candidate.Visual!, currentVisual!);
+                if (visDist > DinoVisualMatcher.VisualMatchThreshold)
+                    continue; // Sichtbar ein anderer Dino -> nicht matchen!
+
+                double visNorm = visDist / DinoVisualMatcher.VisualMatchThreshold;
+                combinedDist = (tachoDist * 0.45 + visNorm * 0.55) * 0.88; // Bonus fuer doppelt bestaetigten Match
+            }
 
             double effectiveDist = (preferredStickySetup != null && candidate.Id == preferredStickySetup.Id)
-                ? rawDist * 0.80
-                : rawDist;
+                ? combinedDist * 0.82
+                : combinedDist;
 
             if (effectiveDist < bestEffectiveDist)
             {
                 bestEffectiveDist = effectiveDist;
-                bestRawDist = rawDist;
+                bestRawDist = tachoDist;
+                bestVisDist = visDist;
                 bestMatch = candidate;
             }
         }
@@ -519,31 +567,57 @@ internal sealed class EnemySetupStore
             var matchedSlot = bestMatch.Tachos[tachoIndex];
             if (!matchedSlot.HasPosition && curX > 0 && curY > 0) { matchedSlot.X = curX; matchedSlot.Y = curY; }
             matchedSlot.UpdateSignatureEma(currentFp, bestMatch.IsFixed);
+
+            bool learnedVisual = false;
+            if (hasCurVis)
+            {
+                if (!bestMatch.HasVisual)
+                {
+                    bestMatch.Visual = new DinoVisualFingerprint();
+                    DinoVisualMatcher.BlendInto(bestMatch.Visual, currentVisual!);
+                    learnedVisual = true;
+                    bestVisDist = 0.0;
+                }
+                else
+                {
+                    DinoVisualMatcher.BlendInto(bestMatch.Visual!, currentVisual!);
+                }
+            }
+
             bestMatch.LastSeenUtc = DateTime.UtcNow;
             Save();
-            return (bestMatch, false, bestRawDist);
+            return (bestMatch, false, bestRawDist, bestVisDist, learnedVisual);
         }
 
-        var created = CreateNewSetup(profileSize, tachoIndex, currentFp, roundFingerprints, activePositions, fallbackOffsetMs, null);
-        return (created, true, 0.0);
+        var created = CreateNewSetup(profileSize, tachoIndex, currentFp, currentVisual, roundFingerprints, activePositions, fallbackOffsetMs, null);
+        return (created, true, 0.0, 0.0, hasCurVis);
     }
 
     private EnemySetup CreateNewSetup(
         int profileSize,
         int currentTachoIndex,
         TachoFingerprint currentFp,
+        DinoVisualFingerprint? currentVisual,
         IReadOnlyDictionary<int, TachoFingerprint> roundFingerprints,
         IReadOnlyList<TachoPoint> activePositions,
         double fallbackOffsetMs,
         EnemySetup? copiedFrom)
     {
         int id = NextId++;
+        DinoVisualFingerprint? visualCopy = null;
+        if (currentVisual != null && currentVisual.HasVisual)
+        {
+            visualCopy = new DinoVisualFingerprint();
+            DinoVisualMatcher.BlendInto(visualCopy, currentVisual);
+        }
+
         var setup = new EnemySetup
         {
             Id = id,
             Name = $"Spieler-Setup #{id}",
             IsFixed = false,
             ProfileSize = profileSize,
+            Visual = visualCopy,
             LastSeenUtc = DateTime.UtcNow
         };
         setup.EnsureSlots();

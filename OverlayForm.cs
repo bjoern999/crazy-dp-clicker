@@ -43,6 +43,12 @@ internal sealed class OverlaySnapshot
 
     public Bitmap? BlueButtonPreview { get; init; }
     public Bitmap? GreenButtonPreview { get; init; }
+
+    // Visuelle Dino-Erkennung
+    public Bitmap? DinoPreview { get; init; }
+    public int DinoBoxX { get; init; }
+    public int DinoBoxY { get; init; }
+    public string DinoVisualInfo { get; init; } = "";
 }
 
 internal sealed class OverlayForm : Form
@@ -61,10 +67,10 @@ internal sealed class OverlayForm : Form
 
     public OverlayForm()
     {
-        Text = "TachoClicker Live-Inspektor (Gegner-Erkennung + Klick-Moment)";
+        Text = "TachoClicker Live-Inspektor (Dino- & Tacho-Erkennung + Klick-Moment)";
         StartPosition = FormStartPosition.Manual;
         Location = new Point(40, 40);
-        ClientSize = new Size(575, 434);
+        ClientSize = new Size(785, 434);
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         ShowInTaskbar = true;
@@ -181,6 +187,7 @@ internal sealed class OverlayForm : Form
         snap.ActivePreview?.Dispose();
         snap.BlueButtonPreview?.Dispose();
         snap.GreenButtonPreview?.Dispose();
+        snap.DinoPreview?.Dispose();
     }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -247,7 +254,7 @@ internal sealed class OverlayForm : Form
             g.DrawRectangle(hasEnemy ? Pens.Cyan : Pens.Gray, 12, 28, ClientSize.Width - 24, 24);
             g.DrawString(enemyLine, badgeFont, Brushes.White, 18, 32);
 
-            g.DrawString("Links: Live aktiver Tacho | Mitte: Foto IM KLICK-MOMENT | Rechts: Button-Klick-Blitz", infoFont, Brushes.LightGray, 12, 56);
+            g.DrawString("Links: Live Tacho | Mitte: IM KLICK-MOMENT | Buttons | Rechts: Visuelle Dino-Erkennung (F5=Pos)", infoFont, Brushes.LightGray, 12, 56);
 
             int tileSize = 195;
             int y = 76;
@@ -320,6 +327,26 @@ internal sealed class OverlayForm : Form
 
             DrawButtonPreview(g, snap.BlueButtonPreview, "Blau (F10)", btnX, y, btnSize, Brushes.DeepSkyBlue, infoFont, crossPen, flashBlue, clickFlashPen, flashBannerBg, badgeFont);
             DrawButtonPreview(g, snap.GreenButtonPreview, "Gruen (F6)", btnX, y + btnSize + 28, btnSize, Brushes.LimeGreen, infoFont, crossPen, flashGreen, clickFlashPen, flashBannerBg, badgeFont);
+
+            // 3b. Ganz rechts: Visuelle Dino-Erkennung (unterscheidet Spieler trotz identischem Tacho!)
+            int xDino = btnX + btnSize + 16;
+            int dinoW = 195;
+            int dinoH = 154;
+            if (snap.DinoPreview != null)
+            {
+                g.DrawImage(snap.DinoPreview, new Rectangle(xDino, y, dinoW, dinoH));
+            }
+            else
+            {
+                g.FillRectangle(Brushes.Black, xDino, y, dinoW, dinoH);
+                g.DrawString("Dino-Bild erscheint\nbei T1-Start\n(F5 = Pos anpassen)", infoFont, Brushes.Gray, xDino + 14, y + 52);
+            }
+            g.DrawRectangle(Pens.Cyan, xDino, y, dinoW, dinoH);
+            g.DrawString("Aktiver Dino (F5)", titleFont, Brushes.Cyan, xDino, y + dinoH + 8);
+            g.DrawString($"Box: ({snap.DinoBoxX}, {snap.DinoBoxY})", infoFont, Brushes.Silver, xDino, y + dinoH + 28);
+            g.DrawString(
+                string.IsNullOrEmpty(snap.DinoVisualInfo) ? "Warte auf T1..." : snap.DinoVisualInfo,
+                infoFont, Brushes.LightGreen, xDino, y + dinoH + 46);
 
             // 4. Unten: Farb-Box fuer die direkt nach dem Klick gemessenen unteren 9x9 Pixel
             int badgeY = y + tileSize + 64;
