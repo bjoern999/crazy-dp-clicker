@@ -515,12 +515,50 @@ internal sealed class EnemySetupStore
                 s.EnsureSlots();
             if (store.NextId <= store.Setups.Count)
                 store.NextId = (store.Setups.Count > 0 ? store.Setups.Max(s => s.Id) : 0) + 1;
+
+            if (store.SyncDeletedScreenshots())
+                store.Save();
+
             return store;
         }
         catch
         {
             return new EnemySetupStore();
         }
+    }
+
+    private bool SyncDeletedScreenshots()
+    {
+        string checkDir = AppContext.BaseDirectory;
+        string projectRootDir = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", ".."));
+        bool hasProjectRoot = Directory.Exists(projectRootDir) && File.Exists(Path.Combine(projectRootDir, "TachoClicker.csproj"));
+        if (hasProjectRoot)
+            checkDir = projectRootDir;
+
+        bool changed = false;
+        foreach (var s in Setups)
+        {
+            if (s.Visual == null || !s.Visual.HasVisual)
+                continue;
+
+            string pattern = $"dino_{s.Id}_*.png";
+            bool exists = Directory.GetFiles(checkDir, pattern).Length > 0;
+            if (!exists)
+            {
+                s.Visual = null;
+                changed = true;
+                Console.WriteLine($"[Visual] Screenshot fuer #{s.Id} ({s.Name}) geloescht -> Visual-Signatur zurueckgesetzt, wird beim naechsten Kampf neu gelernt.");
+
+                if (hasProjectRoot)
+                {
+                    foreach (string stale in Directory.GetFiles(AppContext.BaseDirectory, pattern))
+                    {
+                        try { File.Delete(stale); } catch { }
+                    }
+                }
+            }
+        }
+        return changed;
     }
 
     public void Save()
