@@ -106,8 +106,9 @@ internal sealed class AppConfig
         var tachos = GetActiveTachos();
         if (tachos.Count > 0 && tachos[0].IsSet)
         {
-            // Im Spiel steht der aktive eigene Dino direkt ueber Tacho 1 (auf 4K: dx=-45, dy=-225)
-            return (Math.Max(140, tachos[0].X - 45), Math.Max(120, tachos[0].Y - 225));
+            // Im Spiel steht der aktive eigene Dino direkt ueber Tacho 1 (auf 4K: dx=-20, dy=-250 -> 310x270 Box,
+            // erfasst Kopf, Kamm & Rueckenplatten auch bei maximaler Gummimatten-Dehnung ohne oberen Beschnitt!)
+            return (Math.Max(160, tachos[0].X - 20), Math.Max(140, tachos[0].Y - 250));
         }
 
         return (0, 0);

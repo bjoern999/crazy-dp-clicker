@@ -481,7 +481,7 @@ internal sealed class EnemySetup
     public List<TachoSetupSlot> Tachos { get; set; } = new();
     public DateTime LastSeenUtc { get; set; } = DateTime.UtcNow;
 
-    public bool HasVisual => Visual != null && Visual.HasVisual;
+    public bool HasVisual => Visual != null && Visual.IsCurrentVersion;
 
     public void EnsureSlots()
     {
@@ -557,7 +557,7 @@ internal sealed class EnemySetupStore
     {
         int curX = tachoIndex < activePositions.Count ? activePositions[tachoIndex].X : 0;
         int curY = tachoIndex < activePositions.Count ? activePositions[tachoIndex].Y : 0;
-        bool hasCurVis = currentVisual != null && currentVisual.HasVisual;
+        bool hasCurVis = currentVisual != null && currentVisual.IsCurrentVersion;
 
         // Case 1: Mid-round (Tacho 2 or Tacho 3) with an already active setup from Tacho 1
         if (tachoIndex > 0 && currentRoundSetup != null && currentRoundSetup.ProfileSize == profileSize)
@@ -788,7 +788,7 @@ internal sealed class EnemySetupStore
     {
         int id = NextId++;
         DinoVisualFingerprint? visualCopy = null;
-        if (currentVisual != null && currentVisual.HasVisual)
+        if (currentVisual != null && currentVisual.IsCurrentVersion)
         {
             visualCopy = new DinoVisualFingerprint();
             DinoVisualMatcher.BlendInto(visualCopy, currentVisual);

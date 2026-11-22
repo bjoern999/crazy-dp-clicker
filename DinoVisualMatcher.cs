@@ -5,10 +5,16 @@ namespace TachoClicker;
 
 internal sealed class DinoVisualFingerprint
 {
-    public bool HasVisual { get; set; }
+    public const int CurrentVersion = 2;
 
-    // 39-bin normalized HSV+Neutral color histogram of foreground Dino pixels (sum = 1.0)
+    public bool HasVisual { get; set; }
+    public int VisualVersion { get; set; } = 1;
+
+    // 39-bin normalized HSV+Neutral color histograms (full, upper 45% = Kopf/Rueckenplatten/Kamm, lower 55% = Koerper/Beine)
+    // Alle auf die enge Dino-Bounding-Box normiert -> 100% invariant gegen vertikales Gummimatten-Dehnen/Stauchen!
     public float[] ColorHist { get; set; } = Array.Empty<float>();
+    public float[] UpperColorHist { get; set; } = Array.Empty<float>();
+    public float[] LowerColorHist { get; set; } = Array.Empty<float>();
 
     // 10x10 normalized RGB (300 floats) + alpha/coverage (100 floats) of tight-cropped foreground Dino
     public float[] GridRgb { get; set; } = Array.Empty<float>();
@@ -18,23 +24,33 @@ internal sealed class DinoVisualFingerprint
     public double FillRatio { get; set; }
     public int ForegroundPixels { get; set; }
     public int SampleCount { get; set; }
+
+    public bool IsCurrentVersion =>
+        HasVisual &&
+        VisualVersion >= CurrentVersion &&
+        ColorHist.Length == DinoVisualMatcher.HistBins &&
+        UpperColorHist.Length == DinoVisualMatcher.HistBins &&
+        LowerColorHist.Length == DinoVisualMatcher.HistBins;
 }
 
 internal static class DinoVisualMatcher
 {
-    public const int DefaultBoxWidth = 280;
-    public const int DefaultBoxHeight = 220;
+    // Groessere, nach oben/rechts verschobene Box: erfasst Kopf, Kamm, Stegosaurus-Platten & Schwanz komplett
+    // ohne oberen Beschnitt und ohne den linken schwarzen Arena-Rahmen!
+    public const int DefaultBoxWidth = 310;
+    public const int DefaultBoxHeight = 270;
     public const int GridSize = 10;
-    public const int HistBins = 39; // 12 Hue * 3 (Light/Normal/Dark) + 3 Neutral (Dark/Mid/Light)
+    public const int HistBins = 39; // 12 Hue * 3 (Dark/Muted/Vivid) + 3 Neutral (Dark/Mid/Light)
 
-    // Same Dino across idle animation / minor sparks or shield fade: ~0.04..0.28; different Dino species: ~0.42..0.85
-    public const double VisualMatchThreshold = 0.34;
+    // Dank 3-Frame-Mittelung ueber die Dehn-Animation + unbeschnittener Box:
+    // Gleicher Dino ~0.04..0.14; verschiedene Arten ~0.28..0.85
+    public const double VisualMatchThreshold = 0.24;
 
     public static (DinoVisualFingerprint Fingerprint, Bitmap Preview) CaptureAndExtract(
         int centerX, int centerY, int boxW = DefaultBoxWidth, int boxH = DefaultBoxHeight)
     {
         boxW = Math.Clamp(boxW, 120, 480);
-        boxH = Math.Clamp(boxH, 100, 400);
+        boxH = Math.Clamp(boxH, 100, 420);
 
         int left = Math.Max(0, centerX - boxW / 2);
         int top = Math.Max(0, centerY - boxH / 2);
@@ -55,6 +71,10 @@ internal static class DinoVisualMatcher
             {
                 using var pen = new Pen(Color.Cyan, 2);
                 g.DrawRectangle(pen, fgBounds);
+                // Zeige die 45%-Trennlinie (Kopf/Platten vs. Koerper) dezent an
+                int splitY = fgBounds.Top + (int)(fgBounds.Height * 0.45);
+                using var splitPen = new Pen(Color.FromArgb(140, Color.Yellow), 1);
+                g.DrawLine(splitPen, fgBounds.Left, splitY, fgBounds.Right, splitY);
             }
             else
             {
@@ -149,7 +169,6 @@ internal static class DinoVisualMatcher
                 int chroma = maxC - minC;
                 int luma = (r + g + b) / 3;
 
-                // Exclude pixels close to arena background OR faint low-chroma gray arena watermark
                 bool isWatermark = chroma < 24 && Math.Abs(luma - bgLuma) < 38 && diff < 85;
                 if (diff > 44 && !isWatermark)
                 {
@@ -163,12 +182,12 @@ internal static class DinoVisualMatcher
 
         if (rawFgCount < 180)
         {
-            return new DinoVisualFingerprint { HasVisual = false };
+            return new DinoVisualFingerprint { HasVisual = false, VisualVersion = DinoVisualFingerprint.CurrentVersion };
         }
 
-        // 3. Find tight bounding box ignoring stray 1..3 pixel sparks/dust
-        int minRowPx = Math.Max(4, rawFgCount / (h * 4));
-        int minColPx = Math.Max(4, rawFgCount / (w * 4));
+        // 3. Find tight bounding box ignoring stray sparks / dust puffs
+        int minRowPx = Math.Max(6, rawFgCount / (h * 4));
+        int minColPx = Math.Max(6, rawFgCount / (w * 4));
 
         int minY = 0;
         while (minY < h - 1 && rowCounts[minY] < minRowPx) minY++;
@@ -182,25 +201,31 @@ internal static class DinoVisualMatcher
 
         int bw = maxX - minX + 1;
         int bh = maxY - minY + 1;
-        if (bw < 20 || bh < 20)
+        if (bw < 24 || bh < 24)
         {
-            return new DinoVisualFingerprint { HasVisual = false };
+            return new DinoVisualFingerprint { HasVisual = false, VisualVersion = DinoVisualFingerprint.CurrentVersion };
         }
 
         fgBounds = new Rectangle(minX, minY, bw, bh);
 
-        // 4. Compute 39-bin HSV+Neutral color histogram & 10x10 normalized spatial grid
+        // 4. Compute full, upper-45% (head/plates/crest) and lower-55% (body/legs) histograms + 10x10 normalized grid
         float[] hist = new float[HistBins];
+        float[] upperHist = new float[HistBins];
+        float[] lowerHist = new float[HistBins];
         double[] cellR = new double[GridSize * GridSize];
         double[] cellG = new double[GridSize * GridSize];
         double[] cellB = new double[GridSize * GridSize];
         int[] cellFg = new int[GridSize * GridSize];
         int[] cellTot = new int[GridSize * GridSize];
         int fgInside = 0;
+        int upperFg = 0;
+        int lowerFg = 0;
+        int splitY = minY + (int)(bh * 0.45);
 
         for (int y = minY; y <= maxY; y++)
         {
             int gy = Math.Min(GridSize - 1, (y - minY) * GridSize / bh);
+            bool isUpper = y <= splitY;
             int rowOff = y * w;
             for (int x = minX; x <= maxX; x++)
             {
@@ -220,16 +245,30 @@ internal static class DinoVisualMatcher
 
                 int bin = ComputeColorBin(r, g, b);
                 hist[bin] += 1.0f;
+                if (isUpper)
+                {
+                    upperHist[bin] += 1.0f;
+                    upperFg++;
+                }
+                else
+                {
+                    lowerHist[bin] += 1.0f;
+                    lowerFg++;
+                }
             }
         }
 
         if (fgInside < 150)
         {
-            return new DinoVisualFingerprint { HasVisual = false };
+            return new DinoVisualFingerprint { HasVisual = false, VisualVersion = DinoVisualFingerprint.CurrentVersion };
         }
 
         for (int k = 0; k < HistBins; k++)
+        {
             hist[k] = (float)Math.Round(hist[k] / fgInside, 5);
+            upperHist[k] = upperFg > 0 ? (float)Math.Round(upperHist[k] / upperFg, 5) : hist[k];
+            lowerHist[k] = lowerFg > 0 ? (float)Math.Round(lowerHist[k] / lowerFg, 5) : hist[k];
+        }
 
         float[] gridRgb = new float[GridSize * GridSize * 3];
         float[] gridAlpha = new float[GridSize * GridSize];
@@ -248,7 +287,10 @@ internal static class DinoVisualMatcher
         return new DinoVisualFingerprint
         {
             HasVisual = true,
+            VisualVersion = DinoVisualFingerprint.CurrentVersion,
             ColorHist = hist,
+            UpperColorHist = upperHist,
+            LowerColorHist = lowerHist,
             GridRgb = gridRgb,
             GridAlpha = gridAlpha,
             AspectRatio = Math.Round((double)bw / bh, 3),
@@ -258,23 +300,79 @@ internal static class DinoVisualMatcher
         };
     }
 
+    /// <summary>
+    /// Mittelt mehrere Frames (z. B. 3 Aufnahmen ueber die Gummimatten-Dehn-Animation bei rem=210°, 155°, 100°),
+    /// sodass Dehnungs-Extreme, Staubwoelkchen und Funken herausgemittelt werden.
+    /// </summary>
+    public static DinoVisualFingerprint AverageSamples(IReadOnlyList<DinoVisualFingerprint> samples)
+    {
+        var valid = samples.Where(s => s.IsCurrentVersion).ToList();
+        if (valid.Count == 0)
+            return new DinoVisualFingerprint { HasVisual = false, VisualVersion = DinoVisualFingerprint.CurrentVersion };
+        if (valid.Count == 1)
+            return valid[0];
+
+        int n = valid.Count;
+        float[] hist = new float[HistBins];
+        float[] upper = new float[HistBins];
+        float[] lower = new float[HistBins];
+        float[] gridRgb = new float[GridSize * GridSize * 3];
+        float[] gridAlpha = new float[GridSize * GridSize];
+
+        foreach (var s in valid)
+        {
+            for (int i = 0; i < HistBins; i++)
+            {
+                hist[i] += s.ColorHist[i] / n;
+                upper[i] += s.UpperColorHist[i] / n;
+                lower[i] += s.LowerColorHist[i] / n;
+            }
+            for (int i = 0; i < gridRgb.Length; i++)
+                gridRgb[i] += s.GridRgb[i] / n;
+            for (int i = 0; i < gridAlpha.Length; i++)
+                gridAlpha[i] += s.GridAlpha[i] / n;
+        }
+
+        for (int i = 0; i < HistBins; i++)
+        {
+            hist[i] = (float)Math.Round(hist[i], 5);
+            upper[i] = (float)Math.Round(upper[i], 5);
+            lower[i] = (float)Math.Round(lower[i], 5);
+        }
+        for (int i = 0; i < gridRgb.Length; i++) gridRgb[i] = (float)Math.Round(gridRgb[i], 4);
+        for (int i = 0; i < gridAlpha.Length; i++) gridAlpha[i] = (float)Math.Round(gridAlpha[i], 4);
+
+        return new DinoVisualFingerprint
+        {
+            HasVisual = true,
+            VisualVersion = DinoVisualFingerprint.CurrentVersion,
+            ColorHist = hist,
+            UpperColorHist = upper,
+            LowerColorHist = lower,
+            GridRgb = gridRgb,
+            GridAlpha = gridAlpha,
+            AspectRatio = Math.Round(valid.Average(s => s.AspectRatio), 3),
+            FillRatio = Math.Round(valid.Average(s => s.FillRatio), 3),
+            ForegroundPixels = (int)Math.Round(valid.Average(s => s.ForegroundPixels)),
+            SampleCount = 1
+        };
+    }
+
     public static double Distance(DinoVisualFingerprint a, DinoVisualFingerprint b)
     {
-        if (!a.HasVisual || !b.HasVisual ||
-            a.ColorHist.Length != HistBins || b.ColorHist.Length != HistBins ||
+        if (!a.IsCurrentVersion || !b.IsCurrentVersion ||
             a.GridRgb.Length != GridSize * GridSize * 3 || b.GridRgb.Length != GridSize * GridSize * 3 ||
             a.GridAlpha.Length != GridSize * GridSize || b.GridAlpha.Length != GridSize * GridSize)
         {
             return 1.0;
         }
 
-        // 1. Histogram L1 distance in [0..1] (0 = identical palette, 1 = disjoint colors)
-        double histL1 = 0.0;
-        for (int i = 0; i < HistBins; i++)
-            histL1 += Math.Abs(a.ColorHist[i] - b.ColorHist[i]);
-        double histDist = Math.Min(1.0, histL1 * 0.5);
+        // 1. Voll-, Oberteil- (Kopf/Platten/Kamm) & Unterteil-Farbhistogramm (alle 100% streckungs-invariant!)
+        double fullDist = HistL1Distance(a.ColorHist, b.ColorHist);
+        double upperDist = HistL1Distance(a.UpperColorHist, b.UpperColorHist);
+        double lowerDist = HistL1Distance(a.LowerColorHist, b.LowerColorHist);
 
-        // 2. 10x10 spatial color + silhouette distance in [0..1]
+        // 2. 10x10 bbox-normiertes Farb- & Silhouetten-Raster (ebenfalls streckungs-invariant!)
         double gridErrSum = 0.0;
         double gridWeightSum = 0.0;
         for (int c = 0; c < GridSize * GridSize; c++)
@@ -294,30 +392,40 @@ internal static class DinoVisualMatcher
             }
             else
             {
-                colorDiff = 0.65; // One has Dino body here, the other is empty
+                colorDiff = 0.65;
             }
 
-            gridErrSum += wCell * (0.70 * colorDiff + 0.30 * alphaDiff);
+            gridErrSum += wCell * (0.72 * colorDiff + 0.28 * alphaDiff);
             gridWeightSum += wCell;
         }
 
         double gridDist = gridWeightSum > 0.01 ? Math.Min(1.0, gridErrSum / gridWeightSum) : 1.0;
 
-        // 3. Silhouette proportions
-        double shapeDist = Math.Min(1.0,
-            Math.Abs(a.AspectRatio - b.AspectRatio) / 0.85 +
-            Math.Abs(a.FillRatio - b.FillRatio) * 0.55);
+        // 3. Seitenverhaeltnis mit Deadzone +-0.14 (ignoriert Gummimatten-Dehnen/Stauchen!)
+        double arDiff = Math.Max(0.0, Math.Abs(a.AspectRatio - b.AspectRatio) - 0.14);
+        double shapeDist = Math.Min(1.0, arDiff / 0.80 + Math.Abs(a.FillRatio - b.FillRatio) * 0.45);
 
-        return 0.55 * histDist + 0.35 * gridDist + 0.10 * shapeDist;
+        return 0.30 * fullDist + 0.25 * upperDist + 0.15 * lowerDist + 0.25 * gridDist + 0.05 * shapeDist;
+    }
+
+    private static double HistL1Distance(float[] h1, float[] h2)
+    {
+        double sum = 0.0;
+        for (int i = 0; i < HistBins; i++)
+            sum += Math.Abs(h1[i] - h2[i]);
+        return Math.Min(1.0, sum * 0.5);
     }
 
     public static void BlendInto(DinoVisualFingerprint target, DinoVisualFingerprint sample)
     {
-        if (!sample.HasVisual) return;
-        if (!target.HasVisual)
+        if (!sample.IsCurrentVersion) return;
+        if (!target.IsCurrentVersion)
         {
             target.HasVisual = true;
+            target.VisualVersion = DinoVisualFingerprint.CurrentVersion;
             target.ColorHist = (float[])sample.ColorHist.Clone();
+            target.UpperColorHist = (float[])sample.UpperColorHist.Clone();
+            target.LowerColorHist = (float[])sample.LowerColorHist.Clone();
             target.GridRgb = (float[])sample.GridRgb.Clone();
             target.GridAlpha = (float[])sample.GridAlpha.Clone();
             target.AspectRatio = sample.AspectRatio;
@@ -333,8 +441,12 @@ internal static class DinoVisualMatcher
         float alpha = target.SampleCount < 3 ? 0.25f : 0.12f;
         float inv = 1.0f - alpha;
 
-        for (int i = 0; i < HistBins && i < target.ColorHist.Length && i < sample.ColorHist.Length; i++)
+        for (int i = 0; i < HistBins; i++)
+        {
             target.ColorHist[i] = (float)Math.Round(target.ColorHist[i] * inv + sample.ColorHist[i] * alpha, 5);
+            target.UpperColorHist[i] = (float)Math.Round(target.UpperColorHist[i] * inv + sample.UpperColorHist[i] * alpha, 5);
+            target.LowerColorHist[i] = (float)Math.Round(target.LowerColorHist[i] * inv + sample.LowerColorHist[i] * alpha, 5);
+        }
 
         for (int i = 0; i < target.GridRgb.Length && i < sample.GridRgb.Length; i++)
             target.GridRgb[i] = (float)Math.Round(target.GridRgb[i] * inv + sample.GridRgb[i] * alpha, 4);
@@ -355,19 +467,29 @@ internal static class DinoVisualMatcher
             string safeName = string.Concat(setupName.Where(c => char.IsLetterOrDigit(c) || c == '_' || c == '-'));
             if (string.IsNullOrEmpty(safeName)) safeName = $"Setup{setupId}";
             string fileName = $"dino_{setupId}_{safeName}.png";
-
-            string basePath = Path.Combine(AppContext.BaseDirectory, fileName);
-            preview.Save(basePath, ImageFormat.Png);
-
-            string projectRootDir = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", ".."));
-            if (Directory.Exists(projectRootDir) && File.Exists(Path.Combine(projectRootDir, "TachoClicker.csproj")))
-            {
-                preview.Save(Path.Combine(projectRootDir, fileName), ImageFormat.Png);
-            }
+            SavePngBothLocations(fileName, preview);
         }
-        catch
+        catch { }
+    }
+
+    public static void SaveLastCapturedPreview(Bitmap preview)
+    {
+        try
         {
-            // Ignore non-critical thumbnail save errors
+            SavePngBothLocations("dino_last_captured.png", preview);
+        }
+        catch { }
+    }
+
+    private static void SavePngBothLocations(string fileName, Bitmap preview)
+    {
+        string basePath = Path.Combine(AppContext.BaseDirectory, fileName);
+        preview.Save(basePath, ImageFormat.Png);
+
+        string projectRootDir = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", ".."));
+        if (Directory.Exists(projectRootDir) && File.Exists(Path.Combine(projectRootDir, "TachoClicker.csproj")))
+        {
+            preview.Save(Path.Combine(projectRootDir, fileName), ImageFormat.Png);
         }
     }
 
@@ -382,7 +504,6 @@ internal static class DinoVisualMatcher
         double delta = max - min;
         double sat = max > 1e-4 ? delta / max : 0.0;
 
-        // Neutral colors (black/gray/white/tusks/outlines) -> bins 36, 37, 38
         if (sat < 0.18 || max < 0.14)
         {
             if (max < 0.32) return 36; // Dark neutral

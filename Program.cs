@@ -58,7 +58,9 @@ internal static class Program
         bool activeEnemyIsNew = false;
         var roundFingerprints = new Dictionary<int, TachoFingerprint>();
         DinoVisualFingerprint? currentRoundVisual = null;
-        bool dinoCapturedForSpin = false;
+        var roundDinoSamples = new List<DinoVisualFingerprint>(3);
+        int dinoCaptureStage = 0; // 0 -> rem<=210°, 1 -> rem<=155°, 2 -> rem<=100° (3-Frame-Mittelung ueber Gummimatten-Dehnung!)
+        double lastRoundVisDist = -1.0;
         Bitmap? lastDinoPreview = null;
         string lastDinoVisualInfo = "";
 
@@ -258,9 +260,10 @@ internal static class Program
 
                             if (cur == 0)
                             {
+                                lastRoundVisDist = visDist;
                                 lastDinoVisualInfo = visDist >= 0
-                                    ? (learnedVisual ? $"Dino NEU gelernt!" : $"VisDist={visDist:F2} (OK)")
-                                    : (currentRoundVisual?.HasVisual == true ? "Dino gespeichert" : "Kein Dino-Bild");
+                                    ? (learnedVisual ? $"Dino NEU gelernt (v2)!" : $"VisDist={visDist:F2} (OK)")
+                                    : (currentRoundVisual?.IsCurrentVersion == true ? "Dino v2 gespeichert" : "Kein Dino-Bild");
                             }
 
                             var slot = matched.Tachos[cur];
@@ -330,27 +333,43 @@ internal static class Program
                         int targetY = isLast ? cfg.GreenButtonY : cfg.BlueButtonY;
                         NativeMethods.SetCursorPos(targetX, targetY);
                         if (cur == 0)
-                            dinoCapturedForSpin = false;
+                        {
+                            dinoCaptureStage = 0;
+                            roundDinoSamples.Clear();
+                            currentRoundVisual = null;
+                            lastRoundVisDist = -1.0;
+                        }
                     }
 
-                    // Visuellen Dino-Fingerabdruck 1x bei rem <= 190° erfassen (~700-900 ms vor Klick!):
-                    // Dann sind Schild-Effekte & Funken der Vorrunde bereits abgeklungen.
-                    if (cur == 0 && !dinoCapturedForSpin &&
+                    // 3-Frame-Erfassung ueber die Gummimatten-Dehn-Animation (bei rem <= 210°, 155°, 100°):
+                    // Mittelt Dehnen/Stauchen, Staubwoelkchen und Funken sauber heraus (noch ~300 ms vor Klick!).
+                    if (cur == 0 && dinoCaptureStage < 3 &&
                         detectors[0].State == DetectorState.Armed &&
-                        detectors[0].LastRemainingDeg <= 190.0 &&
                         detectors[0].LastRemainingDeg > 60.0)
                     {
-                        dinoCapturedForSpin = true;
-                        var (dx, dy) = cfg.GetEffectiveDinoBoxCenter();
-                        if (dx > 0 && dy > 0)
+                        double targetRem = dinoCaptureStage switch { 0 => 210.0, 1 => 155.0, _ => 100.0 };
+                        if (detectors[0].LastRemainingDeg <= targetRem)
                         {
-                            var (visFp, visPreview) = DinoVisualMatcher.CaptureAndExtract(dx, dy, cfg.DinoBoxWidth, cfg.DinoBoxHeight);
-                            currentRoundVisual = visFp;
-                            lastDinoPreview?.Dispose();
-                            lastDinoPreview = visPreview;
-                            lastDinoVisualInfo = visFp.HasVisual
-                                ? $"Fg={visFp.ForegroundPixels}px AR={visFp.AspectRatio:F2}"
-                                : "Kein Dino erkannt (F5?)";
+                            dinoCaptureStage++;
+                            var (dx, dy) = cfg.GetEffectiveDinoBoxCenter();
+                            if (dx > 0 && dy > 0)
+                            {
+                                var (visFp, visPreview) = DinoVisualMatcher.CaptureAndExtract(dx, dy, cfg.DinoBoxWidth, cfg.DinoBoxHeight);
+                                if (visFp.IsCurrentVersion)
+                                    roundDinoSamples.Add(visFp);
+
+                                currentRoundVisual = DinoVisualMatcher.AverageSamples(roundDinoSamples);
+                                lastDinoPreview?.Dispose();
+                                lastDinoPreview = visPreview;
+
+                                // Letztes erfasstes Bild immer fuer Diagnose speichern (1 Datei, ueberschrieben)
+                                if (dinoCaptureStage == 3 || roundDinoSamples.Count == 1)
+                                    DinoVisualMatcher.SaveLastCapturedPreview(visPreview);
+
+                                lastDinoVisualInfo = currentRoundVisual.IsCurrentVersion
+                                    ? $"3F({roundDinoSamples.Count}/3) Fg={currentRoundVisual.ForegroundPixels}px AR={currentRoundVisual.AspectRatio:F2}"
+                                    : "Kein Dino erkannt (F5?)";
+                            }
                         }
                     }
 
@@ -382,8 +401,8 @@ internal static class Program
                         // 4. Sofort den Offset des erkannten Spieler-Setups (mit Treffer-Quoten & Auto-Revert) anpassen
                         double newOffset = HandleTachoFeedback(cur, usedOffsetMs, fb, detectors[cur], cfg, enemyStore, activeEnemy);
 
-                        // 5. Vollstaendige Telemetrie schreiben
-                        LogTelemetryClick(cur, activeTachos.Count, usedOffsetMs, newOffset, activeEnemy?.Name ?? "-", fb, detectors[cur], checkpointsStr);
+                        // 5. Vollstaendige Telemetrie schreiben (inkl. VisDist & Dino-Metriken)
+                        LogTelemetryClick(cur, activeTachos.Count, usedOffsetMs, newOffset, activeEnemy?.Name ?? "-", fb, detectors[cur], checkpointsStr, lastRoundVisDist, currentRoundVisual);
 
                         lastClickedTachoNumber = cur + 1;
                         lastFeedback = fb;
@@ -615,12 +634,16 @@ internal static class Program
 
     private static void LogTelemetryClick(
         int tachoIndex, int totalTachos, double usedOffsetMs, double newOffsetMs,
-        string enemyName, TachoFeedback fb, TachoDetector d, string checkpointsStr)
+        string enemyName, TachoFeedback fb, TachoDetector d, string checkpointsStr,
+        double visDist, DinoVisualFingerprint? vis)
     {
         try
         {
+            string visInfo = vis != null && vis.IsCurrentVersion
+                ? $"Vis={(visDist >= 0 ? visDist.ToString("F3") : "new")}(Fg={vis.ForegroundPixels},AR={vis.AspectRatio:F2})"
+                : "Vis=-";
             string line =
-                $"{DateTime.Now:HH:mm:ss.fff} | CLICK | Setup={enemyName} | T{tachoIndex + 1}/{totalTachos} | " +
+                $"{DateTime.Now:HH:mm:ss.fff} | CLICK | Setup={enemyName} | T{tachoIndex + 1}/{totalTachos} | {visInfo} | " +
                 $"Reason={d.LastTriggerReason} | Speed={d.LastSpeedDegPerSec:F1}°/s Accel={d.LastAccelDegPerSec2:F0}°/s2 | R2={d.LastRegressionR2:F4} | " +
                 $"RemAtTrig={d.LastRemDegAtTrigger:F1}° | WaitMs={d.LastWaitMsAtTrigger:F1} | " +
                 $"Offset={usedOffsetMs:F1}->{newOffsetMs:F1}ms | " +
