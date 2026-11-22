@@ -34,19 +34,19 @@ internal sealed class OffsetPerformance
     /// Composite quality score favoring high Blue hit rate and safe Green hits while heavily penalizing Red (round lost!).
     /// </summary>
     public double QualityScore => Total > 0
-        ? (BlueHits * 1.0 + GreenHits * 0.45 - RedHits * 2.20 - WhiteHits * 1.40) / Total
+        ? (BlueHits * 1.0 + GreenHits * 0.45 - RedHits * 3.00 - WhiteHits * 1.50) / Total
         : -999.0;
 
     /// <summary>
-    /// Konservativer Wilson-Risiko-Score: belohnt Blau (+1,00) & sicheres Gruen (+0,45), bestraft Rot (-2,20)
-    /// und Weiss (-1,40) stark und zieht bei kleinem N einen Wilson-Unsicherheitsabschlag (z=1,28) ab.
+    /// Konservativer Wilson-Risiko-Score: belohnt Blau (+1,00) & sicheres Gruen (+0,45), bestraft Rot (-3,00)
+    /// und Weiss (-1,50) massiv und zieht bei kleinem N einen Wilson-Unsicherheitsabschlag (z=1,28) ab.
     /// </summary>
     public double SmoothedScore
     {
         get
         {
             if (Total <= 0) return -999.0;
-            double baseScore = (BlueHits * 1.0 + GreenHits * 0.45 - RedHits * 2.20 - WhiteHits * 1.40 + 0.60) / (Total + 2.0);
+            double baseScore = (BlueHits * 1.0 + GreenHits * 0.45 - RedHits * 3.00 - WhiteHits * 1.50 + 0.60) / (Total + 2.0);
             double pBad = BadRate;
             const double z = 1.28;
             const double z2 = z * z;
@@ -62,9 +62,9 @@ internal sealed class OffsetPerformance
     /// </summary>
     public bool IsKnownBad =>
         (Total >= 1 && BlueHits == 0 && GreenHits == 0 && (RedHits + WhiteHits) >= 1) ||
+        (Total >= 3 && RedRate >= 0.30) ||
         (Total >= 3 && BlueHits == 0 && BadRate >= 0.50) ||
-        (Total >= 4 && BlueRate < 0.15 && BadRate >= 0.40) ||
-        (Total >= 4 && RedRate >= 0.30);
+        (Total >= 4 && BlueRate < 0.15 && BadRate >= 0.35);
 }
 
 internal sealed class DeploymentOutcomeRecord
@@ -421,8 +421,9 @@ internal sealed class TachoSetupSlot
     }
 
     /// <summary>
-    /// Adaptives Bracketing & Intervall-Halbierung (Bisection) zwischen kleinstem sicheren Gruen (G_low)
-    /// und groesstem zu-spaet-Preset (R_high / Vogel-Weiss): findet das schmale blaue Fenster auch auf 470-600°/s Tachos!
+    /// Lokales adaptives Bracketing & Intervall-Halbierung (Bisection) direkt unterhalb des AKTUELLEN Gruen-Offsets:
+    /// Springt niemals weit nach unten in veraltete Zonen, sondern halbiert nur lokal (Span 0,09..2,50 ms) zwischen
+    /// aktuellem Gruen (ClickOffsetMs) und dem naechsten bekannten Rot/Vogel-Weiss direkt darunter!
     /// </summary>
     public bool TryGetBisectionTarget(bool isBird, out double midOffsetMs, out double greenLowMs, out double lateHighMs)
     {
@@ -435,16 +436,12 @@ internal sealed class TachoSetupSlot
         if (bestBlue != null && bestBlue.BlueRate >= 0.40)
             return false;
 
-        var greenLow = OffsetHistory
-            .Where(h => !h.IsKnownBad && h.GreenHits >= 1 && (isBird ? h.WhiteHits == 0 : h.RedHits == 0))
-            .OrderBy(h => h.OffsetMs)
-            .FirstOrDefault();
+        double curGreen = SnapToFineMs(ClickOffsetMs);
 
-        if (greenLow == null)
-            return false;
-
+        // Suche das hoechste Rot/Vogel-Weiss-Preset strikt UNTERHALB des aktuellen Gruen-Offsets (max 2,5 ms Abstand!)
         var lateHigh = OffsetHistory
-            .Where(h => h.OffsetMs < greenLow.OffsetMs - 0.04 &&
+            .Where(h => h.OffsetMs < curGreen - 0.04 &&
+                        h.OffsetMs >= curGreen - 2.50 &&
                         (isBird ? (h.RedHits + h.WhiteHits) >= 1 : h.RedHits >= 1))
             .OrderByDescending(h => h.OffsetMs)
             .FirstOrDefault();
@@ -452,19 +449,19 @@ internal sealed class TachoSetupSlot
         if (lateHigh == null)
             return false;
 
-        double span = greenLow.OffsetMs - lateHigh.OffsetMs;
-        if (span < 0.09 || span > 4.0)
+        double span = curGreen - lateHigh.OffsetMs;
+        if (span < 0.09 || span > 2.50)
             return false;
 
-        double mid = SnapToFineMs((greenLow.OffsetMs + lateHigh.OffsetMs) / 2.0);
-        if (mid <= lateHigh.OffsetMs + 0.02 || mid >= greenLow.OffsetMs - 0.02)
+        double mid = SnapToFineMs((curGreen + lateHigh.OffsetMs) / 2.0);
+        if (mid <= lateHigh.OffsetMs + 0.02 || mid >= curGreen - 0.02)
             return false;
 
         if (IsPresetKnownBad(mid))
             return false;
 
         midOffsetMs = mid;
-        greenLowMs = greenLow.OffsetMs;
+        greenLowMs = curGreen;
         lateHighMs = lateHigh.OffsetMs;
         return true;
     }
@@ -480,7 +477,8 @@ internal sealed class TachoSetupSlot
             .FirstOrDefault();
         if (greenAbove == null)
             return false;
-        safeGreenMs = greenAbove.OffsetMs;
+        // +0,25 ms zusaetzlicher Sicherheitsabstand weg von der Rot-Kante!
+        safeGreenMs = Math.Clamp(SnapToFineMs(greenAbove.OffsetMs + 0.25), 0.0, 120.0);
         return true;
     }
 
@@ -600,27 +598,30 @@ internal sealed class TachoSetupSlot
         bool isLateMiss = fb == TachoFeedback.TooLateRed || isBirdPostBlueLate;
 
         // 0. NOTBREMSE bei >= 2x Rot (bzw. Vogel Nach-Blau-Weiss) in Folge:
-        //    Deutlich frueher klicken (+5,0 ms bzw. +8,0 ms ab 3x), damit es garantiert kein 3. Rot in Folge gibt!
-        //    Gilt in ALLEN Modi (Normal, Bisection, Verfeinerung und Meister-Tacho).
+        //    Grosse 1-Frame-Kompensation (+14,0 ms bzw. +16,0 ms ab 3x), damit selbst ein kompletter +16,7ms
+        //    GPU-/Browser-Frame-Sprung in EINEM Schritt ueberwunden wird -> garantiert kein 3. Rot!
+        //    Bei bereits bewaehrtem Blau-Preset geht der Sprung in den fluechtigen SessionDriftMs, damit die Basis-Statistik sauber bleibt!
         if (isLateMiss && ConsecutiveRed >= 2)
         {
-            double emergencyJump = ConsecutiveRed >= 3 ? +8.0 : +5.0;
-            var safeHigher = OffsetHistory
-                .Where(h => !h.IsKnownBad && h.RedHits == 0 && (h.BlueHits + h.GreenHits) >= 2 &&
-                            h.OffsetMs >= ClickOffsetMs + 2.5 && h.OffsetMs <= ClickOffsetMs + 10.0)
-                .OrderByDescending(h => h.SmoothedScore)
-                .FirstOrDefault();
+            double emergencyJump = ConsecutiveRed >= 3 ? +16.0 : +14.0;
+            var provenBase = top1 ?? GetBestProvenOffset();
+            if (provenBase != null && provenBase.Total >= 5 && provenBase.BlueRate >= 0.45)
+            {
+                double oldEff = EffectiveClickOffsetMs;
+                ClickOffsetMs = provenBase.OffsetMs;
+                SessionDriftMs = Math.Clamp(Math.Round(SessionDriftMs + emergencyJump, 2), -4.0, 24.0);
+                double applied = Math.Round(EffectiveClickOffsetMs - oldEff, 2);
+                ConsecutiveNonBlue = 0;
+                return (EffectiveClickOffsetMs, applied, false, null, 0, false, false);
+            }
 
-            double rawTarget = safeHigher != null
-                ? Math.Max(safeHigher.OffsetMs, ClickOffsetMs + emergencyJump)
-                : ClickOffsetMs + emergencyJump;
-            rawTarget = Math.Clamp(Math.Round(rawTarget, 2), 0.0, 120.0);
+            double rawTarget = Math.Clamp(Math.Round(ClickOffsetMs + emergencyJump, 2), 0.0, 120.0);
             var (safeTarget, skippedBad) = FindNextNonBadOffsetUp(rawTarget);
-            double applied = Math.Round(safeTarget - ClickOffsetMs, 2);
+            double appliedRaw = Math.Round(safeTarget - ClickOffsetMs, 2);
             ClickOffsetMs = safeTarget;
             ConsecutiveNonBlue = 0;
             // ConsecutiveRed bleibt aktiv, bis wieder Gruen oder Blau getroffen wird!
-            return (ClickOffsetMs, applied, false, null, skippedBad, false, false);
+            return (ClickOffsetMs, appliedRaw, false, null, skippedBad, false, false);
         }
 
         // 0a. REFINEMENT- & MASTER-PHASE bei ROT (bzw. Vogel Nach-Blau-Weiss):
@@ -630,7 +631,7 @@ internal sealed class TachoSetupSlot
         if (isLateMiss && (IsMeisterTacho || top1 != null))
         {
             if (stat.TopRank > 0)
-                SessionDriftMs = Math.Clamp(Math.Round(SessionDriftMs + 1.0, 2), -4.0, 8.0);
+                SessionDriftMs = Math.Clamp(Math.Round(SessionDriftMs + 1.0, 2), -4.0, 24.0);
 
             var earlierTop = new[] { top1, top2, top3 }
                 .Where(t => t != null && t.OffsetMs > ClickOffsetMs + 0.02)
@@ -689,7 +690,7 @@ internal sealed class TachoSetupSlot
                 // Bei 3x Gruen in Folge auf gereiftem Top-Preset: sanften Session-Drift -0,35 ms zulassen
                 if (stat.TopRank > 0 && ConsecutiveNonBlue >= 3)
                 {
-                    SessionDriftMs = Math.Clamp(Math.Round(SessionDriftMs - 0.35, 2), -4.0, 8.0);
+                    SessionDriftMs = Math.Clamp(Math.Round(SessionDriftMs - 0.35, 2), -4.0, 24.0);
                     ConsecutiveNonBlue = 0;
                 }
                 return (ClickOffsetMs, 0.0, false, null, 0, false, false);
@@ -785,13 +786,13 @@ internal sealed class TachoSetupSlot
         {
             double redStep;
             if (!isFixedPlayer)
-                redStep = +2.5;
+                redStep = +3.0;
             else if (isBirdPostBlueLate && bestProven == null)
-                redStep = +1.5;
+                redStep = +2.0;
             else if (bestProven == null && EndSpeedDegPerSec >= 440.0)
-                redStep = +1.5;
+                redStep = +2.5;
             else
-                redStep = +0.75;
+                redStep = +1.5; // 1. Rot: kraeftig genug (+1,5 ms), um aus der Rot-Kante sicher herauszukommen
 
             double rawTarget = Math.Clamp(Math.Round(ClickOffsetMs + redStep, 2), 0.0, 120.0);
             var (safeTarget, skippedBad) = FindNextNonBadOffsetUp(rawTarget);

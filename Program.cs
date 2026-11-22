@@ -835,6 +835,19 @@ internal static class Program
                 slot.RecordOutcomeAndTune(baseUsedOffset, fb, activeEnemy.IsFixed, activeEnemy.IsBird, deploymentId);
             activeDrift = slot.SessionDriftMs;
 
+            // Wenn auf T1 eine grosse 1-Frame-Notbremse (>= +10 ms) gegriffen hat, hat das Spiel/Browser-Buffering
+            // um +1 Frame (+16,7 ms) verschoben -> sofort +12 ms Schutz-Drift auf T2/T3 derselben Runde uebertragen!
+            if (tachoIndex == 0 && fb == TachoFeedback.TooLateRed && appliedDelta >= 10.0)
+            {
+                for (int otherIdx = 1; otherIdx < activeEnemy.Tachos.Count; otherIdx++)
+                {
+                    var otherSlot = activeEnemy.Tachos[otherIdx];
+                    if (otherSlot.SessionDriftMs < 10.0)
+                        otherSlot.SessionDriftMs = Math.Clamp(Math.Round(otherSlot.SessionDriftMs + 12.0, 2), -4.0, 24.0);
+                }
+                Console.WriteLine($"[Frame-Sprung-Schutz {setupLabel}] T1-Notbremse -> +12,0 ms Schutz-Drift sofort auch auf T2/T3 uebertragen!");
+            }
+
             if (detector.LastFingerprint.EndSpeedDegPerSec > 50.0)
             {
                 slot.UpdateSignatureEma(detector.LastFingerprint, activeEnemy.IsFixed);
