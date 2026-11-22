@@ -18,32 +18,36 @@
                  ],
     "Profile3":  [
                      {
-                         "X":  1688,
-                         "Y":  1131,
+                         "X":  1685,
+                         "Y":  1130,
                          "ClickOffsetMs":  41,
                          "DefaultClickOffsetMs":  41,
                          "IsSet":  true
                      },
                      {
-                         "X":  0,
-                         "Y":  0,
+                         "X":  1873,
+                         "Y":  1129,
                          "ClickOffsetMs":  41,
                          "DefaultClickOffsetMs":  41,
-                         "IsSet":  false
+                         "IsSet":  true
                      },
                      {
-                         "X":  0,
-                         "Y":  0,
+                         "X":  2061,
+                         "Y":  1129,
                          "ClickOffsetMs":  41,
                          "DefaultClickOffsetMs":  41,
-                         "IsSet":  false
+                         "IsSet":  true
                      }
                  ],
     "TachoBoxSize":  180,
-    "BlueButtonX":  1712,
-    "BlueButtonY":  1687,
-    "GreenButtonX":  2080,
-    "GreenButtonY":  1680,
+    "BlueButtonX":  1707,
+    "BlueButtonY":  1683,
+    "GreenButtonX":  2079,
+    "GreenButtonY":  1672,
+    "DinoBoxX":  0,
+    "DinoBoxY":  0,
+    "DinoBoxWidth":  310,
+    "DinoBoxHeight":  270,
     "PollIntervalMs":  2,
     "ClickHoldMs":  10,
     "CooldownMs":  450,

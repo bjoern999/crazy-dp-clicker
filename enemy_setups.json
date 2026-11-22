@@ -21641,6 +21641,19 @@
                                           "ConsecutiveRed":  1,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  93.33333333333333
+                                      },
+                                      {
+                                          "HasSignature":  false,
+                                          "X":  2061,
+                                          "Y":  1129,
+                                          "ClickOffsetMs":  45,
+                                          "DefaultClickOffsetMs":  45,
+                                          "OffsetHistory":  [
+
+                                                            ],
+                                          "DeploymentHistory":  [
+
+                                                                ]
                                       }
                                   ],
                        "LastSeenUtc":  "2026-11-22T15:18:28.6743638Z",
