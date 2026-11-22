@@ -779,6 +779,11 @@ internal sealed class EnemySetup
     public string DinoType { get; set; } = "Vierbeiner"; // "Vierbeiner" oder "Vogel"
     public bool IsFixed { get; set; }
     public int ProfileSize { get; set; } = 2;
+    public int TachoCount
+    {
+        get => ProfileSize == 3 ? 3 : 2;
+        set => ProfileSize = value == 3 ? 3 : 2;
+    }
     public DinoVisualFingerprint? Visual { get; set; }
     public List<TachoSetupSlot> Tachos { get; set; } = new();
     public DateTime LastSeenUtc { get; set; } = DateTime.UtcNow;
@@ -1095,7 +1100,11 @@ internal sealed class EnemySetupStore
 
         foreach (var candidate in Setups)
         {
-            if (candidate.ProfileSize != profileSize) continue;
+            // Bei Tacho 1: visuell bekannte Spieler duerfen auch profiluebergreifend (2er <-> 3er)
+            // erkannt werden, damit TachoClicker automatisch auf die gemerkte Tacho-Anzahl umschalten kann!
+            bool sameProfile = candidate.ProfileSize == profileSize;
+            if (!sameProfile && !(hasCurVis && candidate.HasVisual))
+                continue;
             candidate.EnsureSlots();
 
             var candSlot = candidate.Tachos[tachoIndex];
@@ -1131,7 +1140,7 @@ internal sealed class EnemySetupStore
                     bestVisMatch = candidate;
                 }
             }
-            else
+            else if (sameProfile)
             {
                 if (tachoDist > 1.0) continue;
 

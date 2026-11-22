@@ -271,6 +271,23 @@ internal static class Program
                             activeEnemy = matched;
                             activeEnemyIsNew = isNew;
                             sessionPlayedEnemyIds.Add(matched.Id);
+
+                            // Falls der erkannte Spieler eine andere gemerkte Tacho-Anzahl (2 vs. 3) hat:
+                            // automatisch in den passenden Modus wechseln, sofern dieser bereits kalibriert ist!
+                            if (cur == 0 && matched.TachoCount != cfg.ActiveProfile)
+                            {
+                                if (cfg.IsProfileCalibrated(matched.TachoCount))
+                                {
+                                    cfg.ActiveProfile = matched.TachoCount;
+                                    cfg.Save();
+                                    activeTachos = cfg.GetActiveTachos();
+                                    Console.WriteLine($"[Auto-Modus] {matched.Name} hat {matched.TachoCount} Tachos -> wechsle automatisch in den {matched.TachoCount}er-Modus!");
+                                }
+                                else
+                                {
+                                    Console.WriteLine($"[Hinweis] {matched.Name} hat {matched.TachoCount} Tachos – bitte {matched.TachoCount}er-Modus (F{(matched.TachoCount == 3 ? 3 : 2)} + F9) kalibrieren!");
+                                }
+                            }
                             if (cur == activeTachos.Count - 1)
                                 lastConfirmedEnemy = matched;
 
@@ -614,7 +631,7 @@ internal static class Program
             ActiveTachoIndex = activeIdx,
             TotalTachos = tachos.Count,
             AllOffsetsSummary = summary,
-            EnemySetupName = activeEnemy != null ? $"{activeEnemy.Name} [{activeEnemy.DinoType}]" : "",
+            EnemySetupName = activeEnemy != null ? $"{activeEnemy.Name} [{activeEnemy.DinoType} | {activeEnemy.TachoCount}T]" : "",
             EnemySetupIsFixed = activeEnemy?.IsFixed ?? false,
             EnemySetupIsNew = activeEnemyIsNew,
             EnemyBlueHits = activeEnemy?.TotalBlueHits ?? 0,
@@ -900,7 +917,7 @@ internal static class Program
                 string badTxt = bad > 0 ? $",Bad={bad}" : "";
                 return $"T{i + 1}:{sl.ClickOffsetMs:F2}ms{bestTxt}{mTag}{badTxt}";
             }));
-            Console.WriteLine($"  - {s.Name} [{s.DinoType}, {fixedTag}, {visTag}, {s.ProfileSize}er]: {slotDesc}");
+            Console.WriteLine($"  - {s.Name} [{s.DinoType}, {s.TachoCount} Tachos, {fixedTag}, {visTag}]: {slotDesc}");
         }
         var (dx0, dy0) = cfg.GetEffectiveDinoBoxCenter();
         Console.WriteLine($"Dino-Sichtfeld        : ({dx0}, {dy0}) [{cfg.DinoBoxWidth}x{cfg.DinoBoxHeight}] {(cfg.DinoBoxX > 0 ? "(manuell F5)" : "(auto ueber T1)")}");
@@ -937,7 +954,7 @@ internal static class Program
         foreach (var setup in playedSetups)
         {
             Console.WriteLine();
-            Console.WriteLine($"*** #{setup.Id} {setup.Name} [{setup.DinoType}] ({setup.ProfileSize}er) ***");
+            Console.WriteLine($"*** #{setup.Id} {setup.Name} [{setup.DinoType} | {setup.TachoCount} Tachos] ***");
             for (int i = 0; i < setup.Tachos.Count; i++)
             {
                 var slot = setup.Tachos[i];

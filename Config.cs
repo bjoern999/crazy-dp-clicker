@@ -114,17 +114,17 @@ internal sealed class AppConfig
         return (0, 0);
     }
 
-    public bool IsCalibrated
+    public bool IsProfileCalibrated(int profileSize)
     {
-        get
-        {
-            if (BlueButtonX <= 0 || BlueButtonY <= 0 || GreenButtonX <= 0 || GreenButtonY <= 0)
-                return false;
+        if (BlueButtonX <= 0 || BlueButtonY <= 0 || GreenButtonX <= 0 || GreenButtonY <= 0)
+            return false;
 
-            var tachos = GetActiveTachos();
-            return tachos.All(t => t.IsSet);
-        }
+        var list = profileSize == 3 ? Profile3 : Profile2;
+        int expected = profileSize == 3 ? 3 : 2;
+        return list.Count >= expected && list.Take(expected).All(t => t.IsSet);
     }
+
+    public bool IsCalibrated => IsProfileCalibrated(ActiveProfile);
 
     private static readonly string ConfigPath =
         Path.Combine(AppContext.BaseDirectory, "config.json");
