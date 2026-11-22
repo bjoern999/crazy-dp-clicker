@@ -79,7 +79,7 @@ internal sealed class DeploymentOutcomeRecord
 
 internal sealed class TachoSetupSlot
 {
-    public const int CurrentTimingVersion = 2; // v2 = zentrierte Tachos + TemplateCurve Phase-Lock
+    public const int CurrentTimingVersion = 3; // v3 = DXGI/DWM Hardware-VBlank-Zeitstempel + Sub-Grad-Kante + Spin-Wait ClickAt
 
     public bool HasSignature { get; set; }
     public int TimingVersion { get; set; } = 1; // Fehlt im Alt-JSON -> migriert einmalig sauber auf v2!
@@ -148,13 +148,22 @@ internal sealed class TachoSetupSlot
         if (TimingVersion >= CurrentTimingVersion)
             return false;
 
-        // Bewahre den besten bisherigen Offset als vernuenftigen Startwert fuer die neue v2-Aera
+        // Bewahre den besten bisherigen Offset als sicheren Startwert fuer v3 (Hardware-VBlank-Epoche):
+        // Hardware-VBlank liegt im Mittel ~3,2 ms frueher als das alte Post-GDI NowMs() -> -2,0 ms Shift startet
+        // konservativ ~1,2 ms auf der sicheren GRUEN-Seite (kein Rot-Risiko) und zoomt per Bisection direkt auf Blau!
         var bestOld = GetTopPreset(1) ?? GetBestStartupPreset();
-        if (bestOld != null && bestOld.OffsetMs >= 30.0 && bestOld.OffsetMs <= 80.0)
+        double baseOff = (bestOld != null && bestOld.OffsetMs >= 20.0 && bestOld.OffsetMs <= 95.0)
+            ? bestOld.OffsetMs
+            : ClickOffsetMs;
+        if (baseOff >= 15.0 && baseOff <= 105.0)
         {
-            ClickOffsetMs = bestOld.OffsetMs;
-            DefaultClickOffsetMs = bestOld.OffsetMs;
+            double v3Start = SnapToQuarterMs(Math.Max(10.0, baseOff - 2.0));
+            ClickOffsetMs = v3Start;
+            DefaultClickOffsetMs = v3Start;
         }
+
+        // Alte GDI-TemplateCurve zuruecksetzen, damit v3 in 2 Spins eine 0,1°-scharfe VBlank-Master-Kurve lernt!
+        TemplateCurve = new TachoTemplateCurve();
 
         if (OffsetHistory.Count > 0)
         {
@@ -992,7 +1001,7 @@ internal sealed class EnemySetupStore
                 }
             }
             if (migratedSlots > 0)
-                Console.WriteLine($"[Timing v2] {migratedSlots} Tacho-Slots sauber in TimingVersion=2 migriert (Alt-Quoten in LegacyOffsetHistory archiviert).");
+                Console.WriteLine($"[Timing v{TachoSetupSlot.CurrentTimingVersion}] {migratedSlots} Tacho-Slots sauber in TimingVersion={TachoSetupSlot.CurrentTimingVersion} (DXGI/VBlank + Sub-Grad) migriert (Alt-Quoten in LegacyOffsetHistory archiviert).");
             if (store.NextId <= store.Setups.Count)
                 store.NextId = (store.Setups.Count > 0 ? store.Setups.Max(s => s.Id) : 0) + 1;
 

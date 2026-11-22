@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace TachoClicker;
@@ -24,6 +25,9 @@ internal static class NativeMethods
     private const uint MOUSEEVENTF_LEFTUP = 0x0004;
 
     public const uint WDA_EXCLUDEFROMCAPTURE = 0x00000011;
+
+    private static readonly double TicksToMs = 1000.0 / Stopwatch.Frequency;
+    private static readonly double MsToTicks = Stopwatch.Frequency / 1000.0;
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -53,6 +57,62 @@ internal static class NativeMethods
     [DllImport("winmm.dll")]
     public static extern uint timeEndPeriod(uint uPeriod);
 
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmGetCompositionTimingInfo(IntPtr hwnd, ref DWM_TIMING_INFO pTimingInfo);
+
+    public static bool TryGetDwmTiming(
+        out long qpcVBlank,
+        out long qpcRefreshPeriod,
+        out long cFramesPending,
+        out long cFramesDropped)
+    {
+        var info = new DWM_TIMING_INFO
+        {
+            cbSize = (uint)Marshal.SizeOf<DWM_TIMING_INFO>()
+        };
+        if (DwmGetCompositionTimingInfo(IntPtr.Zero, ref info) == 0 &&
+            info.qpcVBlank > 0 &&
+            info.qpcRefreshPeriod > 0)
+        {
+            qpcVBlank = info.qpcVBlank;
+            qpcRefreshPeriod = info.qpcRefreshPeriod;
+            cFramesPending = info.cFramesPending;
+            cFramesDropped = info.cFramesDropped;
+            return true;
+        }
+
+        qpcVBlank = 0;
+        qpcRefreshPeriod = 0;
+        cFramesPending = 0;
+        cFramesDropped = 0;
+        return false;
+    }
+
+    /// <summary>
+    /// Berechnet die exakte VSync-Phase eines QPC-Zeitstempels innerhalb des Hardware-Refresh-Takts [0 .. 16,667 ms).
+    /// </summary>
+    public static bool TryGetVSyncPhaseMs(
+        long qpcTimestamp,
+        out double phaseMs,
+        out double refreshPeriodMs,
+        out long framesPending,
+        out long framesDropped)
+    {
+        if (TryGetDwmTiming(out long qpcVBlank, out long qpcPeriod, out framesPending, out framesDropped))
+        {
+            long remTicks = ((qpcTimestamp - qpcVBlank) % qpcPeriod + qpcPeriod) % qpcPeriod;
+            phaseMs = remTicks * TicksToMs;
+            refreshPeriodMs = qpcPeriod * TicksToMs;
+            return true;
+        }
+
+        phaseMs = -1.0;
+        refreshPeriodMs = 0.0;
+        framesPending = 0;
+        framesDropped = 0;
+        return false;
+    }
+
     public static bool IsKeyJustPressed(int vKey, ref bool wasPressed)
     {
         bool isPressed = (GetAsyncKeyState(vKey) & 0x8000) != 0;
@@ -69,21 +129,48 @@ internal static class NativeMethods
         return justPressed;
     }
 
-    public static void ClickAt(int x, int y, int holdMs = 15)
+    /// <summary>
+    /// Fuehrt einen praezisen Mausklick aus: verzichtet auf redundantes SetCursorPos, wenn die Maus bereits am Ziel steht,
+    /// und nutzt einen Stopwatch-Spin-Wait fuer holdMs statt Thread.Sleep (0 ms Jitter auf MouseDown UND MouseUp).
+    /// Gibt den exakten QPC-Zeitstempel (Stopwatch.GetTimestamp) des MouseDown-Events zurueck.
+    /// </summary>
+    public static long ClickAt(int x, int y, int holdMs = 15)
     {
-        SetCursorPos(x, y);
+        if (!GetCursorPos(out var curPos) || Math.Abs(curPos.X - x) > 2 || Math.Abs(curPos.Y - y) > 2)
+        {
+            SetCursorPos(x, y);
+        }
 
-        var inputs = new INPUT[2];
-        inputs[0].type = INPUT_MOUSE;
-        inputs[0].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+        var downInput = new INPUT[1];
+        downInput[0].type = INPUT_MOUSE;
+        downInput[0].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
 
-        inputs[1].type = INPUT_MOUSE;
-        inputs[1].mi.dwFlags = MOUSEEVENTF_LEFTUP;
+        var upInput = new INPUT[1];
+        upInput[0].type = INPUT_MOUSE;
+        upInput[0].mi.dwFlags = MOUSEEVENTF_LEFTUP;
 
-        // Send Down, hold briefly so the game frame registers it, then send Up
-        SendInput(1, new[] { inputs[0] }, Marshal.SizeOf<INPUT>());
-        Thread.Sleep(holdMs);
-        SendInput(1, new[] { inputs[1] }, Marshal.SizeOf<INPUT>());
+        int inputSize = Marshal.SizeOf<INPUT>();
+
+        // MouseDown senden & exakten QPC-Zeitstempel nehmen
+        SendInput(1, downInput, inputSize);
+        long downQpc = Stopwatch.GetTimestamp();
+
+        // Praezises Halten per Spin-Wait (kein Thread.Sleep-Jitter auf MouseUp!)
+        if (holdMs > 0)
+        {
+            long targetUpQpc = downQpc + (long)(holdMs * MsToTicks);
+            if (holdMs > 25)
+            {
+                long spinThresholdQpc = targetUpQpc - (long)(3.5 * MsToTicks);
+                while (Stopwatch.GetTimestamp() < spinThresholdQpc)
+                    Thread.Sleep(1);
+            }
+            while (Stopwatch.GetTimestamp() < targetUpQpc)
+                Thread.SpinWait(50);
+        }
+
+        SendInput(1, upInput, inputSize);
+        return downQpc;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -109,5 +196,57 @@ internal static class NativeMethods
         public uint dwFlags;
         public uint time;
         public IntPtr dwExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    private struct UNSIGNED_RATIO
+    {
+        public uint uiNumerator;
+        public uint uiDenominator;
+    }
+
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    private struct DWM_TIMING_INFO
+    {
+        public uint cbSize;
+        public UNSIGNED_RATIO rateRefresh;
+        public long qpcRefreshPeriod;
+        public UNSIGNED_RATIO rateCompose;
+        public long qpcVBlank;
+        public long cRefresh;
+        public uint cDXRefresh;
+        public long qpcCompose;
+        public long cFrame;
+        public uint cDXPresent;
+        public long cRefreshFrame;
+        public long cFrameSubmitted;
+        public uint cDXPresentSubmitted;
+        public long cFrameConfirmed;
+        public uint cDXPresentConfirmed;
+        public long cRefreshConfirmed;
+        public uint cDXRefreshConfirmed;
+        public long cFramesLate;
+        public uint cFramesOutstanding;
+        public long cFrameDisplayed;
+        public long qpcFrameDisplayed;
+        public long cRefreshFrameDisplayed;
+        public long cFrameComplete;
+        public long qpcFrameComplete;
+        public long cFramePending;
+        public long qpcFramePending;
+        public long cFramesDisplayed;
+        public long cFramesComplete;
+        public long cFramesPending;
+        public long cFramesAvailable;
+        public long cFramesDropped;
+        public long cFramesMissed;
+        public long cRefreshNextDisplayed;
+        public long cRefreshNextPresented;
+        public long cRefreshesDisplayed;
+        public long cRefreshesPresented;
+        public long cRefreshStarted;
+        public long cPixelsReceived;
+        public long cPixelsDrawn;
+        public long cBuffersEmpty;
     }
 }

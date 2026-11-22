@@ -28,13 +28,27 @@ internal readonly struct AngleCheckpoint
 
 internal sealed class TachoDetector : IDisposable
 {
-    private Bitmap? _bitmap;
-    private Graphics? _graphics;
-    private Bitmap? _patchBitmap;
-    private Graphics? _patchGraphics;
+    private static readonly double TicksToMs = 1000.0 / Stopwatch.Frequency;
+
+    private readonly DxgiScreenCapture _capture;
+    private readonly bool _ownsCapture;
+
+    private byte[] _pixelBuffer = Array.Empty<byte>();
+    private readonly byte[] _patchBuffer = new byte[9 * 9 * 4];
     private int _size;
     private bool[] _lastGreenNow = Array.Empty<bool>();
     private bool[] _lastWhiteNow = Array.Empty<bool>();
+
+    // Vorberechnete Polar-Tabellen fuer Zero-Trig Pixel-Scans (< 0,08 ms pro 180x180 Frame!)
+    private byte[] _pixelZone = Array.Empty<byte>(); // 0 = outer, 1 = center, 2 = ring
+    private int[] _pixelAngleBin = Array.Empty<int>();
+    private float[] _pixelSin = Array.Empty<float>();
+    private float[] _pixelCos = Array.Empty<float>();
+    private bool[] _pixelInBottomSector = Array.Empty<bool>();
+
+    private bool _hasInitialStaticFrame;
+    private int _lastCapLeft = -1;
+    private int _lastCapTop = -1;
 
     public DetectorState State { get; private set; } = DetectorState.WaitingForBlueZone;
     public int LastGreenCount { get; private set; }
@@ -71,6 +85,12 @@ internal sealed class TachoDetector : IDisposable
     public double LastUsedClickOffsetMs { get; private set; }
     public double LastPredictedZeroTimeMs { get; private set; }
     public double LastPhaseLockMadMs { get; private set; } = -1.0;
+    public string LastCaptureSource { get; private set; } = "-";
+    public double LastAvgCaptureMs { get; private set; }
+    public double LastClickVSyncPhaseMs { get; set; } = -1.0;
+    public double LastRefreshPeriodMs { get; set; }
+    public long LastDwmFramesPending { get; set; }
+    public long LastDwmFramesDropped { get; set; }
     public TachoFingerprint LastFingerprint { get; private set; }
     public bool JustAbortedWithoutClick { get; private set; }
     public string LastAbortReason { get; private set; } = "";
@@ -78,11 +98,41 @@ internal sealed class TachoDetector : IDisposable
     public double LastAbortMinRemDeg { get; private set; }
     public int LastAbortRedOnBottom { get; private set; }
 
+    public TachoDetector(DxgiScreenCapture? sharedCapture = null)
+    {
+        if (sharedCapture != null)
+        {
+            _capture = sharedCapture;
+            _ownsCapture = false;
+        }
+        else
+        {
+            _capture = new DxgiScreenCapture();
+            _ownsCapture = true;
+        }
+    }
+
     public string FormatCheckpointsSummary()
     {
         if (_checkpoints.Count == 0) return "[]";
         double t0 = _checkpoints[0].TimeMs;
-        return "[" + string.Join(", ", _checkpoints.Select(c => $"{c.TimeMs - t0:F0}ms:{c.RemainingDeg:F0}°")) + "]";
+        if (_checkpoints.Count <= 28)
+        {
+            return "[" + string.Join(", ", _checkpoints.Select(c => $"{c.TimeMs - t0:F1}ms:{c.RemainingDeg:F1}°")) + "]";
+        }
+
+        // Bei 40-70 DXGI-Frames kompakt aber mit voller Sub-Grad-Aufloesung am Start & Ende ausgeben
+        var parts = new List<string>(28);
+        int lastIdx = _checkpoints.Count - 1;
+        for (int i = 0; i < _checkpoints.Count; i++)
+        {
+            if (i < 4 || i >= lastIdx - 7 || (i % 3 == 0))
+            {
+                var c = _checkpoints[i];
+                parts.Add($"{c.TimeMs - t0:F1}ms:{c.RemainingDeg:F1}°");
+            }
+        }
+        return $"[n={_checkpoints.Count}: " + string.Join(", ", parts) + "]";
     }
 
     public List<(double TimeMs, double RemainingDeg)> GetLastCheckpointsCopy()
@@ -97,8 +147,7 @@ internal sealed class TachoDetector : IDisposable
     public int BottomSpotLocalX { get; private set; }
     public int BottomSpotLocalY { get; private set; }
 
-    private readonly List<AngleCheckpoint> _checkpoints = new(32);
-    private double _nextCheckpointDeg = -1;
+    private readonly List<AngleCheckpoint> _checkpoints = new(80);
     private double _greenEndDeg;
     private int _greenStableFrames;
     private bool _greenEndLocked;
@@ -110,7 +159,20 @@ internal sealed class TachoDetector : IDisposable
     private DateTime _armedSince = DateTime.MinValue;
     private DateTime _cooldownUntil = DateTime.MinValue;
 
-    private static double NowMs() => Stopwatch.GetTimestamp() * 1000.0 / Stopwatch.Frequency;
+    // Zwischengespeicherte Vorhersage fuer Drop-Frame-Immunitaet bei DXGI WAIT_TIMEOUT
+    private bool _hasActivePrediction;
+    private double _cachedEffectiveZeroTimeMs;
+    private double _cachedPredictedZeroTimeMs;
+    private double _cachedUsedOffsetMs;
+    private bool _cachedUsedPhaseLock;
+    private int _cachedPhaseLockPts;
+    private double _cachedPhaseLockMad;
+    private bool _cachedUsedQuadratic;
+    private int _lastBottomWhiteCount;
+    private double _spinCaptureMsSum;
+    private int _spinCaptureCount;
+
+    private static double NowMs() => Stopwatch.GetTimestamp() * TicksToMs;
 
     public void Reset()
     {
@@ -128,8 +190,15 @@ internal sealed class TachoDetector : IDisposable
         _setupResolvedForSpin = false;
         _activeSpinTemplateCurve = null;
         LastPhaseLockMadMs = -1.0;
+        _hasInitialStaticFrame = false;
+        _hasActivePrediction = false;
+        _cachedEffectiveZeroTimeMs = 0;
+        _cachedPredictedZeroTimeMs = 0;
+        _cachedUsedOffsetMs = 0;
+        _lastBottomWhiteCount = 0;
+        _spinCaptureMsSum = 0;
+        _spinCaptureCount = 0;
         _checkpoints.Clear();
-        _nextCheckpointDeg = -1;
     }
 
     public bool Update(
@@ -153,24 +222,83 @@ internal sealed class TachoDetector : IDisposable
         if (centerX <= 0 || centerY <= 0)
             return false;
 
-        EnsureBitmaps(cfg.TachoBoxSize);
+        EnsureBuffers(cfg.TachoBoxSize);
 
         int half = _size / 2;
         int left = Math.Max(0, centerX - half);
         int top = Math.Max(0, centerY - half);
 
-        // Real Tacho track sits strictly at radius 43..72 px in a 180x180 box (24%..40%).
-        // Staying inside 23%..39.5% completely excludes the pale-blue outer glow ring at radius 78..90 px!
-        double minR = _size * 0.23;
-        double maxR = _size * 0.395;
-        double minRSq = minR * minR;
-        double maxRSq = maxR * maxR;
+        bool movedTarget = left != _lastCapLeft || top != _lastCapTop;
+        int timeoutMs = State == DetectorState.Armed ? 3 : 0;
+        bool allowGdiIfNoNewFrame = State != DetectorState.Armed && (!_hasInitialStaticFrame || movedTarget);
 
-        _graphics!.CopyFromScreen(left, top, 0, 0, new Size(_size, _size), CopyPixelOperation.SourceCopy);
-        double captureTimeMs = NowMs();
+        var cap = _capture.CaptureRegion(left, top, _size, _size, _pixelBuffer, timeoutMs, allowGdiIfNoNewFrame);
 
-        var rect = new Rectangle(0, 0, _size, _size);
-        BitmapData data = _bitmap!.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+        if (!cap.HasPixels)
+        {
+            // Kein neues GPU-Frame in diesem 3ms-Fenster:
+            // Falls wir im Armed-Spin bereits einen sauberen Lock/Vorhersage haben, pruefen wir dennoch,
+            // ob das Spin-Wait-Fenster (<= 36 ms) erreicht ist (100% immun gegen Browser-Frame-Drops!).
+            if (State == DetectorState.Armed)
+            {
+                if (_hasActivePrediction && _cachedEffectiveZeroTimeMs > 0 && _lastBottomWhiteCount >= 6 && _prevRemainingDeg <= 105.0)
+                {
+                    double targetMs = _cachedEffectiveZeroTimeMs - _cachedUsedOffsetMs;
+                    double waitDrop = targetMs - NowMs();
+                    if (waitDrop <= 36.0)
+                    {
+                        LastUsedClickOffsetMs = _cachedUsedOffsetMs;
+                        LastPredictedZeroTimeMs = _cachedPredictedZeroTimeMs;
+                        LastPhaseLockMadMs = _cachedUsedPhaseLock ? _cachedPhaseLockMad : -1.0;
+                        LastTriggerReason = _cachedUsedPhaseLock
+                            ? $"LOCK(n={_cachedPhaseLockPts},mad={_cachedPhaseLockMad:F2})"
+                            : (_cachedUsedQuadratic ? "QUAD" : "LINEAR");
+                        LastRemDegAtTrigger = _prevRemainingDeg;
+                        LastWaitMsAtTrigger = waitDrop;
+
+                        if (waitDrop > 0.5)
+                            PreciseWaitUntil(targetMs);
+
+                        State = DetectorState.Cooldown;
+                        _cooldownUntil = DateTime.UtcNow.AddMilliseconds(cfg.CooldownMs);
+                        return true;
+                    }
+                }
+
+                if ((DateTime.UtcNow - _armedSince).TotalSeconds > 3.5)
+                {
+                    JustAbortedWithoutClick = true;
+                    LastAbortReason = "MAX_TIME_3.5S";
+                    LastAbortCheckpointSummary = FormatCheckpointsSummary();
+                    LastAbortMinRemDeg = _prevRemainingDeg;
+                    LastAbortRedOnBottom = 0;
+                    Reset();
+                }
+            }
+            return false;
+        }
+
+        _hasInitialStaticFrame = true;
+        _lastCapLeft = left;
+        _lastCapTop = top;
+        LastCaptureSource = cap.Source;
+        if (State == DetectorState.Armed)
+        {
+            _spinCaptureMsSum += cap.CaptureDurationMs;
+            _spinCaptureCount++;
+            LastAvgCaptureMs = _spinCaptureMsSum / _spinCaptureCount;
+        }
+        else
+        {
+            LastAvgCaptureMs = cap.CaptureDurationMs;
+        }
+
+        double nowAfterCap = NowMs();
+        double captureTimeMs = (cap.IsNewFrame && cap.FrameQpcTimestamp > 0)
+            ? cap.FrameQpcTimestamp * TicksToMs
+            : nowAfterCap;
+        if (Math.Abs(nowAfterCap - captureTimeMs) > 200.0)
+            captureTimeMs = nowAfterCap;
 
         int greenCount = 0;
         int blueSliverCount = 0;
@@ -188,111 +316,90 @@ internal sealed class TachoDetector : IDisposable
         Span<int> greenAngleBins = stackalloc int[360];
         Span<int> blueAngleBins = stackalloc int[360];
         Span<int> whiteAngleBins = stackalloc int[360];
+        Span<double> whiteWeightBins = stackalloc double[360];
         greenAngleBins.Clear();
         blueAngleBins.Clear();
         whiteAngleBins.Clear();
+        whiteWeightBins.Clear();
 
-        try
+        unsafe
         {
-            unsafe
+            fixed (byte* buf = _pixelBuffer)
             {
-                byte* ptr = (byte*)data.Scan0;
-                int stride = data.Stride;
-
-                for (int y = 0; y < _size; y++)
+                int totalPixels = _size * _size;
+                for (int idx = 0; idx < totalPixels; idx++)
                 {
-                    byte* row = ptr + (y * stride);
-                    int rowOffset = y * _size;
-                    double dy = y - half;
-                    double dySq = dy * dy;
-
-                    for (int x = 0; x < _size; x++)
+                    byte zone = _pixelZone[idx];
+                    if (zone == 0)
                     {
-                        int idx = rowOffset + x;
-                        double dx = x - half;
-                        double distSq = dx * dx + dySq;
+                        _lastGreenNow[idx] = false;
+                        _lastWhiteNow[idx] = false;
+                        continue;
+                    }
 
-                        if (distSq < minRSq)
+                    int p = idx * 4;
+                    byte b = buf[p];
+                    byte g = buf[p + 1];
+                    byte r = buf[p + 2];
+
+                    if (zone == 1)
+                    {
+                        _lastGreenNow[idx] = false;
+                        _lastWhiteNow[idx] = false;
+                        centerPixels++;
+                        if (IsTachoWhite(r, g, b)) centerWhitePixels++;
+                        continue;
+                    }
+
+                    // zone == 2: Ring-Bereich (minR..maxR)
+                    bool isGreen = IsTachoGreen(r, g, b);
+                    bool isWhite = IsTachoWhite(r, g, b);
+
+                    _lastGreenNow[idx] = isGreen;
+                    _lastWhiteNow[idx] = isWhite;
+
+                    int bin = _pixelAngleBin[idx];
+
+                    if (isGreen)
+                    {
+                        greenCount++;
+                        greenSinSum += _pixelSin[idx];
+                        greenCosSum += _pixelCos[idx];
+                        greenAngleBins[bin]++;
+                    }
+                    else if (IsFeedbackBlue(r, g, b))
+                    {
+                        blueSliverCount++;
+                        blueAngleBins[bin]++;
+                    }
+                    else if (_pixelInBottomSector[idx] && IsFeedbackRed(r, g, b))
+                    {
+                        bottomRedCount++;
+                    }
+
+                    if (isWhite)
+                    {
+                        whiteCount++;
+                        if (_pixelInBottomSector[idx])
                         {
-                            _lastGreenNow[idx] = false;
-                            _lastWhiteNow[idx] = false;
-                            centerPixels++;
-                            byte cb = row[x * 4 + 0];
-                            byte cg = row[x * 4 + 1];
-                            byte cr = row[x * 4 + 2];
-                            if (IsTachoWhite(cr, cg, cb)) centerWhitePixels++;
-                            continue;
+                            bottomWhiteCount++;
+                            bottomWhiteSumX += idx % _size;
+                            bottomWhiteSumY += idx / _size;
                         }
-
-                        if (distSq > maxRSq)
-                        {
-                            _lastGreenNow[idx] = false;
-                            _lastWhiteNow[idx] = false;
-                            continue;
-                        }
-
-                        byte b = row[x * 4 + 0];
-                        byte g = row[x * 4 + 1];
-                        byte r = row[x * 4 + 2];
-
-                        bool isGreen = IsTachoGreen(r, g, b);
-                        bool isWhite = IsTachoWhite(r, g, b);
-
-                        _lastGreenNow[idx] = isGreen;
-                        _lastWhiteNow[idx] = isWhite;
-
-                        if (isGreen)
-                        {
-                            greenCount++;
-                            double rad = Math.Atan2(dy, dx);
-                            greenSinSum += Math.Sin(rad);
-                            greenCosSum += Math.Cos(rad);
-
-                            double deg = rad * (180.0 / Math.PI);
-                            if (deg < 0) deg += 360.0;
-                            int bin = ((int)Math.Round(deg)) % 360;
-                            greenAngleBins[bin]++;
-                        }
-                        else if (IsFeedbackBlue(r, g, b))
-                        {
-                            blueSliverCount++;
-                            double deg = Math.Atan2(dy, dx) * (180.0 / Math.PI);
-                            if (deg < 0) deg += 360.0;
-                            int bin = ((int)Math.Round(deg)) % 360;
-                            blueAngleBins[bin]++;
-                        }
-                        else if (dy > 15 && Math.Abs(dx) <= 12 && IsFeedbackRed(r, g, b))
-                        {
-                            bottomRedCount++;
-                        }
-
-                        if (isWhite)
-                        {
-                            whiteCount++;
-                            // Locate exact 6-o'clock bottom of the ring (|dx| <= 12, dy > 15)
-                            if (dy > 15 && Math.Abs(dx) <= 12)
-                            {
-                                bottomWhiteCount++;
-                                bottomWhiteSumX += x;
-                                bottomWhiteSumY += y;
-                            }
-
-                            double deg = Math.Atan2(dy, dx) * (180.0 / Math.PI);
-                            if (deg < 0) deg += 360.0;
-                            int bin = ((int)Math.Round(deg)) % 360;
-                            whiteAngleBins[bin]++;
-                        }
+                        whiteAngleBins[bin]++;
+                        whiteWeightBins[bin] += 1.0;
+                    }
+                    else if (TryGetAntiAliasedWhiteWeight(r, g, b, out double aaWeight))
+                    {
+                        whiteWeightBins[bin] += aaWeight;
                     }
                 }
             }
         }
-        finally
-        {
-            _bitmap.UnlockBits(data);
-        }
 
         LastGreenCount = greenCount;
         LastWhiteCount = whiteCount;
+        _lastBottomWhiteCount = bottomWhiteCount;
 
         if (bottomWhiteCount >= 6)
         {
@@ -315,7 +422,7 @@ internal sealed class TachoDetector : IDisposable
         }
 
         // Even a narrow 18° green zone has ~380 green pixels on 4K; requiring >= 35 px and Width 6°..85°
-        // plus upper-right/right sector (245°..360° or 0°..55°) completely prevents green character sprites (e.g. 142°, 1°) from arming!
+        // plus upper-right/right sector (245°..360° or 0°..55°) completely prevents green character sprites from arming!
         int minGreen = Math.Max(35, cfg.MinGreenPixels);
 
         if (State == DetectorState.WaitingForBlueZone)
@@ -339,8 +446,12 @@ internal sealed class TachoDetector : IDisposable
                 _zeroGreenFrames = 0;
                 _prevRemainingDeg = 360.0;
                 _armedSince = DateTime.UtcNow;
+                _hasActivePrediction = false;
+                _cachedEffectiveZeroTimeMs = 0;
+                _cachedPredictedZeroTimeMs = 0;
+                _spinCaptureMsSum = cap.CaptureDurationMs;
+                _spinCaptureCount = 1;
                 _checkpoints.Clear();
-                _nextCheckpointDeg = -1;
                 LastSpeedDegPerSec = 0;
                 LastAccelDegPerSec2 = 0;
                 LastRegressionR2 = 0;
@@ -350,18 +461,21 @@ internal sealed class TachoDetector : IDisposable
             return false;
         }
 
-        // State == Armed: refine _greenEndDeg for the first 3 frames before locking it
+        // State == Armed: refine _greenEndDeg for the first 3 unique frames before locking it
         if (greenCount >= minGreen && greenCount <= 2800)
         {
             _zeroGreenFrames = 0;
-            if (!_greenEndLocked &&
+            if (!_greenEndLocked && cap.IsNewFrame &&
                 TryComputeGreenArc(greenSinSum, greenCosSum, greenAngleBins, out double updatedEndDeg, out double updatedWidthDeg) &&
                 updatedWidthDeg >= 6.0 && updatedWidthDeg <= 85.0 &&
                 IsValidGreenEndAngle(updatedEndDeg))
             {
-                _greenEndDeg = updatedEndDeg;
+                // Sanfte Mittelung ueber die ersten 3 Frames fuer ±0,05°-stabile gruene Endkante
+                _greenEndDeg = _greenStableFrames == 0
+                    ? updatedEndDeg
+                    : BlendAngleDeg(_greenEndDeg, updatedEndDeg, 0.5);
                 LastGreenWidthDeg = updatedWidthDeg;
-                double bw = ComputeBlueSliverWidthDeg(updatedEndDeg, blueAngleBins);
+                double bw = ComputeBlueSliverWidthDeg(_greenEndDeg, blueAngleBins);
                 if (bw > LastBlueWidthDeg) LastBlueWidthDeg = bw;
                 if (greenCount > LastInitialGreenCount) LastInitialGreenCount = greenCount;
                 if (blueSliverCount > LastBlueSliverCount) LastBlueSliverCount = blueSliverCount;
@@ -370,37 +484,33 @@ internal sealed class TachoDetector : IDisposable
                     _greenEndLocked = true;
             }
         }
-        else
+        else if (cap.IsNewFrame)
         {
             _zeroGreenFrames++;
         }
 
-        double minRemainingDeg = FindWhiteFrontRemainingDeg(_greenEndDeg, whiteAngleBins, _prevRemainingDeg);
+        double minRemainingDeg = FindWhiteFrontRemainingDeg(_greenEndDeg, whiteAngleBins, whiteWeightBins, _prevRemainingDeg);
         LastRemainingDeg = minRemainingDeg;
 
-        // 1. Record timestamped checkpoints every CheckpointStepDeg (default 10°)
-        double stepDeg = Math.Clamp(cfg.CheckpointStepDeg, 5.0, 20.0);
-        if (_greenEndLocked && whiteCount >= 15 && minRemainingDeg < 280.0 && minRemainingDeg > 2.0)
+        // 1. JEDES echte, Hardware-gestempelte 60-Hz-Frame als Sub-Grad-Checkpoint erfassen (~40-70 Punkte/Spin!)
+        if (cap.IsNewFrame && _greenEndLocked && whiteCount >= 15 && minRemainingDeg < 280.0 && minRemainingDeg > 2.0)
         {
-            if (_nextCheckpointDeg < 0)
+            if (_checkpoints.Count == 0)
             {
                 _checkpoints.Add(new AngleCheckpoint { TimeMs = captureTimeMs, RemainingDeg = minRemainingDeg });
-                _nextCheckpointDeg = Math.Floor(minRemainingDeg / stepDeg) * stepDeg - stepDeg;
             }
-            else if (minRemainingDeg <= _nextCheckpointDeg)
+            else
             {
                 var last = _checkpoints[_checkpoints.Count - 1];
                 double dt = captureTimeMs - last.TimeMs;
                 double dDeg = last.RemainingDeg - minRemainingDeg;
-                if (dt >= 4.0 && dDeg >= 3.0)
+                if (dt >= 8.0 && dDeg >= 1.2)
                 {
                     double instSpeed = dDeg / dt;
-                    if (instSpeed >= 0.08 && instSpeed <= 2.4)
+                    if (instSpeed >= 0.06 && instSpeed <= 2.5)
                     {
                         _checkpoints.Add(new AngleCheckpoint { TimeMs = captureTimeMs, RemainingDeg = minRemainingDeg });
                     }
-                    while (_nextCheckpointDeg >= minRemainingDeg)
-                        _nextCheckpointDeg -= stepDeg;
                 }
             }
         }
@@ -436,8 +546,7 @@ internal sealed class TachoDetector : IDisposable
                 _activeSpinTemplateCurve = resolved.TemplateCurve;
             }
 
-            // 2b. Sobald eine gelernte Master-Kurve vorliegt: 1-Parameter-Phase-Lock ueber alle Checkpoints!
-            //     Eliminiert Quadratik-Jitter (±2,5 ms -> < ±0,5 ms) und RemAtTrig-Bias auf schnellen 470-600°/s Tachos.
+            // 2b. 1-Parameter-Phase-Lock ueber ALLE ~40-70 VBlank-gestempelten Sub-Grad-Checkpoints!
             bool usedPhaseLock = false;
             int phaseLockPts = 0;
             double phaseLockMad = -1.0;
@@ -457,6 +566,16 @@ internal sealed class TachoDetector : IDisposable
             double now = NowMs();
             double clickTargetTimeMs = effectiveZeroTimeMs - usedOffset;
             double waitMs = clickTargetTimeMs - now;
+
+            // Fuer Drop-Frame-Immunitaet zwischenspeichern
+            _hasActivePrediction = true;
+            _cachedEffectiveZeroTimeMs = effectiveZeroTimeMs;
+            _cachedPredictedZeroTimeMs = predictedZeroTimeMs;
+            _cachedUsedOffsetMs = usedOffset;
+            _cachedUsedPhaseLock = usedPhaseLock;
+            _cachedPhaseLockPts = phaseLockPts;
+            _cachedPhaseLockMad = phaseLockMad;
+            _cachedUsedQuadratic = usedQuadratic;
 
             if (minRemainingDeg <= 105.0 && waitMs <= 36.0)
             {
@@ -499,7 +618,7 @@ internal sealed class TachoDetector : IDisposable
                 LastPredictedZeroTimeMs = predictedZeroTimeMs;
                 LastPhaseLockMadMs = usedPhaseLock ? phaseLockMad : -1.0;
                 LastTriggerReason = usedPhaseLock
-                    ? $"LOCK(n={phaseLockPts},mad={phaseLockMad:F1})"
+                    ? $"LOCK(n={phaseLockPts},mad={phaseLockMad:F2})"
                     : (usedQuadratic ? "QUAD" : "LINEAR");
                 LastRemDegAtTrigger = minRemainingDeg;
                 LastWaitMsAtTrigger = waitMs;
@@ -539,41 +658,75 @@ internal sealed class TachoDetector : IDisposable
         return false;
     }
 
-    /// <summary>
-    /// Identical post-click color check for EVERY Tacho:
-    /// Called ONLY immediately after clicking the button.
-    /// Reads ONLY a tiny 9x9 pixel patch on the bottom (6 o'clock) of the Tacho ring (~15..125 ms after click)
-    /// and returns immediately as soon as the bottom pixels change from White to Blue, Green, or Red (or stay White).
-    /// </summary>
     public Bitmap? CaptureClickMomentSnapshot(int centerX, int centerY, AppConfig cfg)
     {
-        EnsureBitmaps(cfg.TachoBoxSize);
+        EnsureBuffers(cfg.TachoBoxSize);
         int half = _size / 2;
         int left = Math.Max(0, centerX - half);
         int top = Math.Max(0, centerY - half);
 
         var snap = new Bitmap(_size, _size, PixelFormat.Format32bppArgb);
-        using var g = Graphics.FromImage(snap);
-        g.CopyFromScreen(left, top, 0, 0, new Size(_size, _size), CopyPixelOperation.SourceCopy);
+        try
+        {
+            byte[] snapBuf = new byte[_size * _size * 4];
+            var cap = _capture.CaptureRegion(left, top, _size, _size, snapBuf, timeoutMs: 2, allowGdiIfNoNewFrame: true);
+            if (cap.HasPixels)
+            {
+                var rect = new Rectangle(0, 0, _size, _size);
+                BitmapData data = snap.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+                try
+                {
+                    unsafe
+                    {
+                        byte* dstPtr = (byte*)data.Scan0;
+                        int rowBytes = _size * 4;
+                        fixed (byte* srcPtr = snapBuf)
+                        {
+                            for (int y = 0; y < _size; y++)
+                                Buffer.MemoryCopy(srcPtr + (y * rowBytes), dstPtr + (y * data.Stride), rowBytes, rowBytes);
+                        }
+                    }
+                }
+                finally
+                {
+                    snap.UnlockBits(data);
+                }
+            }
+            else
+            {
+                using var gFallback = Graphics.FromImage(snap);
+                gFallback.CopyFromScreen(left, top, 0, 0, new Size(_size, _size), CopyPixelOperation.SourceCopy);
+            }
 
-        int maxR = (int)(_size * 0.395);
-        double endRad = _greenEndDeg * (Math.PI / 180.0);
-        using var endPen = new Pen(Color.Lime, 2);
-        g.DrawLine(endPen, half, half,
-            half + (int)(Math.Cos(endRad) * maxR),
-            half + (int)(Math.Sin(endRad) * maxR));
+            using var g = Graphics.FromImage(snap);
+            int maxR = (int)(_size * 0.395);
+            double endRad = _greenEndDeg * (Math.PI / 180.0);
+            using var endPen = new Pen(Color.Lime, 2);
+            g.DrawLine(endPen, half, half,
+                half + (int)(Math.Cos(endRad) * maxR),
+                half + (int)(Math.Sin(endRad) * maxR));
 
-        int sx = BottomSpotLocalX > 0 ? BottomSpotLocalX : half;
-        int sy = BottomSpotLocalY > 0 ? BottomSpotLocalY : half + (int)(_size * 0.315);
-        using var spotPen = new Pen(Color.Orange, 2);
-        g.DrawRectangle(spotPen, sx - 5, sy - 5, 10, 10);
+            int sx = BottomSpotLocalX > 0 ? BottomSpotLocalX : half;
+            int sy = BottomSpotLocalY > 0 ? BottomSpotLocalY : half + (int)(_size * 0.315);
+            using var spotPen = new Pen(Color.Orange, 2);
+            g.DrawRectangle(spotPen, sx - 5, sy - 5, 10, 10);
+        }
+        catch
+        {
+            // Ignore transient screenshot errors
+        }
 
         return snap;
     }
 
+    /// <summary>
+    /// Identical post-click color check for EVERY Tacho:
+    /// Reads ONLY a tiny 9x9 pixel patch on the bottom (6 o'clock) of the Tacho ring (~15..135 ms after click)
+    /// via DXGI (< 0,3 ms pro Frame) und gibt sofort Blau, Gruen, Rot oder Weiss zurueck.
+    /// </summary>
     public TachoFeedback MeasureBottomColorAfterClick(int tachoNumber, int centerX, int centerY, AppConfig cfg)
     {
-        EnsureBitmaps(cfg.TachoBoxSize);
+        EnsureBuffers(cfg.TachoBoxSize);
 
         const int patchSize = 9; // 81 pixels right on the bottom of the Tacho ring
         const int patchHalf = patchSize / 2;
@@ -602,10 +755,15 @@ internal sealed class TachoDetector : IDisposable
 
         while ((DateTime.UtcNow - start).TotalMilliseconds <= 135.0)
         {
-            _patchGraphics!.CopyFromScreen(screenPatchLeft, screenPatchTop, 0, 0, new Size(patchSize, patchSize), CopyPixelOperation.SourceCopy);
+            var cap = _capture.CaptureRegion(
+                screenPatchLeft, screenPatchTop, patchSize, patchSize,
+                _patchBuffer, timeoutMs: 12, allowGdiIfNoNewFrame: true);
 
-            var rect = new Rectangle(0, 0, patchSize, patchSize);
-            BitmapData data = _patchBitmap!.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+            if (!cap.HasPixels)
+            {
+                Thread.Sleep(3);
+                continue;
+            }
 
             int rCount = 0;
             int gCount = 0;
@@ -613,36 +771,21 @@ internal sealed class TachoDetector : IDisposable
             int wCount = 0;
             long sumR = 0, sumG = 0, sumB = 0;
 
-            try
+            for (int i = 0; i < patchSize * patchSize; i++)
             {
-                unsafe
-                {
-                    byte* ptr = (byte*)data.Scan0;
-                    int stride = data.Stride;
-                    for (int y = 0; y < patchSize; y++)
-                    {
-                        byte* row = ptr + (y * stride);
-                        for (int x = 0; x < patchSize; x++)
-                        {
-                            byte b = row[x * 4 + 0];
-                            byte g = row[x * 4 + 1];
-                            byte r = row[x * 4 + 2];
+                int p = i * 4;
+                byte b = _patchBuffer[p];
+                byte g = _patchBuffer[p + 1];
+                byte r = _patchBuffer[p + 2];
 
-                            sumR += r;
-                            sumG += g;
-                            sumB += b;
+                sumR += r;
+                sumG += g;
+                sumB += b;
 
-                            if (IsTachoWhite(r, g, b)) wCount++;
-                            else if (IsFeedbackRed(r, g, b)) rCount++;
-                            else if (IsFeedbackGreen(r, g, b)) gCount++;
-                            else if (IsFeedbackBlue(r, g, b)) bCount++;
-                        }
-                    }
-                }
-            }
-            finally
-            {
-                _patchBitmap.UnlockBits(data);
+                if (IsTachoWhite(r, g, b)) wCount++;
+                else if (IsFeedbackRed(r, g, b)) rCount++;
+                else if (IsFeedbackGreen(r, g, b)) gCount++;
+                else if (IsFeedbackBlue(r, g, b)) bCount++;
             }
 
             avgR = (int)(sumR / (patchSize * patchSize));
@@ -684,7 +827,8 @@ internal sealed class TachoDetector : IDisposable
                 break;
             }
 
-            Thread.Sleep(5);
+            if (!_capture.IsDxgiActive)
+                Thread.Sleep(5);
         }
 
         LastPatchRed = bestRed;
@@ -821,22 +965,65 @@ internal sealed class TachoDetector : IDisposable
         return (approxX, approxY, 0, 0, false);
     }
 
-    private static double FindWhiteFrontRemainingDeg(double greenEndDeg, ReadOnlySpan<int> whiteBins, double prevRemainingDeg)
+    /// <summary>
+    /// Sub-Grad-Kantenerkennung (±0,1°) fuer die fuehrende Kante der weissen Nadel.
+    /// Nutzt das stetige Kanten-Integral ueber die Anti-Aliasing-Gewichte [k0-1..k0+2] normiert an der
+    /// lokalen Balkendicke F (getrimmtes Mittel aus [k0+3..k0+8]) -> null Sprungstelle an 1°-Grenzen!
+    /// </summary>
+    private static double FindWhiteFrontRemainingDeg(
+        double greenEndDeg,
+        ReadOnlySpan<int> whiteBins,
+        ReadOnlySpan<double> whiteWeights,
+        double prevRemainingDeg)
     {
-        int endBin = ((int)Math.Round(greenEndDeg) % 360 + 360) % 360;
+        double floorEnd = Math.Floor(greenEndDeg);
+        int endBin = (((int)floorEnd) % 360 + 360) % 360;
+        double endFrac = greenEndDeg - floorEnd;
         int startRem = prevRemainingDeg < 45.0 ? -15 : 0;
 
-        for (int minPx = 4; minPx >= 2; minPx -= 2)
+        int k0 = int.MinValue;
+        for (int minPx = 4; minPx >= 2 && k0 == int.MinValue; minPx -= 2)
         {
             for (int rem = startRem; rem <= 295; rem++)
             {
                 int bin = (endBin + rem + 360) % 360;
                 if (whiteBins[bin] >= minPx)
-                    return rem;
+                {
+                    k0 = rem;
+                    break;
+                }
             }
         }
 
-        return 360.0;
+        if (k0 == int.MinValue)
+            return 360.0;
+
+        // Referenz-Balkendicke F pro 1°-Bin aus den 6 vollen Bins direkt hinter der Kante [k0+3..k0+8]
+        Span<double> refBins = stackalloc double[6];
+        for (int i = 0; i < 6; i++)
+        {
+            int bin = (endBin + k0 + 3 + i + 360) % 360;
+            refBins[i] = whiteWeights[bin];
+        }
+        refBins.Sort();
+        double fullDensity = (refBins[1] + refBins[2] + refBins[3] + refBins[4]) * 0.25;
+
+        if (fullDensity >= 6.0)
+        {
+            double wWindow =
+                whiteWeights[(endBin + k0 - 1 + 360) % 360] +
+                whiteWeights[(endBin + k0 + 360) % 360] +
+                whiteWeights[(endBin + k0 + 1 + 360) % 360] +
+                whiteWeights[(endBin + k0 + 2 + 360) % 360];
+
+            double edgeInEndBinFrame = (k0 + 3.0) - (wWindow / fullDensity);
+            if (edgeInEndBinFrame >= k0 - 1.2 && edgeInEndBinFrame <= k0 + 2.2)
+            {
+                return edgeInEndBinFrame - endFrac;
+            }
+        }
+
+        return k0 - endFrac;
     }
 
     private double ComputeSpinTimeToDegMs(double targetDeg, double currentTimeMs, double currentRemDeg)
@@ -877,8 +1064,8 @@ internal sealed class TachoDetector : IDisposable
     }
 
     /// <summary>
-    /// Fits a quadratic ease-in curve r(t) = a*t^2 + b*t + c over the most recent up to 14 checkpoints
-    /// (capturing constant angular acceleration) and solves for r(t_zero) = 0°.
+    /// Fits a quadratic ease-in curve r(t) = a*t^2 + b*t + c over the recent ~155° angular window
+    /// (works identically for 14 DWM checkpoints or 45 DXGI 60Hz frames!) and solves for r(t_zero) = 0°.
     /// Falls back cleanly to linear regression if fewer than 6 checkpoints exist or curvature is non-accelerating.
     /// </summary>
     private bool TryPredictArrivalTimeMs(
@@ -905,8 +1092,8 @@ internal sealed class TachoDetector : IDisposable
             return true;
         }
 
-        // 2. Fallback: Linear Regression over most recent up to 8 checkpoints
-        int startIdx = Math.Max(0, total - 8);
+        // 2. Fallback: Linear Regression over the most recent ~75° arc (min 4, max 24 points)
+        int startIdx = FindAngularWindowStartIndex(total, 75.0, minPoints: 4, maxPoints: 24);
         int n = total - startIdx;
         double t0 = _checkpoints[startIdx].TimeMs;
 
@@ -937,7 +1124,7 @@ internal sealed class TachoDetector : IDisposable
             return false;
 
         double slope = num / den; // deg / ms (negative)
-        if (slope >= -0.08 || slope <= -2.4)
+        if (slope >= -0.06 || slope <= -2.5)
             return false;
 
         double ssRes = 0;
@@ -957,6 +1144,22 @@ internal sealed class TachoDetector : IDisposable
         return true;
     }
 
+    private int FindAngularWindowStartIndex(int total, double maxArcDeg, int minPoints, int maxPoints)
+    {
+        double lastRem = _checkpoints[total - 1].RemainingDeg;
+        int earliestAllowed = Math.Max(0, total - maxPoints);
+        int latestForMin = Math.Max(0, total - minPoints);
+
+        int idx = latestForMin;
+        while (idx > earliestAllowed)
+        {
+            if ((_checkpoints[idx - 1].RemainingDeg - lastRem) > maxArcDeg)
+                break;
+            idx--;
+        }
+        return idx;
+    }
+
     private bool TryFitQuadratic(
         int total,
         out double zeroTimeMs,
@@ -969,8 +1172,11 @@ internal sealed class TachoDetector : IDisposable
         accelDegPerSec2 = 0;
         rSquared = 0;
 
-        int startIdx = Math.Max(0, total - 14);
+        int startIdx = FindAngularWindowStartIndex(total, 155.0, minPoints: 8, maxPoints: 50);
         int n = total - startIdx;
+        if (n < 6)
+            return false;
+
         double t0 = _checkpoints[startIdx].TimeMs;
 
         // Time x in seconds relative to t0 for clean numerical conditioning
@@ -1043,7 +1249,7 @@ internal sealed class TachoDetector : IDisposable
 
         if (Math.Abs(a) < 1e-4)
         {
-            if (b >= -80.0) return false;
+            if (b >= -60.0) return false;
             xZeroSec = -c / b;
         }
         else
@@ -1071,7 +1277,7 @@ internal sealed class TachoDetector : IDisposable
         }
 
         double endSpeed = -(b + 2.0 * a * xZeroSec);
-        if (endSpeed < 80.0 || endSpeed > 2400.0)
+        if (endSpeed < 60.0 || endSpeed > 2500.0)
             return false;
 
         double meanY = y0 / n;
@@ -1103,7 +1309,7 @@ internal sealed class TachoDetector : IDisposable
             if (rem <= 0)
                 break;
 
-            if (rem > 3.0)
+            if (rem > 3.5)
                 Thread.Sleep(1);
             else
                 Thread.SpinWait(50);
@@ -1135,7 +1341,7 @@ internal sealed class TachoDetector : IDisposable
         double meanDeg = Math.Atan2(sinSum, cosSum) * (180.0 / Math.PI);
         if (meanDeg < 0) meanDeg += 360.0;
 
-        int centerBin = ((int)Math.Round(meanDeg)) % 360;
+        int centerBin = ((int)Math.Floor(meanDeg)) % 360;
         int minOffset = 0;
         int maxOffset = 0;
         bool foundMin = false;
@@ -1172,49 +1378,78 @@ internal sealed class TachoDetector : IDisposable
             return false;
         }
 
-        endDeg = (centerBin + minOffset + 360.0) % 360.0;
+        // Sub-Grad-Kanteninterpolation fuer die gruene Endkante (verhindert ±1°-Sprung zwischen Durchlaeufen!)
+        double subMinOffset = minOffset;
+        int k0Bin = (centerBin + minOffset + 360) % 360;
+        Span<double> refGreen = stackalloc double[5];
+        for (int i = 0; i < 5; i++)
+            refGreen[i] = bins[(k0Bin + 3 + i) % 360];
+        refGreen.Sort();
+        double fullGreen = (refGreen[1] + refGreen[2] + refGreen[3]) / 3.0;
+        if (fullGreen >= 6.0)
+        {
+            double gWindow =
+                bins[(k0Bin - 1 + 360) % 360] +
+                bins[k0Bin] +
+                bins[(k0Bin + 1) % 360] +
+                bins[(k0Bin + 2) % 360];
+            double edgeRel = 3.0 - (gWindow / fullGreen);
+            if (edgeRel >= -1.2 && edgeRel <= 2.2)
+                subMinOffset = minOffset + edgeRel;
+        }
+
+        endDeg = (centerBin + subMinOffset + 360.0) % 360.0;
         widthDeg = foundMax ? Math.Max(1.0, maxOffset - minOffset) : 0;
         return true;
     }
 
+    private static double BlendAngleDeg(double aDeg, double bDeg, double alpha)
+    {
+        double diff = ((bDeg - aDeg + 540.0) % 360.0) - 180.0;
+        return (aDeg + diff * alpha + 360.0) % 360.0;
+    }
+
     public Bitmap? CreateDiagnosticBitmap()
     {
-        if (_bitmap == null || _size <= 0)
+        if (_pixelBuffer.Length == 0 || _size <= 0)
             return null;
 
         var copy = new Bitmap(_size, _size, PixelFormat.Format32bppArgb);
-        using (var g = Graphics.FromImage(copy))
-        {
-            g.DrawImageUnscaled(_bitmap, 0, 0);
-        }
-
         var rect = new Rectangle(0, 0, _size, _size);
-        BitmapData data = copy.LockBits(rect, ImageLockMode.ReadWrite, PixelFormat.Format32bppArgb);
+        BitmapData data = copy.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
         try
         {
             unsafe
             {
-                byte* ptr = (byte*)data.Scan0;
+                byte* dstPtr = (byte*)data.Scan0;
                 int stride = data.Stride;
+                int rowBytes = _size * 4;
 
-                for (int y = 0; y < _size; y++)
+                fixed (byte* srcPtr = _pixelBuffer)
                 {
-                    byte* row = ptr + (y * stride);
-                    int rowOffset = y * _size;
-                    for (int x = 0; x < _size; x++)
+                    for (int y = 0; y < _size; y++)
                     {
-                        int idx = rowOffset + x;
-                        if (_lastGreenNow[idx])
+                        byte* dstRow = dstPtr + (y * stride);
+                        byte* srcRow = srcPtr + (y * rowBytes);
+                        Buffer.MemoryCopy(srcRow, dstRow, rowBytes, rowBytes);
+
+                        int rowOffset = y * _size;
+                        for (int x = 0; x < _size; x++)
                         {
-                            row[x * 4 + 0] = 255;
-                            row[x * 4 + 1] = 0;
-                            row[x * 4 + 2] = 255;
-                        }
-                        else if (_lastWhiteNow[idx])
-                        {
-                            row[x * 4 + 0] = 40;
-                            row[x * 4 + 1] = 255;
-                            row[x * 4 + 2] = 255;
+                            int idx = rowOffset + x;
+                            dstRow[x * 4 + 3] = 255;
+                            if (_lastGreenNow[idx])
+                            {
+                                dstRow[x * 4 + 0] = 255;
+                                dstRow[x * 4 + 1] = 0;
+                                dstRow[x * 4 + 2] = 255;
+                            }
+                            else if (_lastWhiteNow[idx])
+                            {
+                                dstRow[x * 4 + 0] = 40;
+                                dstRow[x * 4 + 1] = 255;
+                                dstRow[x * 4 + 2] = 255;
+                            }
                         }
                     }
                 }
@@ -1281,32 +1516,83 @@ internal sealed class TachoDetector : IDisposable
         return r >= 215 && g >= 215 && b >= 215 && Math.Abs(r - b) <= 25;
     }
 
-    private void EnsureBitmaps(int size)
+    private static bool TryGetAntiAliasedWhiteWeight(byte r, byte g, byte b, out double weight)
     {
-        if (_patchBitmap == null)
+        int minC = r < g ? (r < b ? r : b) : (g < b ? g : b);
+        if (minC < 140)
         {
-            _patchBitmap = new Bitmap(9, 9, PixelFormat.Format32bppArgb);
-            _patchGraphics = Graphics.FromImage(_patchBitmap);
+            weight = 0;
+            return false;
         }
+        int maxC = r > g ? (r > b ? r : b) : (g > b ? g : b);
+        if ((maxC - minC) > 25)
+        {
+            weight = 0;
+            return false;
+        }
+        weight = Math.Clamp((minC - 130.0) / 85.0, 0.0, 0.99);
+        return weight > 0.05;
+    }
 
-        if (_bitmap != null && _size == size)
+    private void EnsureBuffers(int size)
+    {
+        if (_size == size && _pixelBuffer.Length == size * size * 4)
             return;
 
-        _graphics?.Dispose();
-        _bitmap?.Dispose();
-
         _size = size;
-        _bitmap = new Bitmap(size, size, PixelFormat.Format32bppArgb);
-        _graphics = Graphics.FromImage(_bitmap);
-        _lastGreenNow = new bool[size * size];
-        _lastWhiteNow = new bool[size * size];
+        int total = size * size;
+        _pixelBuffer = new byte[total * 4];
+        _lastGreenNow = new bool[total];
+        _lastWhiteNow = new bool[total];
+        _pixelZone = new byte[total];
+        _pixelAngleBin = new int[total];
+        _pixelSin = new float[total];
+        _pixelCos = new float[total];
+        _pixelInBottomSector = new bool[total];
+
+        int half = size / 2;
+        double minR = size * 0.23;
+        double maxR = size * 0.395;
+        double minRSq = minR * minR;
+        double maxRSq = maxR * maxR;
+
+        for (int y = 0; y < size; y++)
+        {
+            double dy = y - half;
+            double dySq = dy * dy;
+            int rowOffset = y * size;
+            for (int x = 0; x < size; x++)
+            {
+                int idx = rowOffset + x;
+                double dx = x - half;
+                double distSq = dx * dx + dySq;
+
+                if (distSq < minRSq)
+                {
+                    _pixelZone[idx] = 1;
+                }
+                else if (distSq <= maxRSq)
+                {
+                    _pixelZone[idx] = 2;
+                    double rad = Math.Atan2(dy, dx);
+                    double deg = rad * (180.0 / Math.PI);
+                    if (deg < 0) deg += 360.0;
+                    _pixelAngleBin[idx] = ((int)Math.Floor(deg)) % 360;
+                    _pixelSin[idx] = (float)Math.Sin(rad);
+                    _pixelCos[idx] = (float)Math.Cos(rad);
+                    _pixelInBottomSector[idx] = dy > 15 && Math.Abs(dx) <= 12;
+                }
+                else
+                {
+                    _pixelZone[idx] = 0;
+                }
+            }
+        }
     }
 
     public void Dispose()
     {
-        _patchGraphics?.Dispose();
-        _patchBitmap?.Dispose();
-        _graphics?.Dispose();
-        _bitmap?.Dispose();
+        if (_ownsCapture)
+            _capture.Dispose();
     }
 }

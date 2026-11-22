@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Windows.Forms;
@@ -6,11 +7,21 @@ namespace TachoClicker;
 
 internal static class Program
 {
-    private static void Main()
+    private static void Main(string[] args)
     {
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         NativeMethods.SetProcessDPIAware();
-        Console.Title = "TachoClicker (Auto 2/3 Tachos | F5=Dino | F6=Gruen | F7=Debug | F8=Start | F9=Tacho | F10=Blau)";
+
+        if (args.Length > 0 && args[0].Equals("--benchmark-capture", StringComparison.OrdinalIgnoreCase))
+        {
+            RunCaptureBenchmark();
+            return;
+        }
+
+        Console.Title = "TachoClicker (DXGI Sub-ms | Auto 2/3 Tachos | F5=Dino | F6=Gruen | F7=Debug | F8=Start | F9=Tacho | F10=Blau)";
+
+        try { Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.High; } catch { }
+        try { Thread.CurrentThread.Priority = ThreadPriority.Highest; } catch { }
 
         NativeMethods.timeBeginPeriod(1);
 
@@ -24,11 +35,116 @@ internal static class Program
         }
     }
 
+    private static void RunCaptureBenchmark()
+    {
+        NativeMethods.timeBeginPeriod(1);
+        try
+        {
+            const int size = 180;
+            const int left = 1595;
+            const int top = 1040;
+            byte[] buf = new byte[size * size * 4];
+            double ticksToMs = 1000.0 / Stopwatch.Frequency;
+
+            using var cap = new DxgiScreenCapture(left + size / 2, top + size / 2);
+            Console.WriteLine($"DXGI Active : {cap.IsDxgiActive} | Output={cap.OutputWidth}x{cap.OutputHeight} | Err='{cap.LastInitError}'");
+            if (NativeMethods.TryGetDwmTiming(out long vb0, out long per0, out long pend0, out long drop0))
+            {
+                double perMs = per0 * ticksToMs;
+                Console.WriteLine($"DWM Timing  : Refresh={1000.0 / perMs:F3} Hz ({perMs:F4} ms) | Pending={pend0} | Dropped={drop0}");
+            }
+
+            // 1. DXGI Readback Benchmark (forced redraws or active screen)
+            var dxgiDurs = new List<double>();
+            var presentDeltas = new List<double>();
+            var presentToNow = new List<double>();
+            var presentToDwm = new List<double>();
+            long prevPresent = 0;
+            int nonZeroSamples = 0;
+
+            var sw = Stopwatch.StartNew();
+            string seenSrc = "-";
+            while (sw.ElapsedMilliseconds < 1500 && dxgiDurs.Count < 45)
+            {
+                var r = cap.CaptureRegion(left, top, size, size, buf, timeoutMs: 25, allowGdiIfNoNewFrame: false);
+                if (r.HasPixels && r.IsNewFrame)
+                {
+                    seenSrc = r.Source;
+                    long nowQpc = Stopwatch.GetTimestamp();
+                    dxgiDurs.Add(r.CaptureDurationMs);
+                    if (prevPresent > 0)
+                        presentDeltas.Add((r.FrameQpcTimestamp - prevPresent) * ticksToMs);
+                    prevPresent = r.FrameQpcTimestamp;
+                    presentToNow.Add((nowQpc - r.FrameQpcTimestamp) * ticksToMs);
+
+                    if (NativeMethods.TryGetDwmTiming(out long qpcVb, out long qpcPer, out _, out _))
+                    {
+                        long pastVb = qpcVb;
+                        while (pastVb > nowQpc) pastVb -= qpcPer;
+                        while (nowQpc - pastVb >= qpcPer) pastVb += qpcPer;
+                        presentToDwm.Add((pastVb - r.FrameQpcTimestamp) * ticksToMs);
+                    }
+
+                    int nz = 0;
+                    for (int i = 0; i < buf.Length; i += 64)
+                        if (buf[i] != 0) nz++;
+                    if (nz > 0) nonZeroSamples++;
+                }
+            }
+
+            if (dxgiDurs.Count > 0)
+            {
+                Console.WriteLine($"{seenSrc} Frames : n={dxgiDurs.Count}, nonZero={nonZeroSamples}, Dur avg={dxgiDurs.Average():F3} ms (min={dxgiDurs.Min():F3}, max={dxgiDurs.Max():F3})");
+                if (presentDeltas.Count > 0)
+                    Console.WriteLine($"{seenSrc} dPres  : avg={presentDeltas.Average():F3} ms (min={presentDeltas.Min():F3}, max={presentDeltas.Max():F3})");
+                Console.WriteLine($"Now-FrameTs : avg={presentToNow.Average():F3} ms (min={presentToNow.Min():F3}, max={presentToNow.Max():F3})");
+                if (presentToDwm.Count > 0)
+                    Console.WriteLine($"PastVb-Ts   : avg={presentToDwm.Average():F3} ms (min={presentToDwm.Min():F3}, max={presentToDwm.Max():F3})");
+            }
+            else
+            {
+                Console.WriteLine("DXGI Frames : 0 neue Frames in 1500 ms (Desktop war statisch)");
+            }
+
+            // 2. Compare GDI CopyFromScreen latency & epoch vs DWM qpcVBlank
+            using var gdiBmp = new Bitmap(size, size, PixelFormat.Format32bppArgb);
+            using var gdiG = Graphics.FromImage(gdiBmp);
+            var gdiDurs = new List<double>();
+            var gdiNowMinusVb = new List<double>();
+            for (int i = 0; i < 12; i++)
+            {
+                long t0 = Stopwatch.GetTimestamp();
+                gdiG.CopyFromScreen(left, top, 0, 0, new Size(size, size), CopyPixelOperation.SourceCopy);
+                long t1 = Stopwatch.GetTimestamp();
+                gdiDurs.Add((t1 - t0) * ticksToMs);
+                if (NativeMethods.TryGetDwmTiming(out long vb, out _, out _, out _))
+                    gdiNowMinusVb.Add((t1 - vb) * ticksToMs);
+            }
+            Console.WriteLine($"GDI 180x180 : n={gdiDurs.Count}, Dur avg={gdiDurs.Average():F2} ms (min={gdiDurs.Min():F2}, max={gdiDurs.Max():F2})");
+            if (gdiNowMinusVb.Count > 0)
+                Console.WriteLine($"GDI Now-Vb  : avg={gdiNowMinusVb.Average():F2} ms (min={gdiNowMinusVb.Min():F2}, max={gdiNowMinusVb.Max():F2})");
+        }
+        finally
+        {
+            NativeMethods.timeEndPeriod(1);
+        }
+    }
+
     private static void RunLoop()
     {
         AppConfig cfg = AppConfig.Load();
         EnemySetupStore enemyStore = EnemySetupStore.Load();
-        var detectors = new[] { new TachoDetector(), new TachoDetector(), new TachoDetector() };
+
+        var initTachos = cfg.GetActiveTachos();
+        int hintX = initTachos.Count > 0 && initTachos[0].IsSet ? initTachos[0].X : 0;
+        int hintY = initTachos.Count > 0 && initTachos[0].IsSet ? initTachos[0].Y : 0;
+        using var screenCapture = new DxgiScreenCapture(hintX, hintY);
+        var detectors = new[]
+        {
+            new TachoDetector(screenCapture),
+            new TachoDetector(screenCapture),
+            new TachoDetector(screenCapture)
+        };
 
         OverlayForm? overlay = null;
         using var overlayReady = new ManualResetEventSlim(false);
@@ -85,7 +201,7 @@ internal static class Program
         bool plusPrev = false;
         bool minusPrev = false;
 
-        PrintHeader(cfg, enemyStore, running, debugMode);
+        PrintHeader(cfg, enemyStore, screenCapture, running, debugMode);
 
         DateTime lastDebugPrint = DateTime.MinValue;
         DateTime lastOverlayUpdate = DateTime.MinValue;
@@ -573,7 +689,10 @@ internal static class Program
                             $"Aktiv T{expectedTachoIndex + 1}/{activeTachos.Count} [{activeEnemy?.Name ?? "-"}] | State={d.State} | G={d.LastGreenCount} | Rem={d.LastRemainingDeg:F0}° | n={d.LastCheckpointCount} | v={d.LastSpeedDegPerSec:F0}°/s");
                     }
 
-                    Thread.Sleep(isArmed ? 1 : Math.Max(1, cfg.PollIntervalMs));
+                    if (!(isArmed && screenCapture.IsDxgiActive))
+                    {
+                        Thread.Sleep(isArmed ? 1 : Math.Max(1, cfg.PollIntervalMs));
+                    }
                 }
                 else
                 {
@@ -771,12 +890,16 @@ internal static class Program
             string visInfo = vis != null && vis.IsCurrentVersion
                 ? $"Vis={(visDist >= 0 ? visDist.ToString("F3") : "new")}(Fg={vis.ForegroundPixels},AR={vis.AspectRatio:F2})"
                 : "Vis=-";
+            string vsyncInfo = d.LastClickVSyncPhaseMs >= 0
+                ? $"VSync={d.LastClickVSyncPhaseMs:F2}/{d.LastRefreshPeriodMs:F2}ms(Pend={d.LastDwmFramesPending},Drop={d.LastDwmFramesDropped})"
+                : "VSync=-";
             string line =
                 $"{DateTime.Now:HH:mm:ss.fff} | CLICK | Setup={enemyName} | T{tachoIndex + 1}/{totalTachos} | {visInfo} | " +
+                $"Cap={d.LastCaptureSource}({d.LastAvgCaptureMs:F2}ms) | {vsyncInfo} | " +
                 $"Reason={d.LastTriggerReason} | Speed={d.LastSpeedDegPerSec:F1}°/s Accel={d.LastAccelDegPerSec2:F0}°/s2 | R2={d.LastRegressionR2:F4} | " +
                 $"RemAtTrig={d.LastRemDegAtTrigger:F1}° | WaitMs={d.LastWaitMsAtTrigger:F1} | " +
                 $"Offset={usedOffsetMs:F1}->{newOffsetMs:F1}ms | " +
-                $"GreenEnd={d.LastTargetEndDeg:F0}° GreenW={d.LastGreenWidthDeg:F0}° BlueW={d.LastBlueWidthDeg:F0}° GreenPx={d.LastInitialGreenCount} BluePx={d.LastBlueSliverCount} | " +
+                $"GreenEnd={d.LastTargetEndDeg:F1}° GreenW={d.LastGreenWidthDeg:F0}° BlueW={d.LastBlueWidthDeg:F0}° GreenPx={d.LastInitialGreenCount} BluePx={d.LastBlueSliverCount} | " +
                 $"Feedback={fb} (RGB={d.LastAvgR},{d.LastAvgG},{d.LastAvgB} B={d.LastPatchBlue} G={d.LastPatchGreen} R={d.LastPatchRed} W={d.LastPatchWhite}) | " +
                 $"Checkpoints={checkpointsStr}";
             File.AppendAllText(GetTelemetryLogPath(), line + Environment.NewLine);
@@ -942,9 +1065,23 @@ internal static class Program
         int targetY = isLast ? cfg.GreenButtonY : cfg.BlueButtonY;
         string btnLabel = isLast ? "Gruener Schwerter-Button" : "Blauer Schild-Button";
 
+        // Erst klicken (0,0 ms Verzoegerung durch Console.WriteLine!), dann VSync-Phase & Log ausgeben!
+        long clickQpc = NativeMethods.ClickAt(targetX, targetY, cfg.ClickHoldMs);
+        if (NativeMethods.TryGetVSyncPhaseMs(clickQpc, out double phaseMs, out double refreshMs, out long pending, out long dropped))
+        {
+            detector.LastClickVSyncPhaseMs = phaseMs;
+            detector.LastRefreshPeriodMs = refreshMs;
+            detector.LastDwmFramesPending = pending;
+            detector.LastDwmFramesDropped = dropped;
+        }
+        else
+        {
+            detector.LastClickVSyncPhaseMs = -1.0;
+        }
+
+        string phaseTag = detector.LastClickVSyncPhaseMs >= 0 ? $" VSync={detector.LastClickVSyncPhaseMs:F1}ms" : "";
         Console.WriteLine(
-            $"[TREFFER {enemyName} T{tachoIndex + 1}/{totalTachos}!] {detector.LastTriggerReason} v={detector.LastSpeedDegPerSec:F0}°/s (Offset={detector.LastUsedClickOffsetMs:F1}ms) -> Klicke {btnLabel}");
-        NativeMethods.ClickAt(targetX, targetY, cfg.ClickHoldMs);
+            $"[TREFFER {enemyName} T{tachoIndex + 1}/{totalTachos}!] {detector.LastTriggerReason} [{detector.LastCaptureSource} {detector.LastAvgCaptureMs:F2}ms{phaseTag}] v={detector.LastSpeedDegPerSec:F0}°/s (Offset={detector.LastUsedClickOffsetMs:F1}ms) -> Klicke {btnLabel}");
     }
 
     private static void TryAutoStart(AppConfig cfg, ref bool running)
@@ -962,12 +1099,20 @@ internal static class Program
             d.Reset();
     }
 
-    private static void PrintHeader(AppConfig cfg, EnemySetupStore store, bool running, bool debugMode)
+    private static void PrintHeader(AppConfig cfg, EnemySetupStore store, DxgiScreenCapture capture, bool running, bool debugMode)
     {
         var tachos = cfg.GetActiveTachos();
         Console.WriteLine("=================================================================");
-        Console.WriteLine("  TachoClicker - Automatische Gegner- & 2/3-Tacho-Erkennung");
+        Console.WriteLine("  TachoClicker - Sub-ms DXGI + Auto Gegner- & 2/3-Tacho-Erkennung");
         Console.WriteLine("=================================================================");
+        string capLine = capture.IsDxgiActive
+            ? $"DXGI Desktop Duplication ({capture.OutputWidth}x{capture.OutputHeight}, Hardware LastPresentTime)"
+            : $"DWM Hardware-VBlank Fallback ({capture.LastInitError})";
+        string refreshLine = NativeMethods.TryGetDwmTiming(out _, out long qpcPer, out _, out _)
+            ? $"{Stopwatch.Frequency / (double)qpcPer:F3} Hz ({qpcPer * 1000.0 / Stopwatch.Frequency:F3} ms)"
+            : "unbekannt";
+        Console.WriteLine($"Capture-Engine        : {capLine}");
+        Console.WriteLine($"Monitor-VSync         : {refreshLine} | Prozess-Prioritaet: High / Highest");
         Console.WriteLine("Hotkeys:");
         Console.WriteLine("  F9  : Naechste Tacho-Mitte speichern (auto-zentriert)");
         Console.WriteLine("  F10 : Blauen Schild-Button speichern (+ Auto-Start)");
