@@ -412,7 +412,7 @@ internal sealed class TachoSetupSlot
         double speedTol = Math.Max(14.0, EndSpeedDegPerSec * 0.042);
         double dSpeed = Math.Abs(EndSpeedDegPerSec - fp.EndSpeedDegPerSec) / speedTol;
 
-        double accelTol = Math.Max(35.0, Math.Abs(AccelDegPerSec2) * 0.16);
+        double accelTol = Math.Max(55.0, Math.Abs(AccelDegPerSec2) * 0.16);
         double dAccel = Math.Abs(AccelDegPerSec2 - fp.AccelDegPerSec2) / accelTol;
 
         bool hasTime = SpinTimeTo55Ms > 100.0 && fp.SpinTimeTo55Ms > 100.0;
@@ -538,23 +538,34 @@ internal sealed class EnemySetupStore
         bool changed = false;
         foreach (var s in Setups)
         {
-            if (s.Visual == null || !s.Visual.HasVisual)
-                continue;
-
             string pattern = $"dino_{s.Id}_*.png";
-            bool exists = Directory.GetFiles(checkDir, pattern).Length > 0;
-            if (!exists)
-            {
-                s.Visual = null;
-                changed = true;
-                Console.WriteLine($"[Visual] Screenshot fuer #{s.Id} ({s.Name}) geloescht -> Visual-Signatur zurueckgesetzt, wird beim naechsten Kampf neu gelernt.");
+            string[] files = Directory.GetFiles(checkDir, pattern);
 
-                if (hasProjectRoot)
+            if (s.Visual != null && s.Visual.HasVisual)
+            {
+                if (files.Length == 0)
                 {
-                    foreach (string stale in Directory.GetFiles(AppContext.BaseDirectory, pattern))
+                    s.Visual = null;
+                    changed = true;
+                    Console.WriteLine($"[Visual] Screenshot fuer #{s.Id} ({s.Name}) geloescht -> Visual-Signatur zurueckgesetzt, wird beim naechsten Kampf neu gelernt.");
+
+                    if (hasProjectRoot)
                     {
-                        try { File.Delete(stale); } catch { }
+                        foreach (string stale in Directory.GetFiles(AppContext.BaseDirectory, pattern))
+                        {
+                            try { File.Delete(stale); } catch { }
+                        }
                     }
+                }
+            }
+            else if (files.Length > 0)
+            {
+                var seeded = DinoVisualMatcher.ExtractFromPreviewPng(files[0]);
+                if (seeded != null)
+                {
+                    s.Visual = seeded;
+                    changed = true;
+                    Console.WriteLine($"[Visual] Signatur fuer #{s.Id} ({s.Name}) automatisch aus {Path.GetFileName(files[0])} geladen (Fg={seeded.ForegroundPixels}px, AR={seeded.AspectRatio:F2}).");
                 }
             }
         }

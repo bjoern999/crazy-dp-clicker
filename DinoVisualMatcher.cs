@@ -87,6 +87,42 @@ internal static class DinoVisualMatcher
         return (fp, preview);
     }
 
+    public static DinoVisualFingerprint? ExtractFromPreviewPng(string pngPath)
+    {
+        try
+        {
+            if (!File.Exists(pngPath)) return null;
+            using var raw = new Bitmap(pngPath);
+            using var bmp = new Bitmap(raw.Width, raw.Height, PixelFormat.Format32bppArgb);
+            using (var g = Graphics.FromImage(bmp))
+                g.DrawImage(raw, 0, 0, raw.Width, raw.Height);
+
+            // Entferne die 2px-Cyan-Rahmenlinie der Vorschau, damit sie nicht als Vordergrund gewertet wird
+            int w = bmp.Width;
+            int h = bmp.Height;
+            for (int y = 0; y < h; y++)
+            {
+                for (int x = 0; x < w; x++)
+                {
+                    Color c = bmp.GetPixel(x, y);
+                    if (c.R < 20 && c.G > 235 && c.B > 235)
+                    {
+                        int nx = x < w / 2 ? Math.Min(w - 1, x + 3) : Math.Max(0, x - 3);
+                        int ny = y < h / 2 ? Math.Min(h - 1, y + 3) : Math.Max(0, y - 3);
+                        bmp.SetPixel(x, y, bmp.GetPixel(nx, ny));
+                    }
+                }
+            }
+
+            var fp = ExtractFromBitmap(bmp, out _);
+            return fp.IsCurrentVersion ? fp : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public static DinoVisualFingerprint ExtractFromBitmap(Bitmap bmp, out Rectangle fgBounds)
     {
         int w = bmp.Width;
