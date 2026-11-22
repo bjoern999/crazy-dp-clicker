@@ -66,6 +66,8 @@ internal static class Program
         var sessionPlayedEnemyIds = new HashSet<int>();
         int currentDeploymentId = 0;
         var sessionDeployments = new List<(int DeploymentId, int SetupId, string Name)>();
+        bool probeThirdTacho = false;
+        DateTime probeThirdTachoUntilUtc = DateTime.MinValue;
 
         // Letztes Feedback fuer die Anzeige im Live-Inspektor
         int lastClickedTachoNumber = 0;
@@ -196,6 +198,7 @@ internal static class Program
                             activeEnemy = null; // Bei Neustart nach Pause immer sofort das Top-1 / Best-Preset laden
                             sessionPlayedEnemyIds.Clear();
                             sessionDeployments.Clear();
+                            probeThirdTacho = false;
                         }
                         overlay?.EnsureVisibleOnTop();
                         Console.WriteLine(running
@@ -468,6 +471,20 @@ internal static class Program
                         detectors[expectedTachoIndex].Reset();
                         isArmed = false;
 
+                        // Bei neuen/unbekannten Spielern (oder Spielern mit gemerktem 3er-Profil im noch unkalibrierten 2er-Modus):
+                        // nach Tacho 2 fuer 2,2 s automatisch pruefen, ob ein 3. Tacho erscheint!
+                        if (cur == 1 && cfg.ActiveProfile == 2 &&
+                            (activeEnemy == null || !activeEnemy.IsFixed || activeEnemy.TachoCount == 3))
+                        {
+                            probeThirdTacho = true;
+                            probeThirdTachoUntilUtc = DateTime.UtcNow.AddMilliseconds(2200.0);
+                            detectors[2].Reset();
+                        }
+                        else
+                        {
+                            probeThirdTacho = false;
+                        }
+
                         if (overlay != null)
                         {
                             lastOverlayUpdate = DateTime.UtcNow;
@@ -478,6 +495,57 @@ internal static class Program
                                 lastPatchR, lastPatchG, lastPatchB, lastPatchW,
                                 lastDeltaMs, lastResultNewOffsetMs,
                                 lastDinoPreview, lastDinoVisualInfo));
+                        }
+                    }
+                    else if (probeThirdTacho && cur == 0 && detectors[0].State == DetectorState.WaitingForBlueZone)
+                    {
+                        if (DateTime.UtcNow > probeThirdTachoUntilUtc)
+                        {
+                            probeThirdTacho = false;
+                        }
+                        else if (activeTachos.Count >= 2 && activeTachos[0].IsSet && activeTachos[1].IsSet)
+                        {
+                            int probeX = (cfg.Profile3.Count >= 3 && cfg.Profile3[2].IsSet)
+                                ? cfg.Profile3[2].X
+                                : activeTachos[1].X + (activeTachos[1].X - activeTachos[0].X);
+                            int probeY = (cfg.Profile3.Count >= 3 && cfg.Profile3[2].IsSet)
+                                ? cfg.Profile3[2].Y
+                                : activeTachos[1].Y + (activeTachos[1].Y - activeTachos[0].Y);
+
+                            detectors[2].Update(probeX, probeY, cfg.GetClickOffsetMsForTacho(2), cfg);
+                            if (detectors[2].State == DetectorState.Armed)
+                            {
+                                probeThirdTacho = false;
+                                var (t3X, t3Y, dx3, dy3, centered3) = TachoDetector.TryAutoCenterOnRing(probeX, probeY, cfg.TachoBoxSize);
+
+                                // 3er-Profil automatisch mit T1, T2 und dem erkannten T3 befuellen
+                                while (cfg.Profile3.Count < 3)
+                                    cfg.Profile3.Add(new TachoPoint { ClickOffsetMs = 45.0, DefaultClickOffsetMs = 45.0 });
+                                if (!cfg.Profile3[0].IsSet) { cfg.Profile3[0].X = activeTachos[0].X; cfg.Profile3[0].Y = activeTachos[0].Y; }
+                                if (!cfg.Profile3[1].IsSet) { cfg.Profile3[1].X = activeTachos[1].X; cfg.Profile3[1].Y = activeTachos[1].Y; }
+                                if (!cfg.Profile3[2].IsSet) { cfg.Profile3[2].X = t3X; cfg.Profile3[2].Y = t3Y; }
+                                cfg.ActiveProfile = 3;
+                                cfg.Save();
+
+                                if (activeEnemy != null)
+                                {
+                                    activeEnemy.TachoCount = 3;
+                                    activeEnemy.EnsureSlots();
+                                    if (!activeEnemy.Tachos[2].HasPosition)
+                                    {
+                                        activeEnemy.Tachos[2].X = cfg.Profile3[2].X;
+                                        activeEnemy.Tachos[2].Y = cfg.Profile3[2].Y;
+                                    }
+                                    enemyStore.Save();
+                                }
+
+                                expectedTachoIndex = 2;
+                                isArmed = true;
+                                NativeMethods.SetCursorPos(cfg.GreenButtonX, cfg.GreenButtonY);
+                                string cNote = centered3 ? $" (zentriert {dx3:+0;-0}/{dy3:+0;-0} px)" : "";
+                                Console.WriteLine(
+                                    $"[Auto-3er-Erkennung] 3. Tacho fuer {(activeEnemy?.Name ?? "Neuer Spieler")} bei ({cfg.Profile3[2].X}, {cfg.Profile3[2].Y}){cNote} erkannt! Profil automatisch auf 3 Tachos umgestellt.");
+                            }
                         }
                     }
                     else if (cur > 0 &&
