@@ -10,7 +10,7 @@ internal static class Program
     {
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         NativeMethods.SetProcessDPIAware();
-        Console.Title = "TachoClicker (Gegner-Erkennung | F2=2er | F3=3er | F6=Gruen | F8=Start | F9=Tacho | F10=Blau)";
+        Console.Title = "TachoClicker (Auto 2/3 Tachos | F5=Dino | F6=Gruen | F7=Debug | F8=Start | F9=Tacho | F10=Blau)";
 
         NativeMethods.timeBeginPeriod(1);
 
@@ -76,8 +76,6 @@ internal static class Program
         double lastDeltaMs = 0;
         double lastResultNewOffsetMs = 0;
 
-        bool f2Prev = false;
-        bool f3Prev = false;
         bool f5Prev = false;
         bool f6Prev = false;
         bool f7Prev = false;
@@ -96,22 +94,6 @@ internal static class Program
         {
             while (true)
             {
-                if (NativeMethods.IsKeyJustPressed(NativeMethods.VK_F2, ref f2Prev))
-                {
-                    SwitchProfile(cfg, detectors, 2, ref nextTachoIndex, ref expectedTachoIndex, ref running);
-                    activeEnemy = null;
-                    lastConfirmedEnemy = null;
-                    roundFingerprints.Clear();
-                }
-
-                if (NativeMethods.IsKeyJustPressed(NativeMethods.VK_F3, ref f3Prev))
-                {
-                    SwitchProfile(cfg, detectors, 3, ref nextTachoIndex, ref expectedTachoIndex, ref running);
-                    activeEnemy = null;
-                    lastConfirmedEnemy = null;
-                    roundFingerprints.Clear();
-                }
-
                 if (NativeMethods.IsKeyJustPressed(NativeMethods.VK_F9, ref f9Prev))
                 {
                     if (NativeMethods.GetCursorPos(out var pt))
@@ -556,7 +538,23 @@ internal static class Program
                         detectors[0].Update(activeTachos[0].X, activeTachos[0].Y, GetEffectiveOffsetMs(0, cfg, activeEnemy), cfg);
                         if (detectors[0].State == DetectorState.Armed)
                         {
-                            Console.WriteLine("[Sequenz] Neuer Durchgang erkannt -> wechsle zurueck auf Tacho 1.");
+                            // Falls wir im 3er-Modus auf T3 gewartet haben, bei einem neuen Spieler aber direkt wieder T1 erscheint:
+                            // automatisch auf 2 Tachos zurueckstufen!
+                            if (cur == 2 && cfg.ActiveProfile == 3 && activeEnemy != null && !activeEnemy.IsFixed &&
+                                activeEnemy.Tachos.Count >= 3 && !activeEnemy.Tachos[2].HasSignature)
+                            {
+                                activeEnemy.TachoCount = 2;
+                                if (activeEnemy.Tachos.Count > 2)
+                                    activeEnemy.Tachos.RemoveRange(2, activeEnemy.Tachos.Count - 2);
+                                enemyStore.Save();
+                                cfg.ActiveProfile = 2;
+                                cfg.Save();
+                                Console.WriteLine($"[Auto-2er-Erkennung] {activeEnemy.Name} hat nur 2 Tachos (kein T3 erschienen) -> Profil automatisch auf 2 Tachos umgestellt.");
+                            }
+                            else
+                            {
+                                Console.WriteLine("[Sequenz] Neuer Durchgang erkannt -> wechsle zurueck auf Tacho 1.");
+                            }
                             expectedTachoIndex = 0;
                             roundFingerprints.Clear();
                             isArmed = true;
@@ -919,32 +917,6 @@ internal static class Program
         }
     }
 
-    private static void SwitchProfile(
-        AppConfig cfg, TachoDetector[] detectors, int profile,
-        ref int nextTachoIndex, ref int expectedTachoIndex, ref bool running)
-    {
-        cfg.ActiveProfile = profile;
-        cfg.Save();
-        nextTachoIndex = 0;
-        expectedTachoIndex = 0;
-        ResetDetectors(detectors);
-
-        var tachos = cfg.GetActiveTachos();
-        Console.WriteLine($"[Modus] Umgeschaltet auf {profile}er-Konfiguration ({tachos.Count} Tachos, sequenziell).");
-
-        for (int i = 0; i < tachos.Count; i++)
-        {
-            string btn = (i == tachos.Count - 1) ? "Gruen" : "Blau";
-            Console.WriteLine($"  Tacho {i + 1} ({btn}): {(tachos[i].IsSet ? $"({tachos[i].X}, {tachos[i].Y})" : "noch nicht gesetzt (mit F9 festlegen)")}");
-        }
-
-        if (!cfg.IsCalibrated && running)
-        {
-            running = false;
-            Console.WriteLine("[Status] PAUSIERT (erst alle Positionen dieses Profils festlegen).");
-        }
-    }
-
     private static void ResetDetectors(TachoDetector[] detectors)
     {
         foreach (var d in detectors)
@@ -955,18 +927,16 @@ internal static class Program
     {
         var tachos = cfg.GetActiveTachos();
         Console.WriteLine("=================================================================");
-        Console.WriteLine("  TachoClicker - Automatische Gegner-Erkennung & Setups");
+        Console.WriteLine("  TachoClicker - Automatische Gegner- & 2/3-Tacho-Erkennung");
         Console.WriteLine("=================================================================");
         Console.WriteLine("Hotkeys:");
-        Console.WriteLine("  F2  : Auf 2er-Konfiguration umschalten (T1=Blau -> T2=Gruen)");
-        Console.WriteLine("  F3  : Auf 3er-Konfiguration umschalten (T1=Blau -> T2=Blau -> T3=Gruen)");
-        Console.WriteLine("  F9  : Naechste Tacho-Mitte speichern (zyklisch Tacho 1..N)");
+        Console.WriteLine("  F9  : Naechste Tacho-Mitte speichern (auto-zentriert)");
         Console.WriteLine("  F10 : Blauen Schild-Button speichern (+ Auto-Start)");
         Console.WriteLine("  F5  : Position des aktiven eigenen Dinos speichern (optional, sonst automatisch ueber T1)");
         Console.WriteLine("  F6  : Gruenen Schwerter-Button speichern (+ Auto-Start)");
-        Console.WriteLine("  F8  : Automatik Start / Pause (startet immer bei Tacho 1)");
+        Console.WriteLine("  F8  : Automatik Start / Pause (+ Preset-Statistik der Session)");
         Console.WriteLine("  F7  : Debug-Ausgabe An / Aus");
-        Console.WriteLine("  +/- : Zeit-Vorlauf des aktuell aktiven Tachos / Gegners +/- 2 ms");
+        Console.WriteLine("  +/- : Zeit-Vorlauf des aktuell aktiven Tachos feinjustieren");
         Console.WriteLine("-----------------------------------------------------------------");
         Console.WriteLine($"Aktives Profil        : {cfg.ActiveProfile}er-Konfiguration | Gespeicherte Gegner-Setups: {store.Setups.Count}");
         foreach (var s in store.Setups)
