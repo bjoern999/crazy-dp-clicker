@@ -577,18 +577,42 @@ internal sealed class EnemySetupStore
             }
 
             double dCurrent = slot.DistanceTo(currentFp);
+            bool isLastSlot = tachoIndex >= currentRoundSetup.Tachos.Count - 1;
+
             if (dCurrent <= 1.0)
             {
                 if (!slot.HasPosition && curX > 0 && curY > 0) { slot.X = curX; slot.Y = curY; }
                 slot.UpdateSignatureEma(currentFp, currentRoundSetup.IsFixed);
+
+                // Neues Dino-Bild erst speichern, sobald der letzte Tacho (T2/T3) den Spieler der Runde bestaetigt hat!
+                bool learnedOnConfirm = false;
+                if (isLastSlot && hasCurVis)
+                {
+                    if (!currentRoundSetup.HasVisual)
+                    {
+                        currentRoundSetup.Visual = new DinoVisualFingerprint();
+                        DinoVisualMatcher.BlendInto(currentRoundSetup.Visual, currentVisual!);
+                        learnedOnConfirm = true;
+                        curVisDist = 0.0;
+                    }
+                    else
+                    {
+                        DinoVisualMatcher.BlendInto(currentRoundSetup.Visual!, currentVisual!);
+                    }
+                }
+
                 currentRoundSetup.LastSeenUtc = DateTime.UtcNow;
                 Save();
-                return (currentRoundSetup, false, dCurrent, curVisDist, false);
+                return (currentRoundSetup, false, dCurrent, curVisDist, learnedOnConfirm);
             }
 
-            EnemySetup? bestJoint = null;
-            double bestJointDist = double.MaxValue;
+            EnemySetup? bestJointVis = null;
+            double bestJointVisScore = double.MaxValue;
             double bestJointVisDist = -1.0;
+
+            EnemySetup? bestJointLegacy = null;
+            double bestJointLegacyScore = double.MaxValue;
+
             foreach (var candidate in Setups)
             {
                 if (candidate.ProfileSize != profileSize) continue;
@@ -596,11 +620,13 @@ internal sealed class EnemySetupStore
 
                 // Visueller Ausschluss: niemals auf einen sichtbar anderen Dino umschalten!
                 double candVisDist = -1.0;
+                bool isVisConfirmed = false;
                 if (hasCurVis && candidate.HasVisual)
                 {
                     candVisDist = DinoVisualMatcher.Distance(candidate.Visual!, currentVisual!);
                     if (candVisDist > DinoVisualMatcher.VisualMatchThreshold)
                         continue;
+                    isVisConfirmed = true;
                 }
 
                 double dThis = candidate.Tachos[tachoIndex].DistanceTo(currentFp);
@@ -626,16 +652,27 @@ internal sealed class EnemySetupStore
                 if (allOk)
                 {
                     double avg = sumDist / count;
-                    if (candVisDist >= 0)
-                        avg = avg * 0.65 + (candVisDist / DinoVisualMatcher.VisualMatchThreshold) * 0.35;
-                    if (avg < bestJointDist)
+                    if (isVisConfirmed)
                     {
-                        bestJointDist = avg;
-                        bestJointVisDist = candVisDist;
-                        bestJoint = candidate;
+                        double combined = avg * 0.55 + (candVisDist / DinoVisualMatcher.VisualMatchThreshold) * 0.45;
+                        if (combined < bestJointVisScore)
+                        {
+                            bestJointVisScore = combined;
+                            bestJointVisDist = candVisDist;
+                            bestJointVis = candidate;
+                        }
+                    }
+                    else if (avg < bestJointLegacyScore)
+                    {
+                        bestJointLegacyScore = avg;
+                        bestJointLegacy = candidate;
                     }
                 }
             }
+
+            EnemySetup? bestJoint = bestJointVis ?? bestJointLegacy;
+            double bestJointDist = bestJointVis != null ? bestJointVisScore : bestJointLegacyScore;
+            if (bestJointVis == null) bestJointVisDist = -1.0;
 
             if (bestJoint != null)
             {
@@ -643,13 +680,14 @@ internal sealed class EnemySetupStore
                 if (!matchedSlot.HasPosition && curX > 0 && curY > 0) { matchedSlot.X = curX; matchedSlot.Y = curY; }
                 matchedSlot.UpdateSignatureEma(currentFp, bestJoint.IsFixed);
                 bool learned = false;
-                if (hasCurVis)
+                if (isLastSlot && hasCurVis)
                 {
                     if (!bestJoint.HasVisual)
                     {
                         bestJoint.Visual = new DinoVisualFingerprint();
                         DinoVisualMatcher.BlendInto(bestJoint.Visual, currentVisual!);
                         learned = true;
+                        bestJointVisDist = 0.0;
                     }
                     else
                     {
@@ -751,25 +789,16 @@ internal sealed class EnemySetupStore
             if (!matchedSlot.HasPosition && curX > 0 && curY > 0) { matchedSlot.X = curX; matchedSlot.Y = curY; }
             matchedSlot.UpdateSignatureEma(currentFp, bestMatch.IsFixed);
 
-            bool learnedVisual = false;
-            if (hasCurVis)
+            // Bei T1 niemals ein brandneues Visual auf ein NO-VIS-Setup speichern (erst wenn T2 die Runde bestaetigt hat!),
+            // damit ein vorlaeufiges T1-Match niemals ein fremdes Setup mit einem falschen Dino-Foto vergiftet!
+            if (hasCurVis && bestMatch.HasVisual)
             {
-                if (!bestMatch.HasVisual)
-                {
-                    bestMatch.Visual = new DinoVisualFingerprint();
-                    DinoVisualMatcher.BlendInto(bestMatch.Visual, currentVisual!);
-                    learnedVisual = true;
-                    bestVisDist = 0.0;
-                }
-                else
-                {
-                    DinoVisualMatcher.BlendInto(bestMatch.Visual!, currentVisual!);
-                }
+                DinoVisualMatcher.BlendInto(bestMatch.Visual!, currentVisual!);
             }
 
             bestMatch.LastSeenUtc = DateTime.UtcNow;
             Save();
-            return (bestMatch, false, bestRawDist, bestVisDist, learnedVisual);
+            return (bestMatch, false, bestRawDist, bestVisDist, false);
         }
 
         var created = CreateNewSetup(profileSize, tachoIndex, currentFp, currentVisual, roundFingerprints, activePositions, fallbackOffsetMs, null);
