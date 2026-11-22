@@ -491,44 +491,55 @@ internal sealed class TachoSetupSlot
             return (ClickOffsetMs, applied, false, null, skippedBad, false);
         }
 
-        // 0a. MODUS "VERFEINERUNG": Sobald 3 gereifte Top-Presets vorliegen und dazwischen noch offene
-        //     0,05ms-Zwischenwerte existieren, bei Rot/Gruen/Weiss in 0,05ms-Schritten zwischen Top-1..3 verfeinern!
-        if (IsMeisterTacho && IsRefinementActive)
+        // 0a. REFINEMENT- & MASTER-PHASE bei ROT (bzw. Vogel Nach-Blau-Weiss):
+        //     Immer das naechste Top-Preset waehlen, das FRUEHER klickt (hoeherer Offset).
+        //     Falls bereits auf (oder ueber) dem am fruehesten klickenden Top-Preset: trotzdem frueher klicken (+0,75 ms)!
+        if (isLateMiss && (IsMeisterTacho || top1 != null))
+        {
+            var earlierTop = new[] { top1, top2, top3 }
+                .Where(t => t != null && t.OffsetMs > ClickOffsetMs + 0.02)
+                .OrderBy(t => t!.OffsetMs)
+                .FirstOrDefault();
+
+            if (earlierTop != null)
+            {
+                double delta = Math.Round(earlierTop.OffsetMs - ClickOffsetMs, 2);
+                ClickOffsetMs = earlierTop.OffsetMs;
+                ConsecutiveNonBlue = 0;
+                // ConsecutiveRed NICHT loeschen -> falls es nochmal Rot gibt, greift sofort die Notbremse!
+                return (ClickOffsetMs, delta, true, earlierTop, 0, false);
+            }
+
+            if (IsMeisterTacho)
+            {
+                // Bereits am fruehesten Top-Preset -> trotzdem frueher klicken (niemals auf ein spaeteres Top-Preset zurueckfallen!)
+                double rawTarget = Math.Clamp(Math.Round(ClickOffsetMs + 0.75, 2), 0.0, 120.0);
+                var (safeTarget, skippedBad) = FindNextNonBadOffsetUp(rawTarget);
+                double applied = Math.Round(safeTarget - ClickOffsetMs, 2);
+                ClickOffsetMs = safeTarget;
+                ConsecutiveNonBlue = 0;
+                return (ClickOffsetMs, applied, false, null, skippedBad, false);
+            }
+        }
+
+        // 0b. MODUS "VERFEINERUNG" bei GRUEN / WEISS (zu frueh):
+        //     In 0,05ms-Schritten nach unten zwischen Top-1..3 verfeinern!
+        if (!isLateMiss && IsMeisterTacho && IsRefinementActive)
         {
             var (minMs, maxMs, _) = GetRefinementInfo();
-            int dir = isLateMiss ? +1 : -1;
-            double? nextFine = FindNextRefinementOffset(ClickOffsetMs, dir, minMs, maxMs);
+            double? nextFine = FindNextRefinementOffset(ClickOffsetMs, -1, minMs, maxMs);
             if (nextFine.HasValue)
             {
                 double delta = Math.Round(nextFine.Value - ClickOffsetMs, 2);
                 ClickOffsetMs = nextFine.Value;
                 ConsecutiveNonBlue = 0;
-                if (!isLateMiss) ConsecutiveRed = 0;
+                ConsecutiveRed = 0;
                 return (ClickOffsetMs, delta, false, null, 0, false);
             }
         }
 
-        // 0b. Top-1 -> Top-2 -> Top-3 -> Top-1 Rotation bei 1x Rot (bzw. Vogel Post-Blau-Weiss) sowie finaler Meister-Tacho-Lock:
-        if (isLateMiss)
-        {
-            OffsetPerformance? nextTop = stat.TopRank switch
-            {
-                1 => top2,
-                2 => top3,
-                3 => top1,
-                _ => IsMeisterTacho ? top1 : null
-            };
-
-            if (nextTop != null && Math.Abs(nextTop.OffsetMs - ClickOffsetMs) >= 0.02)
-            {
-                double delta = Math.Round(nextTop.OffsetMs - ClickOffsetMs, 2);
-                ClickOffsetMs = nextTop.OffsetMs;
-                ConsecutiveNonBlue = 0;
-                // ConsecutiveRed NICHT loeschen -> falls das naechste Top-Preset auch Rot liefert, greift sofort die Notbremse!
-                return (ClickOffsetMs, delta, true, nextTop, 0, false);
-            }
-        }
-        else if (IsMeisterTacho && IsRefinementComplete)
+        // 0c. Finaler Meister-Tacho (Verfeinerung abgeschlossen) bei GRUEN / WEISS:
+        if (!isLateMiss && IsMeisterTacho && IsRefinementComplete)
         {
             // Finaler Meister-Tacho (Verfeinerung abgeschlossen): ausschliesslich zwischen Top-1 / Top-2 / Top-3 bleiben!
             if (fb == TachoFeedback.TooEarlyGreen)
