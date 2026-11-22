@@ -186,6 +186,8 @@ internal static class Program
                         ResetDetectors(detectors);
                         expectedTachoIndex = 0;
                         roundFingerprints.Clear();
+                        if (running)
+                            activeEnemy = null; // Bei Neustart nach Pause immer sofort das Best-Preset laden
                         overlay?.EnsureVisibleOnTop();
                         Console.WriteLine(running
                             ? $"[Status] AKTIV ({cfg.ActiveProfile}er-Modus) - Starte sequenziell bei Tacho 1..."
@@ -247,6 +249,8 @@ internal static class Program
                                 activeTachos,
                                 cfg.GetClickOffsetMsForTacho(cur));
 
+                            bool isNewFightAfterPause = cur == 0 && lastClickUtc != DateTime.MinValue &&
+                                (DateTime.UtcNow - lastClickUtc).TotalSeconds >= 15.0;
                             bool changedEnemy = activeEnemy == null || activeEnemy.Id != matched.Id || isNew;
                             activeEnemy = matched;
                             activeEnemyIsNew = isNew;
@@ -268,10 +272,11 @@ internal static class Program
 
                             var slot = matched.Tachos[cur];
 
-                            // Sobald ein Spieler neu erkannt wird: sofort fuer alle seine Tachos das bislang beste Preset laden!
+                            // Sobald ein Spieler erkannt wird (oder nach einer Kampfpause neu startet):
+                            // sofort fuer alle seine Tachos das bislang beste Preset laden!
                             // Und selbst im laufenden Betrieb: niemals ein nachweislich schlechtes Preset verwenden!
                             bool presetAutoSwitched = false;
-                            if (changedEnemy && !isNew)
+                            if ((changedEnemy || isNewFightAfterPause) && !isNew)
                             {
                                 bool anyPresetChanged = false;
                                 for (int sIdx = 0; sIdx < matched.Tachos.Count; sIdx++)

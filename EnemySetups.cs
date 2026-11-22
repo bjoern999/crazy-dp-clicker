@@ -27,26 +27,27 @@ internal sealed class OffsetPerformance
     public double BadRate => Total > 0 ? (double)(RedHits + WhiteHits) / Total : 0.0;
 
     /// <summary>
-    /// Composite quality score favoring high Blue hit rate while penalizing Red (0 points) & White.
+    /// Composite quality score favoring high Blue hit rate and safe Green hits while heavily penalizing Red (round lost!).
     /// </summary>
     public double QualityScore => Total > 0
-        ? (BlueHits * 1.0 + GreenHits * 0.35 - RedHits * 0.85 - WhiteHits * 0.95) / Total
+        ? (BlueHits * 1.0 + GreenHits * 0.45 - RedHits * 2.20 - WhiteHits * 1.40) / Total
         : -999.0;
 
     /// <summary>
-    /// Bayesian-smoothed score (prior: 2 neutral clicks) so 39/41 Blue cleanly beats 1/1 Blue.
+    /// Bayesian-smoothed score (prior: 2 neutral clicks) so proven low-Red presets cleanly beat tiny noisy samples.
     /// </summary>
     public double SmoothedScore => Total > 0
-        ? (BlueHits * 1.0 + GreenHits * 0.35 - RedHits * 0.85 - WhiteHits * 0.95 + 0.60) / (Total + 2.0)
+        ? (BlueHits * 1.0 + GreenHits * 0.45 - RedHits * 2.20 - WhiteHits * 1.40 + 0.60) / (Total + 2.0)
         : -999.0;
 
     /// <summary>
-    /// True if this (Player, Tacho, Preset) triplet has consistently performed poorly (Red/White, never successful).
+    /// True if this (Player, Tacho, Preset) triplet has consistently performed poorly (Red/White, never successful or >=30% Red).
     /// </summary>
     public bool IsKnownBad =>
         (Total >= 1 && BlueHits == 0 && GreenHits == 0 && (RedHits + WhiteHits) >= 1) ||
         (Total >= 3 && BlueHits == 0 && BadRate >= 0.50) ||
-        (Total >= 4 && BlueRate < 0.15 && BadRate >= 0.40);
+        (Total >= 4 && BlueRate < 0.15 && BadRate >= 0.40) ||
+        (Total >= 4 && RedRate >= 0.30);
 }
 
 internal sealed class TachoSetupSlot
@@ -404,6 +405,17 @@ internal sealed class TachoSetupSlot
 
         if (fb == TachoFeedback.TooEarlyGreen)
         {
+            // Auf einem stark bewaehrten Best-Preset (>=8 Klicks, >=50% Blau, <=10% Rot) nicht nach nur 1x Gruen wegdriften!
+            if (bestProven != null &&
+                Math.Abs(ClickOffsetMs - bestProven.OffsetMs) < 0.05 &&
+                bestProven.Total >= 8 &&
+                bestProven.BlueRate >= 0.50 &&
+                bestProven.RedRate <= 0.10 &&
+                ConsecutiveNonBlue < 2)
+            {
+                return (ClickOffsetMs, 0.0, false, null, 0, false);
+            }
+
             double greenStep = isFixedPlayer ? -0.25 : -0.5;
             double rawTarget = Math.Clamp(Math.Round(ClickOffsetMs + greenStep, 2), 0.0, 120.0);
 
