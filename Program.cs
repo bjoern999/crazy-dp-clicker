@@ -295,7 +295,9 @@ internal static class Program
                                     {
                                         anyPresetChanged = true;
                                         string rankTag = chosen != null && chosen.TopRank > 0 ? $" [TOP-{chosen.TopRank}]" : "";
-                                        string meisterTag = matched.Tachos[sIdx].IsMeisterTacho ? " [MEISTER-TACHO]" : "";
+                                        string meisterTag = matched.Tachos[sIdx].IsRefinementActive
+                                            ? " [VERFEINERUNG 0,05ms]"
+                                            : (matched.Tachos[sIdx].IsMeisterTacho ? " [MEISTER-TACHO]" : "");
                                         string statInfo = chosen != null
                                             ? $"{rankTag}{meisterTag} (Blau: {chosen.BlueHits}/{chosen.Total} = {chosen.BlueRate * 100:F0}%, G={chosen.GreenHits}, R={chosen.RedHits})"
                                             : "(schlechtes Preset gemieden)";
@@ -579,7 +581,9 @@ internal static class Program
             var sl = activeEnemy.Tachos[activeIdx];
             var best = sl.GetTopPreset(1) ?? sl.GetBestStartupPreset();
             int badCnt = sl.CountKnownBadPresets();
-            string meisterPrefix = sl.IsMeisterTacho ? "[MEISTER] " : "";
+            string meisterPrefix = sl.IsRefinementActive
+                ? $"[VERFEINERUNG {sl.GetRefinementInfo().OpenCandidates} offen] "
+                : (sl.IsMeisterTacho ? "[MEISTER] " : "");
             string badPart = badCnt > 0 ? $" | Gesperrt: {badCnt}" : "";
             if (best != null)
             {
@@ -878,7 +882,9 @@ internal static class Program
                 string bestTxt = best != null
                     ? (best.TopRank > 0 ? $",Top-1={best.OffsetMs:F2}ms({best.BlueHits}B/{best.Total})" : $",Best={best.OffsetMs:F2}ms({best.BlueHits}B/{best.Total})")
                     : "";
-                string mTag = sl.IsMeisterTacho ? ",MEISTER" : "";
+                string mTag = sl.IsRefinementActive
+                    ? $",VERFEINERUNG({sl.GetRefinementInfo().OpenCandidates})"
+                    : (sl.IsMeisterTacho ? ",MEISTER" : "");
                 int bad = sl.CountKnownBadPresets();
                 string badTxt = bad > 0 ? $",Bad={bad}" : "";
                 return $"T{i + 1}:{sl.ClickOffsetMs:F2}ms{bestTxt}{mTag}{badTxt}";
@@ -918,9 +924,20 @@ internal static class Program
                 var slot = setup.Tachos[i];
                 slot.RefreshTopPresets();
                 int topCount = slot.OffsetHistory.Count(h => h.TopRank > 0);
-                string statusTag = slot.IsMeisterTacho
-                    ? "*** MEISTER-TACHO (nur Top-1/2/3 aktiv) ***"
-                    : $"Top-Presets gereift: {topCount}/3";
+                string statusTag;
+                if (slot.IsRefinementActive)
+                {
+                    var (rMin, rMax, rOpen) = slot.GetRefinementInfo();
+                    statusTag = $"*** VERFEINERUNG (0,05ms: {rMin:F2}-{rMax:F2} ms, noch {rOpen} offen) ***";
+                }
+                else if (slot.IsMeisterTacho)
+                {
+                    statusTag = "*** MEISTER-TACHO (verfeinert, nur Top-1/2/3 aktiv) ***";
+                }
+                else
+                {
+                    statusTag = $"Top-Presets gereift: {topCount}/3";
+                }
 
                 Console.WriteLine(
                     $"  Tacho {i + 1} | Aktuell={slot.ClickOffsetMs:F2} ms | Gesamt: {slot.BlueHits}B/{slot.GreenHits}G/{slot.RedHits}R/{slot.WhiteHits}W ({slot.TotalClicks} Klicks) | {statusTag}");
@@ -940,7 +957,7 @@ internal static class Program
                     if (h.TopRank > 0) tags.Add($"TOP-{h.TopRank}");
                     if (h.IsMature) tags.Add("MATURE");
                     if (h.IsKnownBad) tags.Add("GESPERRT");
-                    if (Math.Abs(h.OffsetMs - slot.ClickOffsetMs) < 0.05) tags.Add("AKTIV");
+                    if (Math.Abs(h.OffsetMs - slot.ClickOffsetMs) < 0.02) tags.Add("AKTIV");
                     string tagStr = tags.Count > 0 ? string.Join(", ", tags) : "-";
 
                     Console.WriteLine(
