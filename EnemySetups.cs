@@ -54,6 +54,16 @@ internal sealed class OffsetPerformance
         (Total >= 4 && RedRate >= 0.30);
 }
 
+internal sealed class DeploymentOutcomeRecord
+{
+    public int DeploymentId { get; set; } // 0 = historische Daten vor Tagging, 1, 2, 3... = Spieler-Einsatz-Nummer
+    public double OffsetMs { get; set; }
+    public int BlueHits { get; set; }
+    public int GreenHits { get; set; }
+    public int RedHits { get; set; }
+    public int WhiteHits { get; set; }
+}
+
 internal sealed class TachoSetupSlot
 {
     public bool HasSignature { get; set; }
@@ -81,6 +91,10 @@ internal sealed class TachoSetupSlot
 
     // Pro Offset gemerkte Treffer-Quoten fuer Rueckkehr zu bewaehrten Parametern
     public List<OffsetPerformance> OffsetHistory { get; set; } = new();
+
+    // Pro Spieler-Einsatz (DeploymentId: 0 = Altbestand, 1, 2, 3... = fortlaufende Einsatz-Nr.) getaggte Statistik
+    // fuer sauberes Umhaengen bei nachtraeglicher Spieler-Korrektur
+    public List<DeploymentOutcomeRecord> DeploymentHistory { get; set; } = new();
 
     // True sobald 3 gereifte (mature, >=30 Klicks) Top-Presets fuer diesen Tacho feststehen
     public bool IsMeisterTacho { get; set; }
@@ -353,8 +367,28 @@ internal sealed class TachoSetupSlot
         return (Math.Clamp(candidate, 0.0, 120.0), skipped);
     }
 
+    public void EnsureDeploymentBackfill()
+    {
+        if (DeploymentHistory.Count > 0 || OffsetHistory.Count == 0)
+            return;
+
+        foreach (var h in OffsetHistory)
+        {
+            if (h.Total <= 0) continue;
+            DeploymentHistory.Add(new DeploymentOutcomeRecord
+            {
+                DeploymentId = 0,
+                OffsetMs = h.OffsetMs,
+                BlueHits = h.BlueHits,
+                GreenHits = h.GreenHits,
+                RedHits = h.RedHits,
+                WhiteHits = h.WhiteHits
+            });
+        }
+    }
+
     public (double NewOffsetMs, double AppliedDeltaMs, bool RevertedToProven, OffsetPerformance? RevertedStats, int SkippedBadCount, bool BlockedBadCliff)
-        RecordOutcomeAndTune(double usedOffsetMs, TachoFeedback fb, bool isFixedPlayer, bool isBird = false)
+        RecordOutcomeAndTune(double usedOffsetMs, TachoFeedback fb, bool isFixedPlayer, bool isBird = false, int deploymentId = 0)
     {
         if (fb == TachoFeedback.None)
             return (ClickOffsetMs, 0.0, false, null, 0, false);
@@ -367,6 +401,13 @@ internal sealed class TachoSetupSlot
         {
             stat = new OffsetPerformance { OffsetMs = bucketOffset };
             OffsetHistory.Add(stat);
+        }
+
+        var depStat = DeploymentHistory.FirstOrDefault(d => d.DeploymentId == deploymentId && Math.Abs(d.OffsetMs - bucketOffset) < 0.02);
+        if (depStat == null)
+        {
+            depStat = new DeploymentOutcomeRecord { DeploymentId = deploymentId, OffsetMs = bucketOffset };
+            DeploymentHistory.Add(depStat);
         }
 
         // Bei Spielern vom Typ "Vogel" (z.B. Therizinosaurus) folgt NACH dem blauen Bereich noch ein zweiter
@@ -386,6 +427,7 @@ internal sealed class TachoSetupSlot
             case TachoFeedback.OptimalBlue:
                 BlueHits++;
                 stat.BlueHits++;
+                depStat.BlueHits++;
                 ConsecutiveNonBlue = 0;
                 ConsecutiveRed = 0;
                 RefreshTopPresets();
@@ -394,6 +436,7 @@ internal sealed class TachoSetupSlot
             case TachoFeedback.TooEarlyGreen:
                 GreenHits++;
                 stat.GreenHits++;
+                depStat.GreenHits++;
                 ConsecutiveNonBlue++;
                 ConsecutiveRed = 0;
                 break;
@@ -401,6 +444,7 @@ internal sealed class TachoSetupSlot
             case TachoFeedback.TooLateRed:
                 RedHits++;
                 stat.RedHits++;
+                depStat.RedHits++;
                 ConsecutiveNonBlue++;
                 ConsecutiveRed++;
                 break;
@@ -408,6 +452,7 @@ internal sealed class TachoSetupSlot
             case TachoFeedback.WayTooEarlyWhite:
                 WhiteHits++;
                 stat.WhiteHits++;
+                depStat.WhiteHits++;
                 ConsecutiveNonBlue++;
                 if (isBirdPostBlueLate)
                     ConsecutiveRed++;
@@ -732,7 +777,15 @@ internal sealed class EnemySetup
 internal sealed class EnemySetupStore
 {
     public int NextId { get; set; } = 1;
+    public int LastDeploymentId { get; set; } = 0;
     public List<EnemySetup> Setups { get; set; } = new();
+
+    public int AllocateNextDeploymentId()
+    {
+        LastDeploymentId++;
+        Save();
+        return LastDeploymentId;
+    }
 
     private static readonly string StorePath =
         Path.Combine(AppContext.BaseDirectory, "enemy_setups.json");
@@ -750,7 +803,10 @@ internal sealed class EnemySetupStore
             {
                 s.EnsureSlots();
                 foreach (var sl in s.Tachos)
+                {
+                    sl.EnsureDeploymentBackfill();
                     sl.RefreshTopPresets();
+                }
             }
             if (store.NextId <= store.Setups.Count)
                 store.NextId = (store.Setups.Count > 0 ? store.Setups.Max(s => s.Id) : 0) + 1;

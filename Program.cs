@@ -64,6 +64,8 @@ internal static class Program
         Bitmap? lastDinoPreview = null;
         string lastDinoVisualInfo = "";
         var sessionPlayedEnemyIds = new HashSet<int>();
+        int currentDeploymentId = 0;
+        var sessionDeployments = new List<(int DeploymentId, int SetupId, string Name)>();
 
         // Letztes Feedback fuer die Anzeige im Live-Inspektor
         int lastClickedTachoNumber = 0;
@@ -191,6 +193,7 @@ internal static class Program
                         {
                             activeEnemy = null; // Bei Neustart nach Pause immer sofort das Top-1 / Best-Preset laden
                             sessionPlayedEnemyIds.Clear();
+                            sessionDeployments.Clear();
                         }
                         overlay?.EnsureVisibleOnTop();
                         Console.WriteLine(running
@@ -198,7 +201,7 @@ internal static class Program
                             : "[Status] PAUSIERT.");
                         if (!running)
                         {
-                            PrintSessionPresetStats(enemyStore, sessionPlayedEnemyIds);
+                            PrintSessionPresetStats(enemyStore, sessionPlayedEnemyIds, sessionDeployments);
                         }
                     }
                 }
@@ -260,6 +263,11 @@ internal static class Program
                             bool isNewFightAfterPause = cur == 0 && lastClickUtc != DateTime.MinValue &&
                                 (DateTime.UtcNow - lastClickUtc).TotalSeconds >= 15.0;
                             bool changedEnemy = activeEnemy == null || activeEnemy.Id != matched.Id || isNew;
+                            if (changedEnemy || isNewFightAfterPause)
+                            {
+                                currentDeploymentId = enemyStore.AllocateNextDeploymentId();
+                                sessionDeployments.Add((currentDeploymentId, matched.Id, matched.Name));
+                            }
                             activeEnemy = matched;
                             activeEnemyIsNew = isNew;
                             sessionPlayedEnemyIds.Add(matched.Id);
@@ -338,7 +346,7 @@ internal static class Program
                                 int badCnt = slot.CountKnownBadPresets();
                                 string badStr = badCnt > 0 ? $", Gesperrt={badCnt}" : "";
                                 Console.WriteLine(
-                                    $"[Spieler-Setup] {matched.Name} ({matched.DinoType}) [{tag}{visStr}] | T{cur + 1}: v={fp.EndSpeedDegPerSec:F1}°/s, a={fp.AccelDegPerSec2:F0}°/s², T55={fp.SpinTimeTo55Ms:F0}ms, G={fp.GreenWidthDeg:F0}° -> Offset {enemyOffset:F2} ms{curStatStr}{bestStr}{badStr}");
+                                    $"[Spieler-Setup] {matched.Name} ({matched.DinoType}) [Einsatz #{currentDeploymentId} | {tag}{visStr}] | T{cur + 1}: v={fp.EndSpeedDegPerSec:F1}°/s, a={fp.AccelDegPerSec2:F0}°/s², T55={fp.SpinTimeTo55Ms:F0}ms, G={fp.GreenWidthDeg:F0}° -> Offset {enemyOffset:F2} ms{curStatStr}{bestStr}{badStr}");
                             }
 
                             return enemyOffset;
@@ -422,7 +430,7 @@ internal static class Program
                         }
 
                         // 4. Sofort den Offset des erkannten Spieler-Setups (mit Treffer-Quoten & Auto-Revert) anpassen
-                        double newOffset = HandleTachoFeedback(cur, usedOffsetMs, fb, detectors[cur], cfg, enemyStore, activeEnemy);
+                        double newOffset = HandleTachoFeedback(cur, usedOffsetMs, fb, detectors[cur], cfg, enemyStore, activeEnemy, currentDeploymentId);
 
                         // 5. Vollstaendige Telemetrie schreiben (inkl. VisDist & Dino-Metriken)
                         LogTelemetryClick(cur, activeTachos.Count, usedOffsetMs, newOffset, activeEnemy?.Name ?? "-", fb, detectors[cur], checkpointsStr, lastRoundVisDist, currentRoundVisual);
@@ -699,7 +707,7 @@ internal static class Program
 
     private static double HandleTachoFeedback(
         int tachoIndex, double usedOffsetMs, TachoFeedback fb, TachoDetector detector,
-        AppConfig cfg, EnemySetupStore enemyStore, EnemySetup? activeEnemy)
+        AppConfig cfg, EnemySetupStore enemyStore, EnemySetup? activeEnemy, int deploymentId)
     {
         string counts = $"(Spot=({detector.LastPatchScreenX},{detector.LastPatchScreenY}) RGB=({detector.LastAvgR},{detector.LastAvgG},{detector.LastAvgB}) | B={detector.LastPatchBlue} G={detector.LastPatchGreen} R={detector.LastPatchRed} W={detector.LastPatchWhite})";
         string setupLabel = activeEnemy != null ? activeEnemy.Name : "Standard";
@@ -716,7 +724,7 @@ internal static class Program
             activeEnemy.EnsureSlots();
             var slot = activeEnemy.Tachos[tachoIndex];
             (updated, appliedDelta, reverted, revertedStats, skippedBadCount, blockedBadCliff) =
-                slot.RecordOutcomeAndTune(usedOffsetMs, fb, activeEnemy.IsFixed, activeEnemy.IsBird);
+                slot.RecordOutcomeAndTune(usedOffsetMs, fb, activeEnemy.IsFixed, activeEnemy.IsBird, deploymentId);
 
             if (detector.LastFingerprint.EndSpeedDegPerSec > 50.0)
             {
@@ -899,10 +907,18 @@ internal static class Program
         Console.WriteLine("=================================================================");
     }
 
-    private static void PrintSessionPresetStats(EnemySetupStore store, HashSet<int> playedEnemyIds)
+    private static void PrintSessionPresetStats(
+        EnemySetupStore store,
+        HashSet<int> playedEnemyIds,
+        List<(int DeploymentId, int SetupId, string Name)> sessionDeployments)
     {
         Console.WriteLine();
         Console.WriteLine("================ PRESET-STATISTIKEN (GESPIELTE SPIELER) ================");
+        if (sessionDeployments.Count > 0)
+        {
+            string depList = string.Join(" | ", sessionDeployments.Select(d => $"Einsatz #{d.DeploymentId}: {d.Name}"));
+            Console.WriteLine($"  Einsaetze: {depList}");
+        }
         if (playedEnemyIds.Count == 0)
         {
             Console.WriteLine("  (In dieser Session wurden noch keine Spieler erfasst.)");
