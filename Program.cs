@@ -546,14 +546,16 @@ internal static class Program
 
                         // 3. Direkt nach dem Klick die Farbe auf den unteren 9x9 Pixeln messen
                         TachoFeedback fb = detectors[cur].MeasureBottomColorAfterClick(cur + 1, curX, curY, cfg);
+                        bool wasInferredRedFromNone = false;
                         if (cur == 1 && fb == TachoFeedback.None)
                         {
                             fb = TachoFeedback.TooLateRed;
+                            wasInferredRedFromNone = true;
                             Console.WriteLine($"[Nach-Klick {(activeEnemy?.Name ?? "Standard")} T2] Keine Farbe erkannt -> als ROT (zu spaet) gewertet!");
                         }
 
                         // 4. Sofort den Offset des erkannten Spieler-Setups (mit Treffer-Quoten & Auto-Revert) anpassen
-                        double newOffset = HandleTachoFeedback(cur, usedOffsetMs, fb, detectors[cur], cfg, enemyStore, activeEnemy, currentDeploymentId);
+                        double newOffset = HandleTachoFeedback(cur, usedOffsetMs, fb, detectors[cur], cfg, enemyStore, activeEnemy, currentDeploymentId, !wasInferredRedFromNone);
 
                         // 5. Vollstaendige Telemetrie schreiben (inkl. VisDist & Dino-Metriken)
                         LogTelemetryClick(cur, activeTachos.Count, usedOffsetMs, newOffset, activeEnemy?.Name ?? "-", fb, detectors[cur], checkpointsStr, lastRoundVisDist, currentRoundVisual);
@@ -924,7 +926,8 @@ internal static class Program
 
     private static double HandleTachoFeedback(
         int tachoIndex, double usedOffsetMs, TachoFeedback fb, TachoDetector detector,
-        AppConfig cfg, EnemySetupStore enemyStore, EnemySetup? activeEnemy, int deploymentId)
+        AppConfig cfg, EnemySetupStore enemyStore, EnemySetup? activeEnemy, int deploymentId,
+        bool allowEmergencyJump = true)
     {
         string counts = $"(Spot=({detector.LastPatchScreenX},{detector.LastPatchScreenY}) RGB=({detector.LastAvgR},{detector.LastAvgG},{detector.LastAvgB}) | B={detector.LastPatchBlue} G={detector.LastPatchGreen} R={detector.LastPatchRed} W={detector.LastPatchWhite})";
         string setupLabel = activeEnemy != null ? activeEnemy.Name : "Standard";
@@ -955,7 +958,7 @@ internal static class Program
             // 2. Ergebnis unter dem Basis-Preset verbuchen (SessionDriftMs bleibt sauber getrennt!)
             double baseUsedOffset = slot.ClickOffsetMs;
             (updated, appliedDelta, reverted, revertedStats, skippedBadCount, blockedBadCliff, usedBisection) =
-                slot.RecordOutcomeAndTune(baseUsedOffset, fb, activeEnemy.IsFixed, activeEnemy.IsBird, deploymentId);
+                slot.RecordOutcomeAndTune(baseUsedOffset, fb, activeEnemy.IsFixed, activeEnemy.IsBird, deploymentId, allowEmergencyJump);
             activeDrift = slot.SessionDriftMs;
 
             // Wenn auf T1 eine grosse 1-Frame-Notbremse (>= +10 ms) gegriffen hat, hat das Spiel/Browser-Buffering
@@ -1199,8 +1202,10 @@ internal static class Program
                     statusTag = $"Top-Presets gereift: {topCount}/3";
                 }
 
+                double? redFloor = slot.GetRedFloorOffsetMs();
+                string redFloorTag = redFloor.HasValue ? $" | Rot-Ende: <= {redFloor.Value:F2} ms" : "";
                 Console.WriteLine(
-                    $"  Tacho {i + 1} | Aktuell={slot.ClickOffsetMs:F2} ms | Gesamt: {slot.BlueHits}B/{slot.GreenHits}G/{slot.RedHits}R/{slot.WhiteHits}W ({slot.TotalClicks} Klicks) | {statusTag}");
+                    $"  Tacho {i + 1} | Aktuell={slot.ClickOffsetMs:F2} ms | Gesamt: {slot.BlueHits}B/{slot.GreenHits}G/{slot.RedHits}R/{slot.WhiteHits}W ({slot.TotalClicks} Klicks){redFloorTag} | {statusTag}");
 
                 if (slot.OffsetHistory.Count == 0)
                 {
@@ -1216,7 +1221,8 @@ internal static class Program
                     var tags = new List<string>();
                     if (h.TopRank > 0) tags.Add($"TOP-{h.TopRank}");
                     if (h.IsMature) tags.Add("MATURE");
-                    if (h.IsKnownBad) tags.Add("GESPERRT");
+                    if (h.IsRedLocked) tags.Add("ROT-SPERRE");
+                    else if (slot.IsBlockedByRedFloor(h.OffsetMs)) tags.Add("<= ROT-ENDE");
                     if (Math.Abs(h.OffsetMs - slot.ClickOffsetMs) < 0.02) tags.Add("AKTIV");
                     string tagStr = tags.Count > 0 ? string.Join(", ", tags) : "-";
 

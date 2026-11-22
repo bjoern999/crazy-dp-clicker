@@ -58,13 +58,16 @@ internal sealed class OffsetPerformance
     }
 
     /// <summary>
-    /// True if this (Player, Tacho, Preset) triplet has consistently performed poorly (Red/White, never successful or >=30% Red).
+    /// Feste Rot-Sperre ("rotes Ende"): erst wenn mindestens 3 Messwerte vorliegen
+    /// UND mindestens 3 davon Rot waren (und Rot mindestens 50% der Treffer ausmacht,
+    /// damit ein starkes Blau-Preset wie 25B/5R nie faelschlich gesperrt wird).
     /// </summary>
-    public bool IsKnownBad =>
-        (Total >= 1 && BlueHits == 0 && GreenHits == 0 && (RedHits + WhiteHits) >= 1) ||
-        (Total >= 3 && RedRate >= 0.30) ||
-        (Total >= 3 && BlueHits == 0 && BadRate >= 0.50) ||
-        (Total >= 4 && BlueRate < 0.15 && BadRate >= 0.35);
+    public bool IsRedLocked => Total >= 3 && RedHits >= 3 && RedRate >= 0.50;
+
+    /// <summary>
+    /// Alias fuer Abwaertskompatibilitaet: Sperren werden ausschliesslich ueber IsRedLocked gesetzt.
+    /// </summary>
+    public bool IsKnownBad => IsRedLocked;
 }
 
 internal sealed class DeploymentOutcomeRecord
@@ -135,7 +138,17 @@ internal sealed class TachoSetupSlot
     public double SessionDriftMs { get; set; } = 0.0;
 
     [System.Text.Json.Serialization.JsonIgnore]
-    public double EffectiveClickOffsetMs => Math.Clamp(Math.Round(ClickOffsetMs + SessionDriftMs, 2), 0.0, 120.0);
+    public double EffectiveClickOffsetMs
+    {
+        get
+        {
+            double raw = Math.Clamp(Math.Round(ClickOffsetMs + SessionDriftMs, 2), 0.0, 120.0);
+            double? redFloor = GetRedFloorOffsetMs();
+            if (redFloor.HasValue && raw <= redFloor.Value + 0.01)
+                return Math.Clamp(SnapToFineMs(redFloor.Value + 0.05), 0.0, 120.0);
+            return raw;
+        }
+    }
 
     public bool HasPosition => X > 0 && Y > 0;
     public double BlueRatePercent => TotalClicks > 0 ? 100.0 * BlueHits / TotalClicks : 0.0;
@@ -248,22 +261,46 @@ internal sealed class TachoSetupSlot
         return OffsetHistory.FirstOrDefault(h => Math.Abs(h.OffsetMs - bucket) < 0.02);
     }
 
-    public bool IsPresetKnownBad(double offsetMs)
+    /// <summary>
+    /// Liefert das hoechste (frueheste) Preset mit fester Rot-Sperre (>=3 Werte & >=3 Rot).
+    /// Markiert das "rote Ende": fortan darf kein Preset <= RedFloorOffsetMs (also gleich spaet oder spaeter klickend)
+    /// mehr gewaehlt werden!
+    /// </summary>
+    public double? GetRedFloorOffsetMs()
     {
-        var st = FindPresetStats(offsetMs);
-        return st != null && st.IsKnownBad;
+        double? floor = null;
+        foreach (var h in OffsetHistory)
+        {
+            if (h.IsRedLocked && (!floor.HasValue || h.OffsetMs > floor.Value))
+                floor = h.OffsetMs;
+        }
+        return floor;
     }
 
-    public int CountKnownBadPresets() => OffsetHistory.Count(h => h.IsKnownBad);
+    public bool IsBlockedByRedFloor(double offsetMs)
+    {
+        double? floor = GetRedFloorOffsetMs();
+        return floor.HasValue && SnapToFineMs(offsetMs) <= floor.Value + 0.01;
+    }
+
+    public bool IsPresetKnownBad(double offsetMs)
+    {
+        if (IsBlockedByRedFloor(offsetMs))
+            return true;
+        var st = FindPresetStats(offsetMs);
+        return st != null && st.IsRedLocked;
+    }
+
+    public int CountKnownBadPresets() => OffsetHistory.Count(h => h.IsRedLocked || IsBlockedByRedFloor(h.OffsetMs));
 
     public OffsetPerformance? GetBestProvenOffset(double? excludeOffsetMs = null)
     {
         bool IsExcluded(OffsetPerformance h) =>
             excludeOffsetMs.HasValue && Math.Abs(h.OffsetMs - SnapToFineMs(excludeOffsetMs.Value)) < 0.02;
 
-        // 1. Bewaehrte Blau-Presets (>= 3 Klicks, >= 2 Blau, >= 35% Blau, nicht als schlecht markiert)
+        // 1. Bewaehrte Blau-Presets (>= 3 Klicks, >= 2 Blau, >= 35% Blau, strikt oberhalb Rot-Ende)
         var proven = OffsetHistory
-            .Where(h => !h.IsKnownBad && !IsExcluded(h) && h.Total >= 3 && h.BlueHits >= 2 && h.BlueRate >= 0.35)
+            .Where(h => !h.IsRedLocked && !IsBlockedByRedFloor(h.OffsetMs) && !IsExcluded(h) && h.Total >= 3 && h.BlueHits >= 2 && h.BlueRate >= 0.35)
             .OrderByDescending(h => h.SmoothedScore)
             .ThenByDescending(h => h.BlueHits)
             .FirstOrDefault();
@@ -271,9 +308,9 @@ internal sealed class TachoSetupSlot
         if (proven != null)
             return proven;
 
-        // 2. Fallback: mindestens 1 sauberer Blau-Treffer ohne Rot/Weiss
+        // 2. Fallback: mindestens 1 sauberer Blau-Treffer ohne Rot/Weiss, strikt oberhalb Rot-Ende
         return OffsetHistory
-            .Where(h => !h.IsKnownBad && !IsExcluded(h) && h.BlueHits >= 1 && h.RedHits == 0 && h.WhiteHits == 0)
+            .Where(h => !h.IsRedLocked && !IsBlockedByRedFloor(h.OffsetMs) && !IsExcluded(h) && h.BlueHits >= 1 && h.RedHits == 0 && h.WhiteHits == 0)
             .OrderByDescending(h => h.SmoothedScore)
             .ThenByDescending(h => h.BlueHits)
             .FirstOrDefault();
@@ -281,8 +318,8 @@ internal sealed class TachoSetupSlot
 
     /// <summary>
     /// Waehlt das beste bekannte Preset fuer dieses (Spieler, Tacho)-Paar beim Erkennen des Spielers:
-    /// 1. Bestes Blau-Preset (nach Bayesian-geglatteter Erfolgsquote).
-    /// 2. Falls noch kein Blau-Preset existiert: knappstes sicheres Gruen-Preset (0 Rot), niemals ein bekannt schlechtes Preset.
+    /// 1. Bestes Blau-Preset (strikt oberhalb des roten Endes).
+    /// 2. Falls noch kein Blau-Preset existiert: knappstes (spaetestes) sicheres Gruen-Preset knapp vor Rot, niemals <= Rot-Ende.
     /// </summary>
     public OffsetPerformance? GetBestStartupPreset(double? excludeOffsetMs = null)
     {
@@ -294,14 +331,14 @@ internal sealed class TachoSetupSlot
             excludeOffsetMs.HasValue && Math.Abs(h.OffsetMs - SnapToFineMs(excludeOffsetMs.Value)) < 0.02;
 
         return OffsetHistory
-            .Where(h => !h.IsKnownBad && !IsExcluded(h) && h.GreenHits >= 1 && h.RedHits == 0 && h.WhiteHits == 0)
-            .OrderBy(h => h.OffsetMs) // Knappstes sicheres Gruen nahe der Blau-Grenze
+            .Where(h => !h.IsRedLocked && !IsBlockedByRedFloor(h.OffsetMs) && !IsExcluded(h) && h.GreenHits >= 1 && h.RedHits == 0 && h.WhiteHits == 0)
+            .OrderBy(h => h.OffsetMs) // Knappstes (spaetestes) sicheres Gruen direkt vor Blau/Rot
             .FirstOrDefault();
     }
 
     /// <summary>
-    /// Aktualisiert die Markierungen "Top-1", "Top-2", "Top-3" fuer alle gereiften (mature, >= 30 Klicks) Presets,
-    /// setzt IsMeisterTacho = true ab 3 gereiften Top-Presets und steuert den 0,05ms-Verfeinerungsmodus.
+    /// Aktualisiert die Markierungen "Top-1", "Top-2", "Top-3" fuer alle gereiften (mature, >= 30 Klicks) Presets
+    /// strikt oberhalb des roten Endes, setzt IsMeisterTacho = true ab 3 gereiften Top-Presets und steuert die 0,05ms-Verfeinerung.
     /// </summary>
     public void RefreshTopPresets()
     {
@@ -309,7 +346,7 @@ internal sealed class TachoSetupSlot
             h.TopRank = 0;
 
         var topMature = OffsetHistory
-            .Where(h => h.IsMature && !h.IsKnownBad)
+            .Where(h => h.IsMature && !h.IsRedLocked && !IsBlockedByRedFloor(h.OffsetMs))
             .OrderByDescending(h => h.SmoothedScore)
             .ThenByDescending(h => h.BlueRate)
             .ThenByDescending(h => h.Total)
@@ -335,7 +372,7 @@ internal sealed class TachoSetupSlot
 
     public OffsetPerformance? GetTopPreset(int rank)
     {
-        return OffsetHistory.FirstOrDefault(h => h.TopRank == rank && h.IsMature && !h.IsKnownBad);
+        return OffsetHistory.FirstOrDefault(h => h.TopRank == rank && h.IsMature && !h.IsRedLocked && !IsBlockedByRedFloor(h.OffsetMs));
     }
 
     public (double MinMs, double MaxMs, int OpenCandidates) GetRefinementInfo()
@@ -352,8 +389,9 @@ internal sealed class TachoSetupSlot
 
         for (double v = SnapToFineMs(minMs + 0.05); v < maxMs - 0.02; v = SnapToFineMs(v + 0.05))
         {
+            if (IsPresetKnownBad(v)) continue;
             var st = FindPresetStats(v);
-            if (st == null || (!st.IsMature && !st.IsKnownBad))
+            if (st == null || !st.IsMature)
                 open++;
         }
 
@@ -381,9 +419,9 @@ internal sealed class TachoSetupSlot
         double bestDist = double.MaxValue;
         for (double v = SnapToFineMs(minMs + 0.05); v < maxMs - 0.02; v = SnapToFineMs(v + 0.05))
         {
-            if (Math.Abs(v - cur) < 0.02) continue;
+            if (Math.Abs(v - cur) < 0.02 || IsPresetKnownBad(v)) continue;
             var st = FindPresetStats(v);
-            if (st == null || (!st.IsMature && !st.IsKnownBad))
+            if (st == null || !st.IsMature)
             {
                 double d = Math.Abs(v - cur);
                 if (d < bestDist)
@@ -416,10 +454,12 @@ internal sealed class TachoSetupSlot
             return (Math.Abs(ClickOffsetMs - oldOffset) >= 0.02, oldOffset, ClickOffsetMs, best);
         }
 
-        // Selbst wenn noch kein gutes Preset bekannt ist: niemals auf einem bekannt schlechten Preset starten!
+        // Selbst wenn noch kein gutes Preset bekannt ist: niemals auf oder unterhalb des roten Endes starten!
         if (IsPresetKnownBad(ClickOffsetMs))
         {
-            var (safeOffset, _) = FindNextNonBadOffsetUp(ClickOffsetMs + 0.75);
+            double? floor = GetRedFloorOffsetMs();
+            double startUp = floor.HasValue ? Math.Max(ClickOffsetMs, floor.Value) + 0.50 : ClickOffsetMs + 0.75;
+            var (safeOffset, _) = FindNextNonBadOffsetUp(startUp);
             ClickOffsetMs = safeOffset;
             ConsecutiveNonBlue = 0;
             ConsecutiveRed = 0;
@@ -466,6 +506,10 @@ internal sealed class TachoSetupSlot
         if (mid <= lateHigh.OffsetMs + 0.02 || mid >= curGreen - 0.02)
             return false;
 
+        double? redFloor = GetRedFloorOffsetMs();
+        if (redFloor.HasValue && mid <= redFloor.Value + 0.01)
+            return false;
+
         if (IsPresetKnownBad(mid))
             return false;
 
@@ -479,7 +523,7 @@ internal sealed class TachoSetupSlot
     {
         safeGreenMs = 0;
         var greenAbove = OffsetHistory
-            .Where(h => !h.IsKnownBad && h.GreenHits >= 1 &&
+            .Where(h => !h.IsRedLocked && !IsBlockedByRedFloor(h.OffsetMs) && h.GreenHits >= 1 &&
                         (isBird ? h.WhiteHits == 0 : h.RedHits == 0) &&
                         h.OffsetMs >= currentMs + 0.04 && h.OffsetMs <= currentMs + 2.5)
             .OrderBy(h => h.OffsetMs)
@@ -493,8 +537,12 @@ internal sealed class TachoSetupSlot
 
     private (double ResolvedOffsetMs, int SkippedBadCount) FindNextNonBadOffsetUp(double startOffsetMs)
     {
-        double candidate = SnapToQuarterMs(startOffsetMs);
-        int skipped = 0;
+        double? floor = GetRedFloorOffsetMs();
+        double baseStart = floor.HasValue && startOffsetMs <= floor.Value + 0.01
+            ? floor.Value + 0.25
+            : startOffsetMs;
+        double candidate = SnapToQuarterMs(baseStart);
+        int skipped = floor.HasValue && startOffsetMs <= floor.Value + 0.01 ? 1 : 0;
         const int maxSkips = 48; // Max +12 ms Suchfenster
 
         while (skipped < maxSkips && candidate <= 95.0 && IsPresetKnownBad(candidate))
@@ -527,7 +575,7 @@ internal sealed class TachoSetupSlot
     }
 
     public (double NewOffsetMs, double AppliedDeltaMs, bool RevertedToProven, OffsetPerformance? RevertedStats, int SkippedBadCount, bool BlockedBadCliff, bool UsedBisection)
-        RecordOutcomeAndTune(double usedOffsetMs, TachoFeedback fb, bool isFixedPlayer, bool isBird = false, int deploymentId = 0)
+        RecordOutcomeAndTune(double usedOffsetMs, TachoFeedback fb, bool isFixedPlayer, bool isBird = false, int deploymentId = 0, bool allowEmergencyJump = true)
     {
         if (fb == TachoFeedback.None)
             return (ClickOffsetMs, 0.0, false, null, 0, false, false);
@@ -606,11 +654,11 @@ internal sealed class TachoSetupSlot
         var top3 = GetTopPreset(3);
         bool isLateMiss = fb == TachoFeedback.TooLateRed || isBirdPostBlueLate;
 
-        // 0. NOTBREMSE bei >= 2x Rot (bzw. Vogel Nach-Blau-Weiss) in Folge:
+        // 0. NOTBREMSE bei >= 2x echtem Rot (bzw. Vogel Nach-Blau-Weiss) in Folge:
         //    Grosse 1-Frame-Kompensation (+14,0 ms bzw. +16,0 ms ab 3x), damit selbst ein kompletter +16,7ms
         //    GPU-/Browser-Frame-Sprung in EINEM Schritt ueberwunden wird -> garantiert kein 3. Rot!
         //    Bei bereits bewaehrtem Blau-Preset geht der Sprung in den fluechtigen SessionDriftMs, damit die Basis-Statistik sauber bleibt!
-        if (isLateMiss && ConsecutiveRed >= 2)
+        if (isLateMiss && allowEmergencyJump && ConsecutiveRed >= 2)
         {
             double emergencyJump = ConsecutiveRed >= 3 ? +16.0 : +14.0;
             var provenBase = top1 ?? GetBestProvenOffset();
@@ -738,6 +786,9 @@ internal sealed class TachoSetupSlot
             {
                 double stepDown = -3.0;
                 double rawTarget = Math.Clamp(Math.Round(ClickOffsetMs + stepDown, 2), 0.0, 120.0);
+                double? floorB = GetRedFloorOffsetMs();
+                if (floorB.HasValue && rawTarget <= floorB.Value + 0.01)
+                    rawTarget = Math.Clamp(SnapToFineMs(floorB.Value + 0.25), 0.0, 120.0);
                 double applied = Math.Round(rawTarget - ClickOffsetMs, 2);
                 ClickOffsetMs = rawTarget;
                 ConsecutiveNonBlue = 0;
@@ -810,9 +861,22 @@ internal sealed class TachoSetupSlot
             return (ClickOffsetMs, applied, false, null, skippedBad, false, false);
         }
 
-        // 4. Regulaere Anpassung bei GRUEN + BISECTION statt "Gruen-Einfrieren":
+        // 4. Regulaere Anpassung bei GRUEN:
+        //    Niemals lange im gruenen Bereich verharren! Erst evtl. positiven SessionDrift abbauen,
+        //    dann zuegig (beschleunigt) in Richtung Blau / rotes Ende spaeter klicken — und strikt
+        //    oberhalb der Rot-Sperre ("rotes Ende") bremsen!
         if (fb == TachoFeedback.TooEarlyGreen)
         {
+            // Falls noch ein positiver Schutz-Drift aus einem frueheren Notbremse-Sprung aktiv ist:
+            // bei Gruen sofort abbauen, damit T2/T3 nicht kuenstlich im gruenen Bereich haengen bleiben!
+            if (SessionDriftMs > 0.05)
+            {
+                double oldEff = EffectiveClickOffsetMs;
+                SessionDriftMs = SessionDriftMs <= 4.0 ? 0.0 : Math.Round(SessionDriftMs - 4.0, 2);
+                double driftDelta = Math.Round(EffectiveClickOffsetMs - oldEff, 2);
+                return (EffectiveClickOffsetMs, driftDelta, false, null, 0, false, false);
+            }
+
             // Auf einem stark bewaehrten Best-Preset (>=8 Klicks, >=50% Blau, <=10% Rot) nicht nach nur 1x Gruen wegdriften!
             if (bestProven != null &&
                 Math.Abs(ClickOffsetMs - bestProven.OffsetMs) < 0.02 &&
@@ -824,8 +888,8 @@ internal sealed class TachoSetupSlot
                 return (ClickOffsetMs, 0.0, false, null, 0, false, false);
             }
 
-            // BISECTION: Wenn zwischen kleinstem sicheren Gruen (G_low) und groesstem Rot (R_high)
-            // noch Platz ist (>= 0,10 ms) und noch kein starkes Blau existiert -> exakt halbieren (bis 0,05 ms)!
+            // BISECTION: Wenn zwischen aktuellem Gruen und bekanntem Rot direkt darunter (<= 2,5 ms)
+            // noch Platz ist (>= 0,10 ms) und noch kein starkes Blau existiert -> exakt halbieren (strikt > Rot-Ende)!
             if (TryGetBisectionTarget(isBird, out double bisectionMid, out _, out _))
             {
                 double delta = Math.Round(bisectionMid - ClickOffsetMs, 2);
@@ -834,11 +898,65 @@ internal sealed class TachoSetupSlot
                 return (ClickOffsetMs, delta, false, null, 0, false, true);
             }
 
-            double greenStep = isFixedPlayer ? -0.25 : -0.5;
+            // Naechstgelegenes bekanntes Rot (oder festes Rot-Ende) strikt unterhalb des aktuellen Offsets finden
+            double? redFloor = GetRedFloorOffsetMs();
+            double? nearestRedBelow = redFloor;
+            foreach (var h in OffsetHistory)
+            {
+                bool hasLate = isBird ? (h.RedHits + h.WhiteHits) >= 1 : h.RedHits >= 1;
+                if (hasLate && h.OffsetMs < ClickOffsetMs - 0.02)
+                {
+                    if (!nearestRedBelow.HasValue || h.OffsetMs > nearestRedBelow.Value)
+                        nearestRedBelow = h.OffsetMs;
+                }
+            }
+
+            double distToRedBelow = nearestRedBelow.HasValue ? (ClickOffsetMs - nearestRedBelow.Value) : double.MaxValue;
+
+            // Beschleunigte Annaeherung aus dem gruenen Bereich (schnell spaeter klicken bis nah an Blau/Rot!),
+            // automatisches Abbremsen auf Feinschritte (-0,25 ms) in der Naehe von Blau oder Rot!
+            double greenStep;
+            if (distToRedBelow <= 1.50 || (bestProven != null && Math.Abs(ClickOffsetMs - bestProven.OffsetMs) <= 1.25))
+            {
+                greenStep = -0.25;
+            }
+            else
+            {
+                greenStep = ConsecutiveNonBlue switch
+                {
+                    <= 1 => -0.50,
+                    2 => -1.00,
+                    3 => -2.00,
+                    _ => -3.00
+                };
+            }
+
             double rawTarget = Math.Clamp(Math.Round(ClickOffsetMs + greenStep, 2), 0.0, 120.0);
 
+            // Bei schneller Beschleunigung nicht blind ueber ein bekanntes Rot-Preset hinwegspringen:
+            if (nearestRedBelow.HasValue && rawTarget <= nearestRedBelow.Value + 0.02)
+            {
+                double gap = ClickOffsetMs - nearestRedBelow.Value;
+                if (gap >= 0.10)
+                    rawTarget = SnapToFineMs((ClickOffsetMs + nearestRedBelow.Value) / 2.0);
+                else if (redFloor.HasValue && nearestRedBelow.Value <= redFloor.Value + 0.01)
+                    rawTarget = SnapToFineMs(redFloor.Value + 0.05);
+            }
+
+            // Harte Schranke: niemals ein Preset <= Rot-Ende (gleich spaet oder spaeter als Rot-Sperre) waehlen!
             if (IsPresetKnownBad(rawTarget))
             {
+                if (redFloor.HasValue && ClickOffsetMs > redFloor.Value + 0.06)
+                {
+                    double edgeSafe = SnapToFineMs(Math.Max(redFloor.Value + 0.05, (ClickOffsetMs + redFloor.Value) / 2.0));
+                    if (!IsPresetKnownBad(edgeSafe) && edgeSafe < ClickOffsetMs - 0.02)
+                    {
+                        double edgeDelta = Math.Round(edgeSafe - ClickOffsetMs, 2);
+                        ClickOffsetMs = edgeSafe;
+                        return (ClickOffsetMs, edgeDelta, false, null, 1, false, true);
+                    }
+                }
+
                 if (bestProven != null && Math.Abs(bestProven.OffsetMs - ClickOffsetMs) >= 0.25)
                 {
                     double delta = Math.Round(bestProven.OffsetMs - ClickOffsetMs, 2);
@@ -847,12 +965,13 @@ internal sealed class TachoSetupSlot
                     return (ClickOffsetMs, delta, true, bestProven, 1, true, false);
                 }
 
-                // Kein Zwischenraum >= 0,10 ms mehr -> sicher auf Gruen bleiben
+                // Direkt oberhalb des roten Endes -> sicher dort bleiben!
                 return (ClickOffsetMs, 0.0, false, null, 1, true, false);
             }
 
+            double appliedGreen = Math.Round(rawTarget - ClickOffsetMs, 2);
             ClickOffsetMs = rawTarget;
-            return (ClickOffsetMs, greenStep, false, null, 0, false, false);
+            return (ClickOffsetMs, appliedGreen, false, null, 0, false, false);
         }
 
         return (ClickOffsetMs, 0.0, false, null, 0, false, false);
