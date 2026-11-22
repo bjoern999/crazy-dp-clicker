@@ -1076,9 +1076,17 @@ internal sealed class EnemySetupStore
             // Schutz gegen einzelne Frame-Haker bei festen Spielern:
             if (currentRoundSetup.IsFixed && slot.MatchesGeometryAndSpinTime(currentFp))
             {
+                bool learnedFallback = false;
+                if (isLastSlot && hasCurVis && !currentRoundSetup.HasVisual)
+                {
+                    currentRoundSetup.Visual = new DinoVisualFingerprint();
+                    DinoVisualMatcher.BlendInto(currentRoundSetup.Visual, currentVisual!);
+                    learnedFallback = true;
+                    curVisDist = 0.0;
+                }
                 currentRoundSetup.LastSeenUtc = DateTime.UtcNow;
                 Save();
-                return (currentRoundSetup, false, 0.99, curVisDist, false);
+                return (currentRoundSetup, false, 0.99, curVisDist, learnedFallback);
             }
 
             var splitSetup = CreateNewSetup(profileSize, tachoIndex, currentFp, currentVisual, roundFingerprints, activePositions, fallbackOffsetMs, currentRoundSetup);
