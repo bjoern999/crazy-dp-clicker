@@ -63,6 +63,7 @@ internal static class Program
         double lastRoundVisDist = -1.0;
         Bitmap? lastDinoPreview = null;
         string lastDinoVisualInfo = "";
+        var sessionPlayedEnemyIds = new HashSet<int>();
 
         // Letztes Feedback fuer die Anzeige im Live-Inspektor
         int lastClickedTachoNumber = 0;
@@ -187,11 +188,18 @@ internal static class Program
                         expectedTachoIndex = 0;
                         roundFingerprints.Clear();
                         if (running)
-                            activeEnemy = null; // Bei Neustart nach Pause immer sofort das Best-Preset laden
+                        {
+                            activeEnemy = null; // Bei Neustart nach Pause immer sofort das Top-1 / Best-Preset laden
+                            sessionPlayedEnemyIds.Clear();
+                        }
                         overlay?.EnsureVisibleOnTop();
                         Console.WriteLine(running
                             ? $"[Status] AKTIV ({cfg.ActiveProfile}er-Modus) - Starte sequenziell bei Tacho 1..."
                             : "[Status] PAUSIERT.");
+                        if (!running)
+                        {
+                            PrintSessionPresetStats(enemyStore, sessionPlayedEnemyIds);
+                        }
                     }
                 }
 
@@ -254,6 +262,7 @@ internal static class Program
                             bool changedEnemy = activeEnemy == null || activeEnemy.Id != matched.Id || isNew;
                             activeEnemy = matched;
                             activeEnemyIsNew = isNew;
+                            sessionPlayedEnemyIds.Add(matched.Id);
                             if (cur == activeTachos.Count - 1)
                                 lastConfirmedEnemy = matched;
 
@@ -285,8 +294,10 @@ internal static class Program
                                     if (ch)
                                     {
                                         anyPresetChanged = true;
+                                        string rankTag = chosen != null && chosen.TopRank > 0 ? $" [TOP-{chosen.TopRank}]" : "";
+                                        string meisterTag = matched.Tachos[sIdx].IsMeisterTacho ? " [MEISTER-TACHO]" : "";
                                         string statInfo = chosen != null
-                                            ? $"(Blau: {chosen.BlueHits}/{chosen.Total} = {chosen.BlueRate * 100:F0}%, G={chosen.GreenHits}, R={chosen.RedHits})"
+                                            ? $"{rankTag}{meisterTag} (Blau: {chosen.BlueHits}/{chosen.Total} = {chosen.BlueRate * 100:F0}%, G={chosen.GreenHits}, R={chosen.RedHits})"
                                             : "(schlechtes Preset gemieden)";
                                         Console.WriteLine(
                                             $"[Best-Preset {matched.Name} T{sIdx + 1}] {oldOff:F2} ms -> {newOff:F2} ms {statInfo}");
@@ -566,19 +577,21 @@ internal static class Program
         if (activeEnemy != null && activeEnemy.ProfileSize == cfg.ActiveProfile && activeIdx < activeEnemy.Tachos.Count)
         {
             var sl = activeEnemy.Tachos[activeIdx];
-            var best = sl.GetBestStartupPreset();
+            var best = sl.GetTopPreset(1) ?? sl.GetBestStartupPreset();
             int badCnt = sl.CountKnownBadPresets();
+            string meisterPrefix = sl.IsMeisterTacho ? "[MEISTER] " : "";
             string badPart = badCnt > 0 ? $" | Gesperrt: {badCnt}" : "";
             if (best != null)
             {
+                string rankLbl = best.TopRank > 0 ? $"Top-{best.TopRank} " : "Best ";
                 string rateTxt = best.BlueHits > 0
                     ? $"{best.BlueRate * 100:F0}% Blau"
                     : $"{best.GreenHits}G/0R";
-                bestProvenInfo = $"Best T{activeIdx + 1}: {best.OffsetMs:F2}ms ({rateTxt}){badPart}";
+                bestProvenInfo = $"{meisterPrefix}{rankLbl}T{activeIdx + 1}: {best.OffsetMs:F2}ms ({rateTxt}){badPart}";
             }
             else if (badCnt > 0)
             {
-                bestProvenInfo = $"Gesperrt T{activeIdx + 1}: {badCnt}";
+                bestProvenInfo = $"{meisterPrefix}Gesperrt T{activeIdx + 1}: {badCnt}";
             }
         }
 
@@ -732,8 +745,16 @@ internal static class Program
         if (reverted && revertedStats != null)
         {
             string cliffNote = blockedBadCliff ? " (schlechtes Nachbar-Preset gesperrt!)" : "";
-            Console.WriteLine(
-                $"[AUTO-REVERT {setupLabel} T{tachoIndex + 1}] Feedback={fb}{cliffNote} -> Springe zu Best-Preset {updated:F2} ms (Blau-Quote: {revertedStats.BlueHits}/{revertedStats.Total} = {revertedStats.BlueRate * 100:F0}%)!");
+            if (revertedStats.TopRank > 0)
+            {
+                Console.WriteLine(
+                    $"[TOP-WECHSEL {setupLabel} T{tachoIndex + 1}] Feedback={fb}{cliffNote} -> Wechsle auf TOP-{revertedStats.TopRank} ({updated:F2} ms | Blau: {revertedStats.BlueHits}/{revertedStats.Total} = {revertedStats.BlueRate * 100:F0}%, R={revertedStats.RedHits})!");
+            }
+            else
+            {
+                Console.WriteLine(
+                    $"[AUTO-REVERT {setupLabel} T{tachoIndex + 1}] Feedback={fb}{cliffNote} -> Springe zu Best-Preset {updated:F2} ms (Blau-Quote: {revertedStats.BlueHits}/{revertedStats.Total} = {revertedStats.BlueRate * 100:F0}%)!");
+            }
             return updated;
         }
 
@@ -853,13 +874,16 @@ internal static class Program
             string slotDesc = string.Join(" | ", s.Tachos.Select((sl, i) =>
             {
                 if (!sl.HasSignature) return $"T{i + 1}:-";
-                var best = sl.GetBestStartupPreset();
-                string bestTxt = best != null ? $",Best={best.OffsetMs:F2}ms({best.BlueHits}B/{best.Total})" : "";
+                var best = sl.GetTopPreset(1) ?? sl.GetBestStartupPreset();
+                string bestTxt = best != null
+                    ? (best.TopRank > 0 ? $",Top-1={best.OffsetMs:F2}ms({best.BlueHits}B/{best.Total})" : $",Best={best.OffsetMs:F2}ms({best.BlueHits}B/{best.Total})")
+                    : "";
+                string mTag = sl.IsMeisterTacho ? ",MEISTER" : "";
                 int bad = sl.CountKnownBadPresets();
                 string badTxt = bad > 0 ? $",Bad={bad}" : "";
-                return $"T{i + 1}:{sl.ClickOffsetMs:F2}ms{bestTxt}{badTxt}";
+                return $"T{i + 1}:{sl.ClickOffsetMs:F2}ms{bestTxt}{mTag}{badTxt}";
             }));
-            Console.WriteLine($"  - {s.Name} [{fixedTag}, {visTag}, {s.ProfileSize}er]: {slotDesc}");
+            Console.WriteLine($"  - {s.Name} [{s.DinoType}, {fixedTag}, {visTag}, {s.ProfileSize}er]: {slotDesc}");
         }
         var (dx0, dy0) = cfg.GetEffectiveDinoBoxCenter();
         Console.WriteLine($"Dino-Sichtfeld        : ({dx0}, {dy0}) [{cfg.DinoBoxWidth}x{cfg.DinoBoxHeight}] {(cfg.DinoBoxX > 0 ? "(manuell F5)" : "(auto ueber T1)")}");
@@ -867,5 +891,65 @@ internal static class Program
         Console.WriteLine($"Gruener Schwert-Btn   : ({cfg.GreenButtonX}, {cfg.GreenButtonY})");
         Console.WriteLine($"Status                : {(running ? "AKTIV" : "PAUSIERT")} | Debug: {(debugMode ? "AN" : "AUS")}");
         Console.WriteLine("=================================================================");
+    }
+
+    private static void PrintSessionPresetStats(EnemySetupStore store, HashSet<int> playedEnemyIds)
+    {
+        Console.WriteLine();
+        Console.WriteLine("================ PRESET-STATISTIKEN (GESPIELTE SPIELER) ================");
+        if (playedEnemyIds.Count == 0)
+        {
+            Console.WriteLine("  (In dieser Session wurden noch keine Spieler erfasst.)");
+            Console.WriteLine("========================================================================");
+            return;
+        }
+
+        var playedSetups = store.Setups
+            .Where(s => playedEnemyIds.Contains(s.Id))
+            .OrderBy(s => s.Id)
+            .ToList();
+
+        foreach (var setup in playedSetups)
+        {
+            Console.WriteLine();
+            Console.WriteLine($"*** #{setup.Id} {setup.Name} [{setup.DinoType}] ({setup.ProfileSize}er) ***");
+            for (int i = 0; i < setup.Tachos.Count; i++)
+            {
+                var slot = setup.Tachos[i];
+                slot.RefreshTopPresets();
+                int topCount = slot.OffsetHistory.Count(h => h.TopRank > 0);
+                string statusTag = slot.IsMeisterTacho
+                    ? "*** MEISTER-TACHO (nur Top-1/2/3 aktiv) ***"
+                    : $"Top-Presets gereift: {topCount}/3";
+
+                Console.WriteLine(
+                    $"  Tacho {i + 1} | Aktuell={slot.ClickOffsetMs:F2} ms | Gesamt: {slot.BlueHits}B/{slot.GreenHits}G/{slot.RedHits}R/{slot.WhiteHits}W ({slot.TotalClicks} Klicks) | {statusTag}");
+
+                if (slot.OffsetHistory.Count == 0)
+                {
+                    Console.WriteLine("    (noch keine Preset-Daten)");
+                    continue;
+                }
+
+                Console.WriteLine("    Preset    | Blau | Gruen | Rot | Weiss |  N  |  Blau% |  Rot% |  Score | Status");
+                Console.WriteLine("    ----------+------+-------+-----+-------+-----+--------+-------+--------+-----------------------");
+
+                foreach (var h in slot.OffsetHistory.OrderBy(x => x.OffsetMs))
+                {
+                    var tags = new List<string>();
+                    if (h.TopRank > 0) tags.Add($"TOP-{h.TopRank}");
+                    if (h.IsMature) tags.Add("MATURE");
+                    if (h.IsKnownBad) tags.Add("GESPERRT");
+                    if (Math.Abs(h.OffsetMs - slot.ClickOffsetMs) < 0.05) tags.Add("AKTIV");
+                    string tagStr = tags.Count > 0 ? string.Join(", ", tags) : "-";
+
+                    Console.WriteLine(
+                        $"    {h.OffsetMs,6:F2} ms | {h.BlueHits,4} | {h.GreenHits,5} | {h.RedHits,3} | {h.WhiteHits,5} | {h.Total,3} | {h.BlueRate * 100,5:F1}% | {h.RedRate * 100,4:F1}% | {h.SmoothedScore,6:F3} | {tagStr}");
+                }
+            }
+        }
+
+        Console.WriteLine("========================================================================");
+        Console.WriteLine();
     }
 }

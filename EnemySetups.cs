@@ -14,6 +14,8 @@ internal readonly struct TachoFingerprint
 
 internal sealed class OffsetPerformance
 {
+    public const int MatureMinSamples = 30;
+
     public double OffsetMs { get; set; }
     public int BlueHits { get; set; }
     public int GreenHits { get; set; }
@@ -21,6 +23,8 @@ internal sealed class OffsetPerformance
     public int WhiteHits { get; set; }
 
     public int Total => BlueHits + GreenHits + RedHits + WhiteHits;
+    public bool IsMature => Total >= MatureMinSamples;
+    public int TopRank { get; set; } // 1 = Top-1, 2 = Top-2, 3 = Top-3, 0 = nicht in Top-3
     public double BlueRate => Total > 0 ? (double)BlueHits / Total : 0.0;
     public double SafeRate => Total > 0 ? (double)(BlueHits + GreenHits) / Total : 0.0;
     public double RedRate => Total > 0 ? (double)RedHits / Total : 0.0;
@@ -77,6 +81,9 @@ internal sealed class TachoSetupSlot
 
     // Pro Offset gemerkte Treffer-Quoten fuer Rueckkehr zu bewaehrten Parametern
     public List<OffsetPerformance> OffsetHistory { get; set; } = new();
+
+    // True sobald 3 gereifte (mature, >=30 Klicks) Top-Presets fuer diesen Tacho feststehen -> nur noch Top-1/2/3 verwenden!
+    public bool IsMeisterTacho { get; set; }
 
     // Laufzeit-Zaehler (nicht zwingend persistent), um bei Fehlversuchen auf bewaehrten Offset zurueckzukehren
     public int ConsecutiveNonBlue { get; set; }
@@ -195,13 +202,42 @@ internal sealed class TachoSetupSlot
     }
 
     /// <summary>
-    /// Laedt beim Erkennen eines Spielers sofort das Preset mit der bislang besten Erfolgsquote
-    /// und stellt sicher, dass niemals auf einem nachweislich schlechten Preset gestartet wird.
+    /// Aktualisiert die Markierungen "Top-1", "Top-2", "Top-3" fuer alle gereiften (mature, >= 30 Klicks) Presets
+    /// und setzt IsMeisterTacho = true, sobald 3 gereifte Top-Presets vorhanden sind.
+    /// </summary>
+    public void RefreshTopPresets()
+    {
+        foreach (var h in OffsetHistory)
+            h.TopRank = 0;
+
+        var topMature = OffsetHistory
+            .Where(h => h.IsMature && !h.IsKnownBad)
+            .OrderByDescending(h => h.SmoothedScore)
+            .ThenByDescending(h => h.BlueRate)
+            .ThenByDescending(h => h.Total)
+            .Take(3)
+            .ToList();
+
+        for (int i = 0; i < topMature.Count; i++)
+            topMature[i].TopRank = i + 1;
+
+        IsMeisterTacho = topMature.Count >= 3;
+    }
+
+    public OffsetPerformance? GetTopPreset(int rank)
+    {
+        return OffsetHistory.FirstOrDefault(h => h.TopRank == rank && h.IsMature && !h.IsKnownBad);
+    }
+
+    /// <summary>
+    /// Laedt beim Erkennen eines Spielers sofort das Top-1-Preset (falls gereift vorhanden)
+    /// bzw. sonst das Preset mit der bislang besten Erfolgsquote und meidet bekannte schlechte Presets.
     /// </summary>
     public (bool Changed, double OldOffsetMs, double NewOffsetMs, OffsetPerformance? ChosenStats) ApplyBestKnownPreset()
     {
+        RefreshTopPresets();
         double oldOffset = ClickOffsetMs;
-        var best = GetBestStartupPreset();
+        var best = GetTopPreset(1) ?? GetBestStartupPreset();
         if (best != null)
         {
             ClickOffsetMs = best.OffsetMs;
@@ -273,6 +309,7 @@ internal sealed class TachoSetupSlot
                 stat.BlueHits++;
                 ConsecutiveNonBlue = 0;
                 ConsecutiveRed = 0;
+                RefreshTopPresets();
                 return (ClickOffsetMs, 0.0, false, null, 0, false);
 
             case TachoFeedback.TooEarlyGreen:
@@ -300,7 +337,62 @@ internal sealed class TachoSetupSlot
                 break;
         }
 
-        var bestProven = GetBestProvenOffset();
+        RefreshTopPresets();
+        var top1 = GetTopPreset(1);
+        var top2 = GetTopPreset(2);
+        var top3 = GetTopPreset(3);
+
+        // 0. Top-1 -> Top-2 -> Top-3 -> Top-1 Rotation bei Rot (bzw. Vogel Post-Blau-Weiss) sowie Meister-Tacho-Lock:
+        if (fb == TachoFeedback.TooLateRed || isBirdPostBlueLate)
+        {
+            OffsetPerformance? nextTop = stat.TopRank switch
+            {
+                1 => top2,
+                2 => top3,
+                3 => top1,
+                _ => IsMeisterTacho ? top1 : null
+            };
+
+            if (nextTop != null && Math.Abs(nextTop.OffsetMs - ClickOffsetMs) >= 0.05)
+            {
+                double delta = Math.Round(nextTop.OffsetMs - ClickOffsetMs, 2);
+                ClickOffsetMs = nextTop.OffsetMs;
+                ConsecutiveNonBlue = 0;
+                ConsecutiveRed = 0;
+                return (ClickOffsetMs, delta, true, nextTop, 0, false);
+            }
+        }
+        else if (IsMeisterTacho)
+        {
+            // Meister-Tacho: ab 3 gereiften Top-Presets ausschliesslich zwischen Top-1 / Top-2 / Top-3 bleiben!
+            if (fb == TachoFeedback.TooEarlyGreen)
+            {
+                if (stat.TopRank == 0 && top1 != null)
+                {
+                    double delta = Math.Round(top1.OffsetMs - ClickOffsetMs, 2);
+                    ClickOffsetMs = top1.OffsetMs;
+                    ConsecutiveNonBlue = 0;
+                    ConsecutiveRed = 0;
+                    return (ClickOffsetMs, delta, true, top1, 0, false);
+                }
+                return (ClickOffsetMs, 0.0, false, null, 0, false);
+            }
+
+            if (fb == TachoFeedback.WayTooEarlyWhite)
+            {
+                var nextTop = stat.TopRank switch { 1 => top2 ?? top1, 2 => top3 ?? top1, _ => top1 };
+                if (nextTop != null)
+                {
+                    double delta = Math.Round(nextTop.OffsetMs - ClickOffsetMs, 2);
+                    ClickOffsetMs = nextTop.OffsetMs;
+                    ConsecutiveNonBlue = 0;
+                    ConsecutiveRed = 0;
+                    return (ClickOffsetMs, delta, true, nextTop, 0, false);
+                }
+            }
+        }
+
+        var bestProven = top1 ?? GetBestProvenOffset();
 
         // 1. Bei WEISS:
         //    - Vierbeiner (oder Vogel VOR Gruen): viel zu frueh -> sofort auf bestes Preset (oder beim Vogel Schritt runter)
@@ -559,12 +651,16 @@ internal sealed class EnemySetupStore
             string json = File.ReadAllText(StorePath);
             var store = JsonSerializer.Deserialize<EnemySetupStore>(json) ?? new EnemySetupStore();
             foreach (var s in store.Setups)
+            {
                 s.EnsureSlots();
+                foreach (var sl in s.Tachos)
+                    sl.RefreshTopPresets();
+            }
             if (store.NextId <= store.Setups.Count)
                 store.NextId = (store.Setups.Count > 0 ? store.Setups.Max(s => s.Id) : 0) + 1;
 
-            if (store.SyncDeletedScreenshots())
-                store.Save();
+            store.SyncDeletedScreenshots();
+            store.Save();
 
             return store;
         }
