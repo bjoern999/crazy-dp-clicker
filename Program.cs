@@ -118,8 +118,9 @@ internal static class Program
                         if (nextTachoIndex >= tachos.Count)
                             nextTachoIndex = 0;
 
-                        tachos[nextTachoIndex].X = pt.X;
-                        tachos[nextTachoIndex].Y = pt.Y;
+                        var (cx, cy, dx, dy, centered) = TachoDetector.TryAutoCenterOnRing(pt.X, pt.Y, cfg.TachoBoxSize);
+                        tachos[nextTachoIndex].X = cx;
+                        tachos[nextTachoIndex].Y = cy;
                         cfg.Save();
                         detectors[nextTachoIndex].Reset();
 
@@ -127,8 +128,9 @@ internal static class Program
                         expectedTachoIndex = justSetIndex;
                         nextTachoIndex = (nextTachoIndex + 1) % tachos.Count;
 
+                        string centerNote = centered ? $" (auto-zentriert {dx:+0;-0}/{dy:+0;-0} px)" : "";
                         Console.WriteLine(
-                            $"[Kalibrierung {cfg.ActiveProfile}er-Modus] Tacho {justSetIndex + 1}/{tachos.Count} gesetzt auf: ({pt.X}, {pt.Y}) | Naechster mit F9: Tacho {nextTachoIndex + 1}/{tachos.Count}");
+                            $"[Kalibrierung {cfg.ActiveProfile}er-Modus] Tacho {justSetIndex + 1}/{tachos.Count} gesetzt auf: ({cx}, {cy}){centerNote} | Naechster mit F9: Tacho {nextTachoIndex + 1}/{tachos.Count}");
                     }
                 }
 

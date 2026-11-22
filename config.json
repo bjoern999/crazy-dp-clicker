@@ -1,53 +1,53 @@
 {
-  "ActiveProfile": 2,
-  "Profile2": [
-    {
-      "X": 1690,
-      "Y": 1126,
-      "ClickOffsetMs": 45,
-      "DefaultClickOffsetMs": 41,
-      "IsSet": true
-    },
-    {
-      "X": 1871,
-      "Y": 1131,
-      "ClickOffsetMs": 43,
-      "DefaultClickOffsetMs": 41,
-      "IsSet": true
-    }
-  ],
-  "Profile3": [
-    {
-      "X": 1688,
-      "Y": 1131,
-      "ClickOffsetMs": 41,
-      "DefaultClickOffsetMs": 41,
-      "IsSet": true
-    },
-    {
-      "X": 0,
-      "Y": 0,
-      "ClickOffsetMs": 41,
-      "DefaultClickOffsetMs": 41,
-      "IsSet": false
-    },
-    {
-      "X": 0,
-      "Y": 0,
-      "ClickOffsetMs": 41,
-      "DefaultClickOffsetMs": 41,
-      "IsSet": false
-    }
-  ],
-  "TachoBoxSize": 180,
-  "BlueButtonX": 1712,
-  "BlueButtonY": 1687,
-  "GreenButtonX": 2080,
-  "GreenButtonY": 1680,
-  "PollIntervalMs": 2,
-  "ClickHoldMs": 10,
-  "CooldownMs": 450,
-  "CheckpointStepDeg": 10,
-  "MinGreenPixels": 6,
-  "IsCalibrated": true
+    "ActiveProfile":  2,
+    "Profile2":  [
+                     {
+                         "X":  1685,
+                         "Y":  1130,
+                         "ClickOffsetMs":  45,
+                         "DefaultClickOffsetMs":  41,
+                         "IsSet":  true
+                     },
+                     {
+                         "X":  1873,
+                         "Y":  1129,
+                         "ClickOffsetMs":  43,
+                         "DefaultClickOffsetMs":  41,
+                         "IsSet":  true
+                     }
+                 ],
+    "Profile3":  [
+                     {
+                         "X":  1688,
+                         "Y":  1131,
+                         "ClickOffsetMs":  41,
+                         "DefaultClickOffsetMs":  41,
+                         "IsSet":  true
+                     },
+                     {
+                         "X":  0,
+                         "Y":  0,
+                         "ClickOffsetMs":  41,
+                         "DefaultClickOffsetMs":  41,
+                         "IsSet":  false
+                     },
+                     {
+                         "X":  0,
+                         "Y":  0,
+                         "ClickOffsetMs":  41,
+                         "DefaultClickOffsetMs":  41,
+                         "IsSet":  false
+                     }
+                 ],
+    "TachoBoxSize":  180,
+    "BlueButtonX":  1712,
+    "BlueButtonY":  1687,
+    "GreenButtonX":  2080,
+    "GreenButtonY":  1680,
+    "PollIntervalMs":  2,
+    "ClickHoldMs":  10,
+    "CooldownMs":  450,
+    "CheckpointStepDeg":  10,
+    "MinGreenPixels":  6,
+    "IsCalibrated":  true
 }

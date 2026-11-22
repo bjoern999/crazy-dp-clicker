@@ -686,6 +686,90 @@ internal sealed class TachoDetector : IDisposable
         }
     }
 
+    /// <summary>
+    /// Zentriert eine grob per F9 gesetzte Tacho-Position automatisch auf das geometrische Kreiszentrum
+    /// des Tacho-Rings (oder der dunklen Tacho-Scheibe) fuer maximale Winkel-/Geschwindigkeitsgenauigkeit.
+    /// </summary>
+    public static (int X, int Y, int Dx, int Dy, bool Centered) TryAutoCenterOnRing(int approxX, int approxY, int boxSize)
+    {
+        try
+        {
+            int size = Math.Clamp(boxSize + 24, 140, 260);
+            int half = size / 2;
+            int left = Math.Max(0, approxX - half);
+            int top = Math.Max(0, approxY - half);
+
+            using var bmp = new Bitmap(size, size, PixelFormat.Format32bppArgb);
+            using (var g = Graphics.FromImage(bmp))
+                g.CopyFromScreen(left, top, 0, 0, new Size(size, size), CopyPixelOperation.SourceCopy);
+
+            // 1. Hintergrund-Helligkeit aus den 4 Ecken bestimmen
+            double bgSum = 0;
+            int bgN = 0;
+            int[] corners = { 2, 5, size - 6, size - 3 };
+            foreach (int cy in corners)
+            {
+                foreach (int cx in corners)
+                {
+                    if ((cx < 10 || cx > size - 10) && (cy < 10 || cy > size - 10))
+                    {
+                        Color c = bmp.GetPixel(cx, cy);
+                        bgSum += (c.R + c.G + c.B) / 3.0;
+                        bgN++;
+                    }
+                }
+            }
+            double bgLuma = bgN > 0 ? bgSum / bgN : 80.0;
+
+            // 2. Zuerst nach dunklem Tacho-Kreis (oder schwarzem Ring-Rand) im Mittelstreifen suchen
+            int minX = size, maxX = -1, minY = size, maxY = -1;
+            int bandLo = half - 18, bandHi = half + 18;
+
+            for (int y = bandLo; y <= bandHi; y++)
+            {
+                for (int x = 2; x < size - 2; x++)
+                {
+                    Color c = bmp.GetPixel(x, y);
+                    double luma = (c.R + c.G + c.B) / 3.0;
+                    if (luma < bgLuma - 12.0)
+                    {
+                        if (x < minX) minX = x;
+                        if (x > maxX) maxX = x;
+                    }
+                }
+            }
+
+            for (int x = bandLo; x <= bandHi; x++)
+            {
+                for (int y = 2; y < size - 2; y++)
+                {
+                    Color c = bmp.GetPixel(x, y);
+                    double luma = (c.R + c.G + c.B) / 3.0;
+                    if (luma < bgLuma - 12.0)
+                    {
+                        if (y < minY) minY = y;
+                        if (y > maxY) maxY = y;
+                    }
+                }
+            }
+
+            if (maxX > minX + 80 && maxY > minY + 80)
+            {
+                double cx = (minX + maxX) / 2.0;
+                double cy = (minY + maxY) / 2.0;
+                int dx = (int)Math.Round(cx - half);
+                int dy = (int)Math.Round(cy - half);
+                if (Math.Abs(dx) <= 18 && Math.Abs(dy) <= 18)
+                {
+                    return (approxX + dx, approxY + dy, dx, dy, dx != 0 || dy != 0);
+                }
+            }
+        }
+        catch { }
+
+        return (approxX, approxY, 0, 0, false);
+    }
+
     private static double FindWhiteFrontRemainingDeg(double greenEndDeg, ReadOnlySpan<int> whiteBins, double prevRemainingDeg)
     {
         int endBin = ((int)Math.Round(greenEndDeg) % 360 + 360) % 360;
