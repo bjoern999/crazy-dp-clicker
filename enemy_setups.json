@@ -4608,15 +4608,15 @@
                                                                     "GreenHits":  5,
                                                                     "RedHits":  0,
                                                                     "WhiteHits":  0,
-                                                                    "Total":  16,
+                                                                    "Total":  15,
                                                                     "IsMature":  false,
                                                                     "TopRank":  0,
-                                                                    "BlueRate":  0.625,
+                                                                    "BlueRate":  0.6666666666666666,
                                                                     "SafeRate":  1,
                                                                     "RedRate":  0,
                                                                     "BadRate":  0,
-                                                                    "QualityScore":  0.79375,
-                                                                    "SmoothedScore":  0.7388888888888888,
+                                                                    "QualityScore":  0.8166666666666667,
+                                                                    "SmoothedScore":  0.7558823529411764,
                                                                     "IsKnownBad":  false
                                                                 },
                                                                 {
@@ -4761,7 +4761,7 @@
                                           "ConsecutiveNonBlue":  1,
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
-                                          "BlueRatePercent":  44.827586206896555
+                                          "BlueRatePercent":  46.42857142857143
                                       },
                                       {
                                           "HasSignature":  true,
@@ -4822,7 +4822,7 @@
                        "LastSeenUtc":  "2026-11-22T10:20:17.6369463Z",
                        "HasVisual":  false,
                        "TotalBlueHits":  27,
-                       "TotalClicks":  43
+                       "TotalClicks":  42
                    },
                    {
                        "Id":  4,
@@ -14339,7 +14339,7 @@
                    {
                        "Id":  12,
                        "Name":  "Incisivosaurus",
-                       "DinoType":  "Vierbeiner",
+                       "DinoType":  "Vogel",
                        "IsFixed":  true,
                        "ProfileSize":  2,
                        "TachoCount":  2,
@@ -14905,7 +14905,7 @@
                                                                     "GreenHits":  2,
                                                                     "RedHits":  0,
                                                                     "WhiteHits":  0,
-                                                                    "Total":  1,
+                                                                    "Total":  2,
                                                                     "IsMature":  false,
                                                                     "TopRank":  0,
                                                                     "BlueRate":  0,
@@ -14913,7 +14913,7 @@
                                                                     "RedRate":  0,
                                                                     "BadRate":  0,
                                                                     "QualityScore":  0.45,
-                                                                    "SmoothedScore":  0.35000000000000003,
+                                                                    "SmoothedScore":  0.375,
                                                                     "IsKnownBad":  false
                                                                 },
                                                                 {
@@ -15127,7 +15127,7 @@
                        "LastSeenUtc":  "2026-11-22T10:20:48.1831239Z",
                        "HasVisual":  true,
                        "TotalBlueHits":  0,
-                       "TotalClicks":  7
+                       "TotalClicks":  8
                    }
                ]
 }
