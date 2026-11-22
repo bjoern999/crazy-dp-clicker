@@ -465,26 +465,51 @@ internal sealed class TachoSetupSlot
         var top1 = GetTopPreset(1);
         var top2 = GetTopPreset(2);
         var top3 = GetTopPreset(3);
+        bool isLateMiss = fb == TachoFeedback.TooLateRed || isBirdPostBlueLate;
+
+        // 0. NOTBREMSE bei >= 2x Rot (bzw. Vogel Nach-Blau-Weiss) in Folge:
+        //    Deutlich frueher klicken (+5,0 ms bzw. +8,0 ms ab 3x), damit es garantiert kein 3. Rot in Folge gibt!
+        //    Gilt in ALLEN Modi (Normal, Verfeinerung und Meister-Tacho).
+        if (isLateMiss && ConsecutiveRed >= 2)
+        {
+            double emergencyJump = ConsecutiveRed >= 3 ? +8.0 : +5.0;
+            var safeHigher = OffsetHistory
+                .Where(h => !h.IsKnownBad && h.RedHits == 0 && (h.BlueHits + h.GreenHits) >= 2 &&
+                            h.OffsetMs >= ClickOffsetMs + 2.5 && h.OffsetMs <= ClickOffsetMs + 10.0)
+                .OrderByDescending(h => h.SmoothedScore)
+                .FirstOrDefault();
+
+            double rawTarget = safeHigher != null
+                ? Math.Max(safeHigher.OffsetMs, ClickOffsetMs + emergencyJump)
+                : ClickOffsetMs + emergencyJump;
+            rawTarget = Math.Clamp(Math.Round(rawTarget, 2), 0.0, 120.0);
+            var (safeTarget, skippedBad) = FindNextNonBadOffsetUp(rawTarget);
+            double applied = Math.Round(safeTarget - ClickOffsetMs, 2);
+            ClickOffsetMs = safeTarget;
+            ConsecutiveNonBlue = 0;
+            // ConsecutiveRed bleibt aktiv, bis wieder Gruen oder Blau getroffen wird!
+            return (ClickOffsetMs, applied, false, null, skippedBad, false);
+        }
 
         // 0a. MODUS "VERFEINERUNG": Sobald 3 gereifte Top-Presets vorliegen und dazwischen noch offene
         //     0,05ms-Zwischenwerte existieren, bei Rot/Gruen/Weiss in 0,05ms-Schritten zwischen Top-1..3 verfeinern!
         if (IsMeisterTacho && IsRefinementActive)
         {
             var (minMs, maxMs, _) = GetRefinementInfo();
-            int dir = (fb == TachoFeedback.TooLateRed || isBirdPostBlueLate) ? +1 : -1;
+            int dir = isLateMiss ? +1 : -1;
             double? nextFine = FindNextRefinementOffset(ClickOffsetMs, dir, minMs, maxMs);
             if (nextFine.HasValue)
             {
                 double delta = Math.Round(nextFine.Value - ClickOffsetMs, 2);
                 ClickOffsetMs = nextFine.Value;
                 ConsecutiveNonBlue = 0;
-                ConsecutiveRed = 0;
+                if (!isLateMiss) ConsecutiveRed = 0;
                 return (ClickOffsetMs, delta, false, null, 0, false);
             }
         }
 
-        // 0b. Top-1 -> Top-2 -> Top-3 -> Top-1 Rotation bei Rot (bzw. Vogel Post-Blau-Weiss) sowie finaler Meister-Tacho-Lock:
-        if (fb == TachoFeedback.TooLateRed || isBirdPostBlueLate)
+        // 0b. Top-1 -> Top-2 -> Top-3 -> Top-1 Rotation bei 1x Rot (bzw. Vogel Post-Blau-Weiss) sowie finaler Meister-Tacho-Lock:
+        if (isLateMiss)
         {
             OffsetPerformance? nextTop = stat.TopRank switch
             {
@@ -499,7 +524,7 @@ internal sealed class TachoSetupSlot
                 double delta = Math.Round(nextTop.OffsetMs - ClickOffsetMs, 2);
                 ClickOffsetMs = nextTop.OffsetMs;
                 ConsecutiveNonBlue = 0;
-                ConsecutiveRed = 0;
+                // ConsecutiveRed NICHT loeschen -> falls das naechste Top-Preset auch Rot liefert, greift sofort die Notbremse!
                 return (ClickOffsetMs, delta, true, nextTop, 0, false);
             }
         }

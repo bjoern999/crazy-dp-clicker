@@ -779,7 +779,10 @@ internal static class Program
         switch (fb)
         {
             case TachoFeedback.TooLateRed:
-                Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> ROT (ZU SPAET!) <<< {counts} -> Offset {appliedDelta:+0.00;-0.00} ms auf {updated:F2} ms{skipNote}");
+                if (appliedDelta >= 4.0)
+                    Console.WriteLine($"[NOTBREMSE 2x ROT! {setupLabel} T{tachoIndex + 1}] >>> DEUTLICH FRUEHER KLICKEN! <<< {counts} -> Offset {appliedDelta:+0.00} ms auf {updated:F2} ms{skipNote}");
+                else
+                    Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> ROT (ZU SPAET!) <<< {counts} -> Offset {appliedDelta:+0.00;-0.00} ms auf {updated:F2} ms{skipNote}");
                 break;
             case TachoFeedback.TooEarlyGreen:
                 Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> GRUEN (ETWAS FRUEH) <<< {counts} -> Offset {appliedDelta:+0.00;-0.00} ms auf {updated:F2} ms{skipNote}");
