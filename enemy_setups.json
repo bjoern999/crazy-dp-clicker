@@ -1,6 +1,6 @@
 {
     "NextId":  17,
-    "LastDeploymentId":  58,
+    "LastDeploymentId":  59,
     "Setups":  [
                    {
                        "Id":  1,
@@ -555,15 +555,15 @@
                                           "BlueWidthDeg":  1.2,
                                           "EndSpeedDegPerSec":  310,
                                           "AccelDegPerSec2":  146,
-                                          "SpinTimeTo55Ms":  1180.1,
+                                          "SpinTimeTo55Ms":  1124.8,
                                           "ClickOffsetMs":  45,
                                           "DefaultClickOffsetMs":  45.5,
                                           "Samples":  1110,
-                                          "BlueHits":  302,
-                                          "GreenHits":  294,
-                                          "RedHits":  55,
+                                          "BlueHits":  305,
+                                          "GreenHits":  300,
+                                          "RedHits":  57,
                                           "WhiteHits":  0,
-                                          "TotalClicks":  651,
+                                          "TotalClicks":  662,
                                           "OffsetHistory":  [
                                                                 {
                                                                     "OffsetMs":  44,
@@ -636,7 +636,7 @@
                                                                 {
                                                                     "OffsetMs":  46,
                                                                     "BlueHits":  2,
-                                                                    "GreenHits":  19,
+                                                                    "GreenHits":  20,
                                                                     "RedHits":  1,
                                                                     "WhiteHits":  0,
                                                                     "Total":  22,
@@ -653,7 +653,7 @@
                                                                 {
                                                                     "OffsetMs":  46.5,
                                                                     "BlueHits":  9,
-                                                                    "GreenHits":  49,
+                                                                    "GreenHits":  50,
                                                                     "RedHits":  0,
                                                                     "WhiteHits":  0,
                                                                     "Total":  58,
@@ -670,7 +670,7 @@
                                                                 {
                                                                     "OffsetMs":  47,
                                                                     "BlueHits":  80,
-                                                                    "GreenHits":  24,
+                                                                    "GreenHits":  25,
                                                                     "RedHits":  12,
                                                                     "WhiteHits":  0,
                                                                     "Total":  116,
@@ -789,7 +789,7 @@
                                                                 {
                                                                     "OffsetMs":  47.5,
                                                                     "BlueHits":  3,
-                                                                    "GreenHits":  8,
+                                                                    "GreenHits":  9,
                                                                     "RedHits":  1,
                                                                     "WhiteHits":  0,
                                                                     "Total":  12,
@@ -823,7 +823,7 @@
                                                                 {
                                                                     "OffsetMs":  48,
                                                                     "BlueHits":  1,
-                                                                    "GreenHits":  4,
+                                                                    "GreenHits":  5,
                                                                     "RedHits":  0,
                                                                     "WhiteHits":  0,
                                                                     "Total":  5,
@@ -839,8 +839,8 @@
                                                                 },
                                                                 {
                                                                     "OffsetMs":  48.5,
-                                                                    "BlueHits":  0,
-                                                                    "GreenHits":  2,
+                                                                    "BlueHits":  3,
+                                                                    "GreenHits":  3,
                                                                     "RedHits":  0,
                                                                     "WhiteHits":  0,
                                                                     "Total":  2,
@@ -1317,7 +1317,7 @@
                                                                     "OffsetMs":  41,
                                                                     "BlueHits":  0,
                                                                     "GreenHits":  1,
-                                                                    "RedHits":  0,
+                                                                    "RedHits":  1,
                                                                     "WhiteHits":  0,
                                                                     "Total":  1,
                                                                     "IsMature":  false,
@@ -1329,6 +1329,13 @@
                                                                     "QualityScore":  0.45,
                                                                     "SmoothedScore":  0.35000000000000003,
                                                                     "IsKnownBad":  false
+                                                                },
+                                                                {
+                                                                    "OffsetMs":  43.5,
+                                                                    "BlueHits":  0,
+                                                                    "GreenHits":  0,
+                                                                    "RedHits":  1,
+                                                                    "WhiteHits":  0
                                                                 }
                                                             ],
                                           "DeploymentHistory":  [
@@ -2331,6 +2338,70 @@
                                                                         "GreenHits":  1,
                                                                         "RedHits":  0,
                                                                         "WhiteHits":  0
+                                                                    },
+                                                                    {
+                                                                        "DeploymentId":  59,
+                                                                        "OffsetMs":  41,
+                                                                        "BlueHits":  0,
+                                                                        "GreenHits":  0,
+                                                                        "RedHits":  1,
+                                                                        "WhiteHits":  0
+                                                                    },
+                                                                    {
+                                                                        "DeploymentId":  59,
+                                                                        "OffsetMs":  43.5,
+                                                                        "BlueHits":  0,
+                                                                        "GreenHits":  0,
+                                                                        "RedHits":  1,
+                                                                        "WhiteHits":  0
+                                                                    },
+                                                                    {
+                                                                        "DeploymentId":  59,
+                                                                        "OffsetMs":  48.5,
+                                                                        "BlueHits":  3,
+                                                                        "GreenHits":  1,
+                                                                        "RedHits":  0,
+                                                                        "WhiteHits":  0
+                                                                    },
+                                                                    {
+                                                                        "DeploymentId":  59,
+                                                                        "OffsetMs":  48,
+                                                                        "BlueHits":  0,
+                                                                        "GreenHits":  1,
+                                                                        "RedHits":  0,
+                                                                        "WhiteHits":  0
+                                                                    },
+                                                                    {
+                                                                        "DeploymentId":  59,
+                                                                        "OffsetMs":  47.5,
+                                                                        "BlueHits":  0,
+                                                                        "GreenHits":  1,
+                                                                        "RedHits":  0,
+                                                                        "WhiteHits":  0
+                                                                    },
+                                                                    {
+                                                                        "DeploymentId":  59,
+                                                                        "OffsetMs":  47,
+                                                                        "BlueHits":  0,
+                                                                        "GreenHits":  1,
+                                                                        "RedHits":  0,
+                                                                        "WhiteHits":  0
+                                                                    },
+                                                                    {
+                                                                        "DeploymentId":  59,
+                                                                        "OffsetMs":  46.5,
+                                                                        "BlueHits":  0,
+                                                                        "GreenHits":  1,
+                                                                        "RedHits":  0,
+                                                                        "WhiteHits":  0
+                                                                    },
+                                                                    {
+                                                                        "DeploymentId":  59,
+                                                                        "OffsetMs":  46,
+                                                                        "BlueHits":  0,
+                                                                        "GreenHits":  1,
+                                                                        "RedHits":  0,
+                                                                        "WhiteHits":  0
                                                                     }
                                                                 ],
                                           "IsMeisterTacho":  true,
@@ -2350,15 +2421,15 @@
                                           "BlueWidthDeg":  0,
                                           "EndSpeedDegPerSec":  372,
                                           "AccelDegPerSec2":  252,
-                                          "SpinTimeTo55Ms":  912.6,
+                                          "SpinTimeTo55Ms":  934.2,
                                           "ClickOffsetMs":  45.25,
                                           "DefaultClickOffsetMs":  56,
                                           "Samples":  1090,
-                                          "BlueHits":  372,
-                                          "GreenHits":  181,
-                                          "RedHits":  74,
+                                          "BlueHits":  376,
+                                          "GreenHits":  186,
+                                          "RedHits":  76,
                                           "WhiteHits":  0,
-                                          "TotalClicks":  627,
+                                          "TotalClicks":  638,
                                           "OffsetHistory":  [
                                                                 {
                                                                     "OffsetMs":  43,
@@ -2397,7 +2468,7 @@
                                                                 {
                                                                     "OffsetMs":  48,
                                                                     "BlueHits":  0,
-                                                                    "GreenHits":  1,
+                                                                    "GreenHits":  2,
                                                                     "RedHits":  1,
                                                                     "WhiteHits":  0,
                                                                     "Total":  2,
@@ -3195,8 +3266,8 @@
                                                                 },
                                                                 {
                                                                     "OffsetMs":  48.5,
-                                                                    "BlueHits":  0,
-                                                                    "GreenHits":  1,
+                                                                    "BlueHits":  4,
+                                                                    "GreenHits":  2,
                                                                     "RedHits":  0,
                                                                     "WhiteHits":  0,
                                                                     "Total":  1,
@@ -3247,7 +3318,7 @@
                                                                 {
                                                                     "OffsetMs":  47.5,
                                                                     "BlueHits":  0,
-                                                                    "GreenHits":  1,
+                                                                    "GreenHits":  2,
                                                                     "RedHits":  0,
                                                                     "WhiteHits":  0,
                                                                     "Total":  1,
@@ -3281,7 +3352,7 @@
                                                                 {
                                                                     "OffsetMs":  47,
                                                                     "BlueHits":  0,
-                                                                    "GreenHits":  2,
+                                                                    "GreenHits":  3,
                                                                     "RedHits":  0,
                                                                     "WhiteHits":  0,
                                                                     "Total":  2,
@@ -3315,7 +3386,7 @@
                                                                 {
                                                                     "OffsetMs":  46.5,
                                                                     "BlueHits":  4,
-                                                                    "GreenHits":  2,
+                                                                    "GreenHits":  3,
                                                                     "RedHits":  1,
                                                                     "WhiteHits":  0,
                                                                     "Total":  7,
@@ -3401,7 +3472,7 @@
                                                                     "OffsetMs":  41,
                                                                     "BlueHits":  0,
                                                                     "GreenHits":  1,
-                                                                    "RedHits":  0,
+                                                                    "RedHits":  1,
                                                                     "WhiteHits":  0,
                                                                     "Total":  1,
                                                                     "IsMature":  false,
@@ -3413,6 +3484,13 @@
                                                                     "QualityScore":  0.45,
                                                                     "SmoothedScore":  0.35000000000000003,
                                                                     "IsKnownBad":  false
+                                                                },
+                                                                {
+                                                                    "OffsetMs":  43.5,
+                                                                    "BlueHits":  0,
+                                                                    "GreenHits":  0,
+                                                                    "RedHits":  1,
+                                                                    "WhiteHits":  0
                                                                 }
                                                             ],
                                           "DeploymentHistory":  [
@@ -4507,6 +4585,62 @@
                                                                     {
                                                                         "DeploymentId":  55,
                                                                         "OffsetMs":  41,
+                                                                        "BlueHits":  0,
+                                                                        "GreenHits":  1,
+                                                                        "RedHits":  0,
+                                                                        "WhiteHits":  0
+                                                                    },
+                                                                    {
+                                                                        "DeploymentId":  59,
+                                                                        "OffsetMs":  41,
+                                                                        "BlueHits":  0,
+                                                                        "GreenHits":  0,
+                                                                        "RedHits":  1,
+                                                                        "WhiteHits":  0
+                                                                    },
+                                                                    {
+                                                                        "DeploymentId":  59,
+                                                                        "OffsetMs":  43.5,
+                                                                        "BlueHits":  0,
+                                                                        "GreenHits":  0,
+                                                                        "RedHits":  1,
+                                                                        "WhiteHits":  0
+                                                                    },
+                                                                    {
+                                                                        "DeploymentId":  59,
+                                                                        "OffsetMs":  48.5,
+                                                                        "BlueHits":  4,
+                                                                        "GreenHits":  1,
+                                                                        "RedHits":  0,
+                                                                        "WhiteHits":  0
+                                                                    },
+                                                                    {
+                                                                        "DeploymentId":  59,
+                                                                        "OffsetMs":  48,
+                                                                        "BlueHits":  0,
+                                                                        "GreenHits":  1,
+                                                                        "RedHits":  0,
+                                                                        "WhiteHits":  0
+                                                                    },
+                                                                    {
+                                                                        "DeploymentId":  59,
+                                                                        "OffsetMs":  47.5,
+                                                                        "BlueHits":  0,
+                                                                        "GreenHits":  1,
+                                                                        "RedHits":  0,
+                                                                        "WhiteHits":  0
+                                                                    },
+                                                                    {
+                                                                        "DeploymentId":  59,
+                                                                        "OffsetMs":  47,
+                                                                        "BlueHits":  0,
+                                                                        "GreenHits":  1,
+                                                                        "RedHits":  0,
+                                                                        "WhiteHits":  0
+                                                                    },
+                                                                    {
+                                                                        "DeploymentId":  59,
+                                                                        "OffsetMs":  46.5,
                                                                         "BlueHits":  0,
                                                                         "GreenHits":  1,
                                                                         "RedHits":  0,

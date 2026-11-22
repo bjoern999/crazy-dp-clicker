@@ -1084,8 +1084,8 @@ internal sealed class EnemySetupStore
                 return (bestJoint, false, bestJointDist, bestJointVisDist, learned);
             }
 
-            // Schutz gegen einzelne Frame-Haker bei festen Spielern:
-            if (currentRoundSetup.IsFixed && slot.MatchesGeometryAndSpinTime(currentFp))
+            // Schutz gegen einzelne Frame-Haker bzw. Tacho-Zentrierungs-Shift bei festen Spielern:
+            if (currentRoundSetup.IsFixed && (slot.MatchesGeometryAndSpinTime(currentFp) || (curVisDist >= 0 && curVisDist <= 0.14)))
             {
                 bool learnedFallback = false;
                 if (isLastSlot && hasCurVis && !currentRoundSetup.HasVisual)
@@ -1094,6 +1094,16 @@ internal sealed class EnemySetupStore
                     DinoVisualMatcher.BlendInto(currentRoundSetup.Visual, currentVisual!);
                     learnedFallback = true;
                     curVisDist = 0.0;
+                }
+                if (curVisDist >= 0 && curVisDist <= 0.14 && dCurrent > 1.0 && currentFp.EndSpeedDegPerSec > 50.0)
+                {
+                    // Eindeutiger visueller Match nach Tacho-Zentrierung -> Tacho-Signatur sauber nachziehen
+                    slot.GreenEndDeg = Math.Round(currentFp.GreenEndDeg, 1);
+                    slot.GreenWidthDeg = Math.Round(currentFp.GreenWidthDeg, 1);
+                    slot.EndSpeedDegPerSec = Math.Round(currentFp.EndSpeedDegPerSec, 1);
+                    slot.AccelDegPerSec2 = Math.Round(currentFp.AccelDegPerSec2, 1);
+                    if (currentFp.SpinTimeTo55Ms > 100.0)
+                        slot.SpinTimeTo55Ms = Math.Round(currentFp.SpinTimeTo55Ms, 1);
                 }
                 currentRoundSetup.LastSeenUtc = DateTime.UtcNow;
                 Save();
@@ -1135,11 +1145,13 @@ internal sealed class EnemySetupStore
                 if (visDist > DinoVisualMatcher.VisualMatchThreshold)
                     continue; // Sichtbar ein anderer Dino -> harter Ausschluss!
 
-                // Bei sehr starkem visuellen Match (z.B. VisDist=0.06 bei Ankylosaurus) und passender Grundgeometrie
-                // (GreenEnd, GreenWidth, T55) darf ein einzelner 1-Frame-Speed-Haker niemals ein doppeltes Setup anlegen!
+                // Bei sehr starkem visuellen Match (z.B. VisDist <= 0.14 nach Tacho-Zentrierung, oder VisDist <= 0.22 mit passender Grundgeometrie)
+                // darf eine leicht verschobene Tacho-Signatur niemals ein doppeltes Setup anlegen!
                 if (tachoDist > 1.0)
                 {
-                    if (visDist <= 0.22 && candSlot.MatchesGeometryAndSpinTime(currentFp))
+                    if (visDist <= 0.14)
+                        tachoDist = 0.95;
+                    else if (visDist <= 0.22 && candSlot.MatchesGeometryAndSpinTime(currentFp))
                         tachoDist = 1.0;
                     else
                         continue;
@@ -1184,6 +1196,16 @@ internal sealed class EnemySetupStore
         {
             var matchedSlot = bestMatch.Tachos[tachoIndex];
             if (!matchedSlot.HasPosition && curX > 0 && curY > 0) { matchedSlot.X = curX; matchedSlot.Y = curY; }
+            if (bestMatch.IsFixed && bestVisDist >= 0 && bestVisDist <= 0.14 && matchedSlot.DistanceTo(currentFp) > 1.0 && currentFp.EndSpeedDegPerSec > 50.0)
+            {
+                // Eindeutiger visueller Match nach Tacho-Zentrierung -> Tacho-Signatur automatisch auf zentrierte Werte aktualisieren
+                matchedSlot.GreenEndDeg = Math.Round(currentFp.GreenEndDeg, 1);
+                matchedSlot.GreenWidthDeg = Math.Round(currentFp.GreenWidthDeg, 1);
+                matchedSlot.EndSpeedDegPerSec = Math.Round(currentFp.EndSpeedDegPerSec, 1);
+                matchedSlot.AccelDegPerSec2 = Math.Round(currentFp.AccelDegPerSec2, 1);
+                if (currentFp.SpinTimeTo55Ms > 100.0)
+                    matchedSlot.SpinTimeTo55Ms = Math.Round(currentFp.SpinTimeTo55Ms, 1);
+            }
             matchedSlot.UpdateSignatureEma(currentFp, bestMatch.IsFixed);
 
             // Bei T1 niemals ein brandneues Visual auf ein NO-VIS-Setup speichern (erst wenn T2 die Runde bestaetigt hat!),
