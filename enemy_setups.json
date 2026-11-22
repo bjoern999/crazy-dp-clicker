@@ -21514,9 +21514,9 @@
                    },
                    {
                        "Id":  16,
-                       "Name":  "Spieler-Setup #16",
+                       "Name":  "Dimetrodon",
                        "DinoType":  "Vierbeiner",
-                       "IsFixed":  false,
+                       "IsFixed":  true,
                        "ProfileSize":  3,
                        "TachoCount":  3,
                        "Visual":  {
