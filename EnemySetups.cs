@@ -23,13 +23,29 @@ internal sealed class OffsetPerformance
     public int Total => BlueHits + GreenHits + RedHits + WhiteHits;
     public double BlueRate => Total > 0 ? (double)BlueHits / Total : 0.0;
     public double SafeRate => Total > 0 ? (double)(BlueHits + GreenHits) / Total : 0.0;
+    public double RedRate => Total > 0 ? (double)RedHits / Total : 0.0;
 
     /// <summary>
     /// Composite quality score favoring high Blue hit rate while penalizing Red (0 points) & White.
     /// </summary>
     public double QualityScore => Total > 0
-        ? (BlueHits * 1.0 + GreenHits * 0.35 - RedHits * 0.7 - WhiteHits * 0.9) / Total
+        ? (BlueHits * 1.0 + GreenHits * 0.35 - RedHits * 0.85 - WhiteHits * 0.95) / Total
         : -999.0;
+
+    /// <summary>
+    /// Bayesian-smoothed score (prior: 2 neutral clicks) so 39/41 Blue cleanly beats 1/1 Blue.
+    /// </summary>
+    public double SmoothedScore => Total > 0
+        ? (BlueHits * 1.0 + GreenHits * 0.35 - RedHits * 0.85 - WhiteHits * 0.95 + 0.60) / (Total + 2.0)
+        : -999.0;
+
+    /// <summary>
+    /// True if this (Player, Tacho, Preset) triplet has consistently performed poorly (Red/White, never successful).
+    /// </summary>
+    public bool IsKnownBad =>
+        (Total >= 1 && BlueHits == 0 && GreenHits == 0 && (RedHits + WhiteHits) >= 1) ||
+        (Total >= 3 && BlueHits == 0 && RedRate >= 0.50) ||
+        (Total >= 4 && BlueRate < 0.15 && RedRate >= 0.40);
 }
 
 internal sealed class TachoSetupSlot
@@ -116,24 +132,118 @@ internal sealed class TachoSetupSlot
         Samples++;
     }
 
-    public OffsetPerformance? GetBestProvenOffset()
+    public static double SnapToQuarterMs(double offsetMs) =>
+        Math.Clamp(Math.Round(offsetMs * 4.0) / 4.0, 0.0, 120.0);
+
+    public OffsetPerformance? FindPresetStats(double offsetMs)
     {
-        // Ein Offset gilt als "bewaehrt", wenn er mindestens 3 Klicks und mindestens 2 Blau-Treffer (>= 40% Blau-Quote) hat
+        double bucket = SnapToQuarterMs(offsetMs);
+        return OffsetHistory.FirstOrDefault(h => Math.Abs(h.OffsetMs - bucket) < 0.05);
+    }
+
+    public bool IsPresetKnownBad(double offsetMs)
+    {
+        var st = FindPresetStats(offsetMs);
+        return st != null && st.IsKnownBad;
+    }
+
+    public int CountKnownBadPresets() => OffsetHistory.Count(h => h.IsKnownBad);
+
+    public OffsetPerformance? GetBestProvenOffset(double? excludeOffsetMs = null)
+    {
+        bool IsExcluded(OffsetPerformance h) =>
+            excludeOffsetMs.HasValue && Math.Abs(h.OffsetMs - SnapToQuarterMs(excludeOffsetMs.Value)) < 0.05;
+
+        // 1. Bewaehrte Blau-Presets (>= 3 Klicks, >= 2 Blau, >= 35% Blau, nicht als schlecht markiert)
+        var proven = OffsetHistory
+            .Where(h => !h.IsKnownBad && !IsExcluded(h) && h.Total >= 3 && h.BlueHits >= 2 && h.BlueRate >= 0.35)
+            .OrderByDescending(h => h.SmoothedScore)
+            .ThenByDescending(h => h.BlueHits)
+            .FirstOrDefault();
+
+        if (proven != null)
+            return proven;
+
+        // 2. Fallback: mindestens 1 sauberer Blau-Treffer ohne Rot/Weiss
         return OffsetHistory
-            .Where(h => h.Total >= 3 && h.BlueHits >= 2 && h.BlueRate >= 0.40)
-            .OrderByDescending(h => h.QualityScore)
+            .Where(h => !h.IsKnownBad && !IsExcluded(h) && h.BlueHits >= 1 && h.RedHits == 0 && h.WhiteHits == 0)
+            .OrderByDescending(h => h.SmoothedScore)
             .ThenByDescending(h => h.BlueHits)
             .FirstOrDefault();
     }
 
-    public (double NewOffsetMs, double AppliedDeltaMs, bool RevertedToProven, OffsetPerformance? RevertedStats)
+    /// <summary>
+    /// Waehlt das beste bekannte Preset fuer dieses (Spieler, Tacho)-Paar beim Erkennen des Spielers:
+    /// 1. Bestes Blau-Preset (nach Bayesian-geglatteter Erfolgsquote).
+    /// 2. Falls noch kein Blau-Preset existiert: knappstes sicheres Gruen-Preset (0 Rot), niemals ein bekannt schlechtes Preset.
+    /// </summary>
+    public OffsetPerformance? GetBestStartupPreset(double? excludeOffsetMs = null)
+    {
+        var bestBlue = GetBestProvenOffset(excludeOffsetMs);
+        if (bestBlue != null)
+            return bestBlue;
+
+        bool IsExcluded(OffsetPerformance h) =>
+            excludeOffsetMs.HasValue && Math.Abs(h.OffsetMs - SnapToQuarterMs(excludeOffsetMs.Value)) < 0.05;
+
+        return OffsetHistory
+            .Where(h => !h.IsKnownBad && !IsExcluded(h) && h.GreenHits >= 1 && h.RedHits == 0 && h.WhiteHits == 0)
+            .OrderBy(h => h.OffsetMs) // Knappstes sicheres Gruen nahe der Blau-Grenze
+            .FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Laedt beim Erkennen eines Spielers sofort das Preset mit der bislang besten Erfolgsquote
+    /// und stellt sicher, dass niemals auf einem nachweislich schlechten Preset gestartet wird.
+    /// </summary>
+    public (bool Changed, double OldOffsetMs, double NewOffsetMs, OffsetPerformance? ChosenStats) ApplyBestKnownPreset()
+    {
+        double oldOffset = ClickOffsetMs;
+        var best = GetBestStartupPreset();
+        if (best != null)
+        {
+            ClickOffsetMs = best.OffsetMs;
+            ConsecutiveNonBlue = 0;
+            ConsecutiveRed = 0;
+            return (Math.Abs(ClickOffsetMs - oldOffset) >= 0.05, oldOffset, ClickOffsetMs, best);
+        }
+
+        // Selbst wenn noch kein gutes Preset bekannt ist: niemals auf einem bekannt schlechten Preset starten!
+        if (IsPresetKnownBad(ClickOffsetMs))
+        {
+            var (safeOffset, _) = FindNextNonBadOffsetUp(ClickOffsetMs + 0.75);
+            ClickOffsetMs = safeOffset;
+            ConsecutiveNonBlue = 0;
+            ConsecutiveRed = 0;
+            return (Math.Abs(ClickOffsetMs - oldOffset) >= 0.05, oldOffset, ClickOffsetMs, null);
+        }
+
+        return (false, oldOffset, ClickOffsetMs, null);
+    }
+
+    private (double ResolvedOffsetMs, int SkippedBadCount) FindNextNonBadOffsetUp(double startOffsetMs)
+    {
+        double candidate = SnapToQuarterMs(startOffsetMs);
+        int skipped = 0;
+        const int maxSkips = 48; // Max +12 ms Suchfenster
+
+        while (skipped < maxSkips && candidate <= 95.0 && IsPresetKnownBad(candidate))
+        {
+            candidate = SnapToQuarterMs(candidate + 0.25);
+            skipped++;
+        }
+
+        return (Math.Clamp(candidate, 0.0, 120.0), skipped);
+    }
+
+    public (double NewOffsetMs, double AppliedDeltaMs, bool RevertedToProven, OffsetPerformance? RevertedStats, int SkippedBadCount, bool BlockedBadCliff)
         RecordOutcomeAndTune(double usedOffsetMs, TachoFeedback fb, bool isFixedPlayer)
     {
         if (fb == TachoFeedback.None)
-            return (ClickOffsetMs, 0.0, false, null);
+            return (ClickOffsetMs, 0.0, false, null, 0, false);
 
         TotalClicks++;
-        double bucketOffset = Math.Round(usedOffsetMs * 4.0) / 4.0; // 0.25 ms Raster
+        double bucketOffset = SnapToQuarterMs(usedOffsetMs);
 
         var stat = OffsetHistory.FirstOrDefault(h => Math.Abs(h.OffsetMs - bucketOffset) < 0.05);
         if (stat == null)
@@ -149,7 +259,7 @@ internal sealed class TachoSetupSlot
                 stat.BlueHits++;
                 ConsecutiveNonBlue = 0;
                 ConsecutiveRed = 0;
-                return (ClickOffsetMs, 0.0, false, null);
+                return (ClickOffsetMs, 0.0, false, null, 0, false);
 
             case TachoFeedback.TooEarlyGreen:
                 GreenHits++;
@@ -175,32 +285,59 @@ internal sealed class TachoSetupSlot
 
         var bestProven = GetBestProvenOffset();
 
-        // 1. Bei WEISS (viel zu frueh): sofort auf den besten bewaehrten Offset (oder Default) zurueckkehren
+        // 1. Bei WEISS (viel zu frueh): sofort auf das beste bekannte Preset zurueckkehren
         if (fb == TachoFeedback.WayTooEarlyWhite)
         {
-            if (bestProven != null)
+            var target = bestProven ?? GetBestStartupPreset();
+            if (target != null)
             {
+                double delta = Math.Round(target.OffsetMs - ClickOffsetMs, 2);
+                ClickOffsetMs = target.OffsetMs;
+                ConsecutiveNonBlue = 0;
+                ConsecutiveRed = 0;
+                return (ClickOffsetMs, delta, true, target, 0, false);
+            }
+
+            double def = DefaultClickOffsetMs > 0 ? DefaultClickOffsetMs : 41.0;
+            var (safeDef, sk) = FindNextNonBadOffsetUp(def);
+            double defDelta = Math.Round(safeDef - ClickOffsetMs, 2);
+            ClickOffsetMs = safeDef;
+            ConsecutiveNonBlue = 0;
+            ConsecutiveRed = 0;
+            return (ClickOffsetMs, defDelta, false, null, sk, false);
+        }
+
+        // 2. Sofort-Schutz gegen Rot-Serien & Abdriften in schlechte Presets:
+        if (fb == TachoFeedback.TooLateRed)
+        {
+            // 2a. Aktuelles Preset ist als schlecht markiert oder wir hatten >= 2x Rot:
+            //     Sofort auf das beste bewaehrte Preset (bei >= 2x Rot auf diesem Bucket: bestes *anderes* bewaehrtes Preset!) springen!
+            if (ConsecutiveRed >= 2)
+            {
+                var bestAlt = GetBestProvenOffset(excludeOffsetMs: bucketOffset) ?? bestProven;
+                if (bestAlt != null && Math.Abs(bestAlt.OffsetMs - ClickOffsetMs) >= 0.20)
+                {
+                    double delta = Math.Round(bestAlt.OffsetMs - ClickOffsetMs, 2);
+                    ClickOffsetMs = bestAlt.OffsetMs;
+                    ConsecutiveNonBlue = 0;
+                    ConsecutiveRed = 0;
+                    return (ClickOffsetMs, delta, true, bestAlt, 0, false);
+                }
+            }
+            else if (stat.IsKnownBad && bestProven != null && Math.Abs(bestProven.OffsetMs - ClickOffsetMs) >= 0.25)
+            {
+                // Schon nach 1x Rot auf einem bisher erfolglosen Preset sofort zum bewaehrten Champion zurueck!
                 double delta = Math.Round(bestProven.OffsetMs - ClickOffsetMs, 2);
                 ClickOffsetMs = bestProven.OffsetMs;
                 ConsecutiveNonBlue = 0;
                 ConsecutiveRed = 0;
-                return (ClickOffsetMs, delta, true, bestProven);
+                return (ClickOffsetMs, delta, true, bestProven, 0, false);
             }
-
-            double def = DefaultClickOffsetMs > 0 ? DefaultClickOffsetMs : 41.0;
-            double defDelta = Math.Round(def - ClickOffsetMs, 2);
-            ClickOffsetMs = def;
-            ConsecutiveNonBlue = 0;
-            ConsecutiveRed = 0;
-            return (ClickOffsetMs, defDelta, false, null);
         }
-
-        // 2. Pruefen, ob wir uns von einem bewaehrten Offset wegbewegt haben und jetzt schlechter treffen -> Rueckkehr!
-        if (bestProven != null && Math.Abs(ClickOffsetMs - bestProven.OffsetMs) >= 1.25)
+        else if (fb == TachoFeedback.TooEarlyGreen && bestProven != null && Math.Abs(ClickOffsetMs - bestProven.OffsetMs) >= 1.25)
         {
             bool driftedAndFailing =
-                ConsecutiveRed >= 2 ||
-                (ConsecutiveNonBlue >= 3 && stat.Total >= 2 && stat.QualityScore < bestProven.QualityScore - 0.15);
+                ConsecutiveNonBlue >= 3 && stat.Total >= 2 && stat.SmoothedScore < bestProven.SmoothedScore - 0.15;
 
             if (driftedAndFailing)
             {
@@ -208,41 +345,57 @@ internal sealed class TachoSetupSlot
                 ClickOffsetMs = bestProven.OffsetMs;
                 ConsecutiveNonBlue = 0;
                 ConsecutiveRed = 0;
-                return (ClickOffsetMs, delta, true, bestProven);
+                return (ClickOffsetMs, delta, true, bestProven, 0, false);
             }
         }
 
-        // 3. Regulare Anpassung:
-        //    - Feste Spieler mit bewaehrtem Offset: feine Schritte (+0.75 / -0.25 ms).
-        //    - Schnelle/noch unkalibrierte Tachos (z.B. > 440°/s mit 0 Blau oder >= 3x Rot in Folge):
-        //      groessere Suchschritte aus Rot heraus (+1.5 / +3.0 ms), aber weiterhin feines -0.25 ms Herantasten aus Gruen!
-        double redStep;
-        if (!isFixedPlayer)
+        // 3. Regulare Anpassung mit Sperre fuer bekannte schlechte Presets:
+        if (fb == TachoFeedback.TooLateRed)
         {
-            redStep = +2.5;
-        }
-        else if (bestProven == null && ConsecutiveRed >= 3)
-        {
-            redStep = +3.0;
-        }
-        else if (bestProven == null && EndSpeedDegPerSec >= 440.0)
-        {
-            redStep = +1.5;
-        }
-        else
-        {
-            redStep = +0.75;
+            double redStep;
+            if (!isFixedPlayer)
+                redStep = +2.5;
+            else if (bestProven == null && ConsecutiveRed >= 3)
+                redStep = +3.0;
+            else if (bestProven == null && EndSpeedDegPerSec >= 440.0)
+                redStep = +1.5;
+            else if (ConsecutiveRed >= 2)
+                redStep = +1.5; // Auch bei bekanntem Spieler nach 2x Rot schneller aus dem Roten heraus
+            else
+                redStep = +0.75;
+
+            double rawTarget = Math.Clamp(Math.Round(ClickOffsetMs + redStep, 2), 0.0, 120.0);
+            var (safeTarget, skippedBad) = FindNextNonBadOffsetUp(rawTarget);
+            double applied = Math.Round(safeTarget - ClickOffsetMs, 2);
+            ClickOffsetMs = safeTarget;
+            return (ClickOffsetMs, applied, false, null, skippedBad, false);
         }
 
-        double step = fb switch
+        if (fb == TachoFeedback.TooEarlyGreen)
         {
-            TachoFeedback.TooLateRed => redStep,
-            TachoFeedback.TooEarlyGreen => isFixedPlayer ? -0.25 : -0.5,
-            _ => 0.0
-        };
+            double greenStep = isFixedPlayer ? -0.25 : -0.5;
+            double rawTarget = Math.Clamp(Math.Round(ClickOffsetMs + greenStep, 2), 0.0, 120.0);
 
-        ClickOffsetMs = Math.Clamp(Math.Round(ClickOffsetMs + step, 2), 0.0, 120.0);
-        return (ClickOffsetMs, step, false, null);
+            // Wichtig: Beim Schritt nach UNTEN (spaeter klicken) niemals auf ein bekanntes Rot-Preset treten!
+            if (IsPresetKnownBad(rawTarget))
+            {
+                if (bestProven != null && Math.Abs(bestProven.OffsetMs - ClickOffsetMs) >= 0.25)
+                {
+                    double delta = Math.Round(bestProven.OffsetMs - ClickOffsetMs, 2);
+                    ClickOffsetMs = bestProven.OffsetMs;
+                    ConsecutiveNonBlue = 0;
+                    return (ClickOffsetMs, delta, true, bestProven, 1, true);
+                }
+
+                // Lieber auf dem sicheren Gruen-Preset bleiben statt in ein bekannt schlechtes Rot-Preset zu fallen!
+                return (ClickOffsetMs, 0.0, false, null, 1, true);
+            }
+
+            ClickOffsetMs = rawTarget;
+            return (ClickOffsetMs, greenStep, false, null, 0, false);
+        }
+
+        return (ClickOffsetMs, 0.0, false, null, 0, false);
     }
 
     public double DistanceTo(TachoFingerprint fp)

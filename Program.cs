@@ -264,16 +264,60 @@ internal static class Program
                             }
 
                             var slot = matched.Tachos[cur];
+
+                            // Sobald ein Spieler neu erkannt wird: sofort fuer alle seine Tachos das bislang beste Preset laden!
+                            // Und selbst im laufenden Betrieb: niemals ein nachweislich schlechtes Preset verwenden!
+                            bool presetAutoSwitched = false;
+                            if (changedEnemy && !isNew)
+                            {
+                                bool anyPresetChanged = false;
+                                for (int sIdx = 0; sIdx < matched.Tachos.Count; sIdx++)
+                                {
+                                    var (ch, oldOff, newOff, chosen) = matched.Tachos[sIdx].ApplyBestKnownPreset();
+                                    if (ch)
+                                    {
+                                        anyPresetChanged = true;
+                                        string statInfo = chosen != null
+                                            ? $"(Blau: {chosen.BlueHits}/{chosen.Total} = {chosen.BlueRate * 100:F0}%, G={chosen.GreenHits}, R={chosen.RedHits})"
+                                            : "(schlechtes Preset gemieden)";
+                                        Console.WriteLine(
+                                            $"[Best-Preset {matched.Name} T{sIdx + 1}] {oldOff:F2} ms -> {newOff:F2} ms {statInfo}");
+                                    }
+                                }
+                                if (anyPresetChanged)
+                                {
+                                    presetAutoSwitched = true;
+                                    enemyStore.Save();
+                                }
+                            }
+                            else if (slot.IsPresetKnownBad(slot.ClickOffsetMs))
+                            {
+                                var (ch, oldOff, newOff, chosen) = slot.ApplyBestKnownPreset();
+                                if (ch)
+                                {
+                                    presetAutoSwitched = true;
+                                    enemyStore.Save();
+                                    Console.WriteLine(
+                                        $"[Bad-Preset vermieden {matched.Name} T{cur + 1}] {oldOff:F2} ms (schlechte Quote) -> {newOff:F2} ms");
+                                }
+                            }
+
                             double enemyOffset = slot.ClickOffsetMs;
 
-                            if (changedEnemy || cur == 0)
+                            if (changedEnemy || cur == 0 || presetAutoSwitched)
                             {
                                 string tag = isNew ? "NEU ANGELEGT" : (matched.IsFixed ? $"FEST (Dist={dist:F2})" : $"ERKANNT (Dist={dist:F2})");
                                 string visStr = visDist >= 0 ? $", Vis={visDist:F2}{(learnedVisual ? " [NEU]" : "")}" : "";
+                                var curPresetStat = slot.FindPresetStats(enemyOffset);
+                                string curStatStr = curPresetStat != null
+                                    ? $" [Preset: {curPresetStat.BlueHits}B/{curPresetStat.GreenHits}G/{curPresetStat.RedHits}R]"
+                                    : " [Preset: neu]";
                                 var best = slot.GetBestProvenOffset();
-                                string bestStr = best != null ? $", Bewaehrt={best.OffsetMs:F2}ms ({best.BlueHits}/{best.Total} Blau)" : "";
+                                string bestStr = best != null ? $", Best={best.OffsetMs:F2}ms ({best.BlueHits}/{best.Total} Blau)" : "";
+                                int badCnt = slot.CountKnownBadPresets();
+                                string badStr = badCnt > 0 ? $", Gesperrt={badCnt}" : "";
                                 Console.WriteLine(
-                                    $"[Spieler-Setup] {matched.Name} [{tag}{visStr}] | T{cur + 1}: v={fp.EndSpeedDegPerSec:F1}°/s, a={fp.AccelDegPerSec2:F0}°/s², T55={fp.SpinTimeTo55Ms:F0}ms, G={fp.GreenWidthDeg:F0}° -> Offset {enemyOffset:F2} ms{bestStr}");
+                                    $"[Spieler-Setup] {matched.Name} [{tag}{visStr}] | T{cur + 1}: v={fp.EndSpeedDegPerSec:F1}°/s, a={fp.AccelDegPerSec2:F0}°/s², T55={fp.SpinTimeTo55Ms:F0}ms, G={fp.GreenWidthDeg:F0}° -> Offset {enemyOffset:F2} ms{curStatStr}{bestStr}{badStr}");
                             }
 
                             return enemyOffset;
@@ -492,9 +536,21 @@ internal static class Program
         string bestProvenInfo = "";
         if (activeEnemy != null && activeEnemy.ProfileSize == cfg.ActiveProfile && activeIdx < activeEnemy.Tachos.Count)
         {
-            var best = activeEnemy.Tachos[activeIdx].GetBestProvenOffset();
+            var sl = activeEnemy.Tachos[activeIdx];
+            var best = sl.GetBestStartupPreset();
+            int badCnt = sl.CountKnownBadPresets();
+            string badPart = badCnt > 0 ? $" | Gesperrt: {badCnt}" : "";
             if (best != null)
-                bestProvenInfo = $"Best T{activeIdx + 1}: {best.OffsetMs:F2}ms ({best.BlueRate * 100:F0}%)";
+            {
+                string rateTxt = best.BlueHits > 0
+                    ? $"{best.BlueRate * 100:F0}% Blau"
+                    : $"{best.GreenHits}G/0R";
+                bestProvenInfo = $"Best T{activeIdx + 1}: {best.OffsetMs:F2}ms ({rateTxt}){badPart}";
+            }
+            else if (badCnt > 0)
+            {
+                bestProvenInfo = $"Gesperrt T{activeIdx + 1}: {badCnt}";
+            }
         }
 
         return new OverlaySnapshot
@@ -602,12 +658,15 @@ internal static class Program
         double appliedDelta;
         bool reverted = false;
         OffsetPerformance? revertedStats = null;
+        int skippedBadCount = 0;
+        bool blockedBadCliff = false;
 
         if (activeEnemy != null && activeEnemy.ProfileSize == cfg.ActiveProfile)
         {
             activeEnemy.EnsureSlots();
             var slot = activeEnemy.Tachos[tachoIndex];
-            (updated, appliedDelta, reverted, revertedStats) = slot.RecordOutcomeAndTune(usedOffsetMs, fb, activeEnemy.IsFixed);
+            (updated, appliedDelta, reverted, revertedStats, skippedBadCount, blockedBadCliff) =
+                slot.RecordOutcomeAndTune(usedOffsetMs, fb, activeEnemy.IsFixed);
 
             if (detector.LastFingerprint.EndSpeedDegPerSec > 50.0)
             {
@@ -639,18 +698,25 @@ internal static class Program
 
         if (reverted && revertedStats != null)
         {
+            string cliffNote = blockedBadCliff ? " (schlechtes Nachbar-Preset gesperrt!)" : "";
             Console.WriteLine(
-                $"[AUTO-REVERT {setupLabel} T{tachoIndex + 1}] Feedback={fb} -> Kehre zu bewaehrtem Offset {updated:F2} ms zurueck (Blau-Quote: {revertedStats.BlueHits}/{revertedStats.Total} = {revertedStats.BlueRate * 100:F0}%)!");
+                $"[AUTO-REVERT {setupLabel} T{tachoIndex + 1}] Feedback={fb}{cliffNote} -> Springe zu Best-Preset {updated:F2} ms (Blau-Quote: {revertedStats.BlueHits}/{revertedStats.Total} = {revertedStats.BlueRate * 100:F0}%)!");
             return updated;
         }
+
+        string skipNote = skippedBadCount > 0
+            ? (blockedBadCliff
+                ? " [schlechtes Rot-Preset gesperrt -> bleibe sicher]"
+                : $" [{skippedBadCount} schlechte(s) Preset(s) uebersprungen!]")
+            : "";
 
         switch (fb)
         {
             case TachoFeedback.TooLateRed:
-                Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> ROT (ZU SPAET!) <<< {counts} -> Offset {appliedDelta:+0.00;-0.00} ms auf {updated:F2} ms");
+                Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> ROT (ZU SPAET!) <<< {counts} -> Offset {appliedDelta:+0.00;-0.00} ms auf {updated:F2} ms{skipNote}");
                 break;
             case TachoFeedback.TooEarlyGreen:
-                Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> GRUEN (ETWAS FRUEH) <<< {counts} -> Offset {appliedDelta:+0.00;-0.00} ms auf {updated:F2} ms");
+                Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> GRUEN (ETWAS FRUEH) <<< {counts} -> Offset {appliedDelta:+0.00;-0.00} ms auf {updated:F2} ms{skipNote}");
                 break;
             case TachoFeedback.OptimalBlue:
                 Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> BLAU (OPTIMAL!) <<< {counts} -> Offset ({updated:F2} ms) bleibt unveraendert.");
@@ -742,9 +808,14 @@ internal static class Program
             string fixedTag = s.IsFixed ? "FEST" : "AUTO";
             string visTag = s.HasVisual ? "VIS" : "NO-VIS";
             string slotDesc = string.Join(" | ", s.Tachos.Select((sl, i) =>
-                sl.HasSignature
-                    ? $"T{i + 1}:{sl.ClickOffsetMs:F2}ms@({sl.X},{sl.Y})[{sl.BlueHits}/{sl.TotalClicks} Blau]"
-                    : $"T{i + 1}:-"));
+            {
+                if (!sl.HasSignature) return $"T{i + 1}:-";
+                var best = sl.GetBestStartupPreset();
+                string bestTxt = best != null ? $",Best={best.OffsetMs:F2}ms({best.BlueHits}B/{best.Total})" : "";
+                int bad = sl.CountKnownBadPresets();
+                string badTxt = bad > 0 ? $",Bad={bad}" : "";
+                return $"T{i + 1}:{sl.ClickOffsetMs:F2}ms{bestTxt}{badTxt}";
+            }));
             Console.WriteLine($"  - {s.Name} [{fixedTag}, {visTag}, {s.ProfileSize}er]: {slotDesc}");
         }
         var (dx0, dy0) = cfg.GetEffectiveDinoBoxCenter();
