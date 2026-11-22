@@ -336,11 +336,14 @@ internal static class Program
                             }
 
                             double enemyOffset = slot.ClickOffsetMs;
+                            double effectiveOffset = slot.EffectiveClickOffsetMs;
 
                             if (changedEnemy || cur == 0 || presetAutoSwitched)
                             {
                                 string tag = isNew ? "NEU ANGELEGT" : (matched.IsFixed ? $"FEST (Dist={dist:F2})" : $"ERKANNT (Dist={dist:F2})");
                                 string visStr = visDist >= 0 ? $", Vis={visDist:F2}{(learnedVisual ? " [NEU]" : "")}" : "";
+                                string lockStr = slot.TemplateCurve.IsReady ? " [LOCK]" : $" [Kurve {slot.TemplateCurve.SampleCount}/2]";
+                                string driftStr = Math.Abs(slot.SessionDriftMs) >= 0.05 ? $" (Drift {slot.SessionDriftMs:+0.00;-0.00}ms)" : "";
                                 var curPresetStat = slot.FindPresetStats(enemyOffset);
                                 string curStatStr = curPresetStat != null
                                     ? $" [Preset: {curPresetStat.BlueHits}B/{curPresetStat.GreenHits}G/{curPresetStat.RedHits}R]"
@@ -350,10 +353,10 @@ internal static class Program
                                 int badCnt = slot.CountKnownBadPresets();
                                 string badStr = badCnt > 0 ? $", Gesperrt={badCnt}" : "";
                                 Console.WriteLine(
-                                    $"[Spieler-Setup] {matched.Name} ({matched.DinoType}) [Einsatz #{currentDeploymentId} | {tag}{visStr}] | T{cur + 1}: v={fp.EndSpeedDegPerSec:F1}°/s, a={fp.AccelDegPerSec2:F0}°/s², T55={fp.SpinTimeTo55Ms:F0}ms, G={fp.GreenWidthDeg:F0}° -> Offset {enemyOffset:F2} ms{curStatStr}{bestStr}{badStr}");
+                                    $"[Spieler-Setup] {matched.Name} ({matched.DinoType}) [Einsatz #{currentDeploymentId} | {tag}{visStr}{lockStr}] | T{cur + 1}: v={fp.EndSpeedDegPerSec:F1}°/s, a={fp.AccelDegPerSec2:F0}°/s², T55={fp.SpinTimeTo55Ms:F0}ms, G={fp.GreenWidthDeg:F0}° -> Offset {enemyOffset:F2} ms{driftStr}{curStatStr}{bestStr}{badStr}");
                             }
 
-                            return enemyOffset;
+                            return (effectiveOffset, slot.TemplateCurve);
                         });
 
                     if (detectors[cur].JustArmed)
@@ -626,7 +629,7 @@ internal static class Program
         {
             activeEnemy.EnsureSlots();
             if (tachoIndex >= 0 && tachoIndex < activeEnemy.Tachos.Count && activeEnemy.Tachos[tachoIndex].HasSignature)
-                return activeEnemy.Tachos[tachoIndex].ClickOffsetMs;
+                return activeEnemy.Tachos[tachoIndex].EffectiveClickOffsetMs;
         }
         return cfg.GetClickOffsetMsForTacho(tachoIndex);
     }
@@ -674,9 +677,11 @@ internal static class Program
             var sl = activeEnemy.Tachos[activeIdx];
             var best = sl.GetTopPreset(1) ?? sl.GetBestStartupPreset();
             int badCnt = sl.CountKnownBadPresets();
-            string meisterPrefix = sl.IsRefinementActive
+            string lockTag = sl.TemplateCurve.IsReady ? "[LOCK] " : "";
+            string driftTag = Math.Abs(sl.SessionDriftMs) >= 0.05 ? $" Drift{sl.SessionDriftMs:+0.0;-0.0}" : "";
+            string meisterPrefix = lockTag + (sl.IsRefinementActive
                 ? $"[VERFEINERUNG {sl.GetRefinementInfo().OpenCandidates} offen] "
-                : (sl.IsMeisterTacho ? "[MEISTER] " : "");
+                : (sl.IsMeisterTacho ? "[MEISTER] " : ""));
             string badPart = badCnt > 0 ? $" | Gesperrt: {badCnt}" : "";
             if (best != null)
             {
@@ -684,11 +689,15 @@ internal static class Program
                 string rateTxt = best.BlueHits > 0
                     ? $"{best.BlueRate * 100:F0}% Blau"
                     : $"{best.GreenHits}G/0R";
-                bestProvenInfo = $"{meisterPrefix}{rankLbl}T{activeIdx + 1}: {best.OffsetMs:F2}ms ({rateTxt}){badPart}";
+                bestProvenInfo = $"{meisterPrefix}{rankLbl}T{activeIdx + 1}: {best.OffsetMs:F2}ms{driftTag} ({rateTxt}){badPart}";
             }
             else if (badCnt > 0)
             {
-                bestProvenInfo = $"{meisterPrefix}Gesperrt T{activeIdx + 1}: {badCnt}";
+                bestProvenInfo = $"{meisterPrefix}Gesperrt T{activeIdx + 1}: {badCnt}{driftTag}";
+            }
+            else if (!string.IsNullOrEmpty(lockTag))
+            {
+                bestProvenInfo = $"{lockTag}T{activeIdx + 1}: {sl.EffectiveClickOffsetMs:F2}ms{driftTag}";
             }
         }
 
@@ -803,13 +812,28 @@ internal static class Program
         OffsetPerformance? revertedStats = null;
         int skippedBadCount = 0;
         bool blockedBadCliff = false;
+        bool usedBisection = false;
+        double activeDrift = 0.0;
 
         if (activeEnemy != null && activeEnemy.ProfileSize == cfg.ActiveProfile)
         {
             activeEnemy.EnsureSlots();
             var slot = activeEnemy.Tachos[tachoIndex];
-            (updated, appliedDelta, reverted, revertedStats, skippedBadCount, blockedBadCliff) =
-                slot.RecordOutcomeAndTune(usedOffsetMs, fb, activeEnemy.IsFixed, activeEnemy.IsBird, deploymentId);
+
+            // 1. Empirische Master-Kurve (TemplateCurve) aus jedem sauberen Spin lernen/verfeinern
+            bool wasLockReady = slot.TemplateCurve.IsReady;
+            if (detector.LastPredictedZeroTimeMs > 0.0 &&
+                slot.TemplateCurve.UpdateFromSpin(detector.GetLastCheckpointsCopy(), detector.LastPredictedZeroTimeMs, detector.LastRegressionR2) &&
+                !wasLockReady && slot.TemplateCurve.IsReady)
+            {
+                Console.WriteLine($"[PHASE-LOCK BEREIT! {setupLabel} T{tachoIndex + 1}] Empirische Master-Kurve aktiv ({slot.TemplateCurve.PopulatedPointCount} Winkel-Stuetzstellen) -> 1-Parameter-Timing aktiv!");
+            }
+
+            // 2. Ergebnis unter dem Basis-Preset verbuchen (SessionDriftMs bleibt sauber getrennt!)
+            double baseUsedOffset = slot.ClickOffsetMs;
+            (updated, appliedDelta, reverted, revertedStats, skippedBadCount, blockedBadCliff, usedBisection) =
+                slot.RecordOutcomeAndTune(baseUsedOffset, fb, activeEnemy.IsFixed, activeEnemy.IsBird, deploymentId);
+            activeDrift = slot.SessionDriftMs;
 
             if (detector.LastFingerprint.EndSpeedDegPerSec > 50.0)
             {
@@ -838,6 +862,8 @@ internal static class Program
         }
 
         detector.LastCorrectionDeltaMs = appliedDelta;
+        string driftInfo = Math.Abs(activeDrift) >= 0.05 ? $" [Drift={activeDrift:+0.00;-0.00}ms]" : "";
+        string bisectionTag = usedBisection ? " [BISECTION]" : "";
 
         if (reverted && revertedStats != null)
         {
@@ -845,12 +871,12 @@ internal static class Program
             if (revertedStats.TopRank > 0)
             {
                 Console.WriteLine(
-                    $"[TOP-WECHSEL {setupLabel} T{tachoIndex + 1}] Feedback={fb}{cliffNote} -> Wechsle auf TOP-{revertedStats.TopRank} ({updated:F2} ms | Blau: {revertedStats.BlueHits}/{revertedStats.Total} = {revertedStats.BlueRate * 100:F0}%, R={revertedStats.RedHits})!");
+                    $"[TOP-WECHSEL {setupLabel} T{tachoIndex + 1}] Feedback={fb}{cliffNote} -> Wechsle auf TOP-{revertedStats.TopRank} ({updated:F2} ms{driftInfo} | Blau: {revertedStats.BlueHits}/{revertedStats.Total} = {revertedStats.BlueRate * 100:F0}%, R={revertedStats.RedHits})!");
             }
             else
             {
                 Console.WriteLine(
-                    $"[AUTO-REVERT {setupLabel} T{tachoIndex + 1}] Feedback={fb}{cliffNote} -> Springe zu Best-Preset {updated:F2} ms (Blau-Quote: {revertedStats.BlueHits}/{revertedStats.Total} = {revertedStats.BlueRate * 100:F0}%)!");
+                    $"[AUTO-REVERT {setupLabel} T{tachoIndex + 1}] Feedback={fb}{cliffNote} -> Springe zu Best-Preset {updated:F2} ms{driftInfo} (Blau-Quote: {revertedStats.BlueHits}/{revertedStats.Total} = {revertedStats.BlueRate * 100:F0}%)!");
             }
             return updated;
         }
@@ -865,15 +891,15 @@ internal static class Program
         {
             case TachoFeedback.TooLateRed:
                 if (appliedDelta >= 4.0)
-                    Console.WriteLine($"[NOTBREMSE 2x ROT! {setupLabel} T{tachoIndex + 1}] >>> DEUTLICH FRUEHER KLICKEN! <<< {counts} -> Offset {appliedDelta:+0.00} ms auf {updated:F2} ms{skipNote}");
+                    Console.WriteLine($"[NOTBREMSE 2x ROT! {setupLabel} T{tachoIndex + 1}] >>> DEUTLICH FRUEHER KLICKEN! <<< {counts} -> Offset {appliedDelta:+0.00} ms auf {updated:F2} ms{driftInfo}{skipNote}");
                 else
-                    Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> ROT (ZU SPAET!) <<< {counts} -> Offset {appliedDelta:+0.00;-0.00} ms auf {updated:F2} ms{skipNote}");
+                    Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> ROT (ZU SPAET!) <<< {counts} -> Offset {appliedDelta:+0.00;-0.00} ms auf {updated:F2} ms{bisectionTag}{driftInfo}{skipNote}");
                 break;
             case TachoFeedback.TooEarlyGreen:
-                Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> GRUEN (ETWAS FRUEH) <<< {counts} -> Offset {appliedDelta:+0.00;-0.00} ms auf {updated:F2} ms{skipNote}");
+                Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> GRUEN (ETWAS FRUEH) <<< {counts} -> Offset {appliedDelta:+0.00;-0.00} ms auf {updated:F2} ms{bisectionTag}{driftInfo}{skipNote}");
                 break;
             case TachoFeedback.OptimalBlue:
-                Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> BLAU (OPTIMAL!) <<< {counts} -> Offset ({updated:F2} ms) bleibt unveraendert.");
+                Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> BLAU (OPTIMAL!) <<< {counts} -> Offset ({updated:F2} ms{driftInfo}) bleibt unveraendert.");
                 break;
             case TachoFeedback.WayTooEarlyWhite:
                 if (activeEnemy?.IsBird == true)

@@ -69,6 +69,8 @@ internal sealed class TachoDetector : IDisposable
     public int LastBlueSliverCount { get; private set; }
     public int LastInitialGreenCount { get; private set; }
     public double LastUsedClickOffsetMs { get; private set; }
+    public double LastPredictedZeroTimeMs { get; private set; }
+    public double LastPhaseLockMadMs { get; private set; } = -1.0;
     public TachoFingerprint LastFingerprint { get; private set; }
     public bool JustAbortedWithoutClick { get; private set; }
     public string LastAbortReason { get; private set; } = "";
@@ -83,6 +85,14 @@ internal sealed class TachoDetector : IDisposable
         return "[" + string.Join(", ", _checkpoints.Select(c => $"{c.TimeMs - t0:F0}ms:{c.RemainingDeg:F0}°")) + "]";
     }
 
+    public List<(double TimeMs, double RemainingDeg)> GetLastCheckpointsCopy()
+    {
+        var list = new List<(double TimeMs, double RemainingDeg)>(_checkpoints.Count);
+        for (int i = 0; i < _checkpoints.Count; i++)
+            list.Add((_checkpoints[i].TimeMs, _checkpoints[i].RemainingDeg));
+        return list;
+    }
+
     // Exact measured bottom-of-ring pixel position (6 o'clock) in local box coordinates
     public int BottomSpotLocalX { get; private set; }
     public int BottomSpotLocalY { get; private set; }
@@ -94,6 +104,7 @@ internal sealed class TachoDetector : IDisposable
     private bool _greenEndLocked;
     private bool _setupResolvedForSpin;
     private double _activeSpinClickOffsetMs;
+    private TachoTemplateCurve? _activeSpinTemplateCurve;
     private double _prevRemainingDeg = 360.0;
     private int _zeroGreenFrames;
     private DateTime _armedSince = DateTime.MinValue;
@@ -115,6 +126,8 @@ internal sealed class TachoDetector : IDisposable
         _greenStableFrames = 0;
         _greenEndLocked = false;
         _setupResolvedForSpin = false;
+        _activeSpinTemplateCurve = null;
+        LastPhaseLockMadMs = -1.0;
         _checkpoints.Clear();
         _nextCheckpointDeg = -1;
     }
@@ -124,7 +137,7 @@ internal sealed class TachoDetector : IDisposable
         int centerY,
         double defaultClickOffsetMs,
         AppConfig cfg,
-        Func<TachoFingerprint, double>? onFingerprintReady = null)
+        Func<TachoFingerprint, (double OffsetMs, TachoTemplateCurve? TemplateCurve)>? onFingerprintReady = null)
     {
         JustArmed = false;
         JustAbortedWithoutClick = false;
@@ -321,6 +334,8 @@ internal sealed class TachoDetector : IDisposable
                 _greenEndLocked = false;
                 _setupResolvedForSpin = false;
                 _activeSpinClickOffsetMs = defaultClickOffsetMs;
+                _activeSpinTemplateCurve = null;
+                LastPhaseLockMadMs = -1.0;
                 _zeroGreenFrames = 0;
                 _prevRemainingDeg = 360.0;
                 _armedSince = DateTime.UtcNow;
@@ -416,15 +431,34 @@ internal sealed class TachoDetector : IDisposable
                     SpinTimeTo55Ms = spinTime55
                 };
                 LastFingerprint = fp;
-                _activeSpinClickOffsetMs = onFingerprintReady(fp);
+                var resolved = onFingerprintReady(fp);
+                _activeSpinClickOffsetMs = resolved.OffsetMs;
+                _activeSpinTemplateCurve = resolved.TemplateCurve;
+            }
+
+            // 2b. Sobald eine gelernte Master-Kurve vorliegt: 1-Parameter-Phase-Lock ueber alle Checkpoints!
+            //     Eliminiert Quadratik-Jitter (±2,5 ms -> < ±0,5 ms) und RemAtTrig-Bias auf schnellen 470-600°/s Tachos.
+            bool usedPhaseLock = false;
+            int phaseLockPts = 0;
+            double phaseLockMad = -1.0;
+            double effectiveZeroTimeMs = predictedZeroTimeMs;
+
+            if (_activeSpinTemplateCurve != null && _activeSpinTemplateCurve.IsReady)
+            {
+                var cpList = GetLastCheckpointsCopy();
+                if (_activeSpinTemplateCurve.TryPredictZeroTimeMs(cpList, out double lockZeroMs, out phaseLockPts, out phaseLockMad))
+                {
+                    effectiveZeroTimeMs = lockZeroMs;
+                    usedPhaseLock = true;
+                }
             }
 
             double usedOffset = _setupResolvedForSpin ? _activeSpinClickOffsetMs : defaultClickOffsetMs;
             double now = NowMs();
-            double clickTargetTimeMs = predictedZeroTimeMs - usedOffset;
+            double clickTargetTimeMs = effectiveZeroTimeMs - usedOffset;
             double waitMs = clickTargetTimeMs - now;
 
-            if (minRemainingDeg <= 105.0 && waitMs <= 26.0)
+            if (minRemainingDeg <= 105.0 && waitMs <= 36.0)
             {
                 double finalSpinTime55 = ComputeSpinTimeToDegMs(55.0, captureTimeMs, minRemainingDeg);
                 var finalFp = new TachoFingerprint
@@ -442,14 +476,31 @@ internal sealed class TachoDetector : IDisposable
                 if (!_setupResolvedForSpin && onFingerprintReady != null)
                 {
                     _setupResolvedForSpin = true;
-                    usedOffset = onFingerprintReady(finalFp);
+                    var resolved = onFingerprintReady(finalFp);
+                    usedOffset = resolved.OffsetMs;
                     _activeSpinClickOffsetMs = usedOffset;
-                    clickTargetTimeMs = predictedZeroTimeMs - usedOffset;
+                    _activeSpinTemplateCurve = resolved.TemplateCurve;
+
+                    if (_activeSpinTemplateCurve != null && _activeSpinTemplateCurve.IsReady)
+                    {
+                        var cpList = GetLastCheckpointsCopy();
+                        if (_activeSpinTemplateCurve.TryPredictZeroTimeMs(cpList, out double lockZeroMs, out phaseLockPts, out phaseLockMad))
+                        {
+                            effectiveZeroTimeMs = lockZeroMs;
+                            usedPhaseLock = true;
+                        }
+                    }
+
+                    clickTargetTimeMs = effectiveZeroTimeMs - usedOffset;
                     waitMs = clickTargetTimeMs - NowMs();
                 }
 
                 LastUsedClickOffsetMs = usedOffset;
-                LastTriggerReason = usedQuadratic ? "QUAD" : "LINEAR";
+                LastPredictedZeroTimeMs = predictedZeroTimeMs;
+                LastPhaseLockMadMs = usedPhaseLock ? phaseLockMad : -1.0;
+                LastTriggerReason = usedPhaseLock
+                    ? $"LOCK(n={phaseLockPts},mad={phaseLockMad:F1})"
+                    : (usedQuadratic ? "QUAD" : "LINEAR");
                 LastRemDegAtTrigger = minRemainingDeg;
                 LastWaitMsAtTrigger = waitMs;
 

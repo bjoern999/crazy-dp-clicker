@@ -38,11 +38,24 @@ internal sealed class OffsetPerformance
         : -999.0;
 
     /// <summary>
-    /// Bayesian-smoothed score (prior: 2 neutral clicks) so proven low-Red presets cleanly beat tiny noisy samples.
+    /// Konservativer Wilson-Risiko-Score: belohnt Blau (+1,00) & sicheres Gruen (+0,45), bestraft Rot (-2,20)
+    /// und Weiss (-1,40) stark und zieht bei kleinem N einen Wilson-Unsicherheitsabschlag (z=1,28) ab.
     /// </summary>
-    public double SmoothedScore => Total > 0
-        ? (BlueHits * 1.0 + GreenHits * 0.45 - RedHits * 2.20 - WhiteHits * 1.40 + 0.60) / (Total + 2.0)
-        : -999.0;
+    public double SmoothedScore
+    {
+        get
+        {
+            if (Total <= 0) return -999.0;
+            double baseScore = (BlueHits * 1.0 + GreenHits * 0.45 - RedHits * 2.20 - WhiteHits * 1.40 + 0.60) / (Total + 2.0);
+            double pBad = BadRate;
+            const double z = 1.28;
+            const double z2 = z * z;
+            double denom = 1.0 + z2 / Total;
+            double wilsonUpper = (pBad + z2 / (2.0 * Total) + z * Math.Sqrt((pBad * (1.0 - pBad) + z2 / (4.0 * Total)) / Total)) / denom;
+            double riskPenalty = 0.35 * Math.Max(0.0, wilsonUpper - pBad);
+            return baseScore - riskPenalty;
+        }
+    }
 
     /// <summary>
     /// True if this (Player, Tacho, Preset) triplet has consistently performed poorly (Red/White, never successful or >=30% Red).
@@ -66,7 +79,10 @@ internal sealed class DeploymentOutcomeRecord
 
 internal sealed class TachoSetupSlot
 {
+    public const int CurrentTimingVersion = 2; // v2 = zentrierte Tachos + TemplateCurve Phase-Lock
+
     public bool HasSignature { get; set; }
+    public int TimingVersion { get; set; } = 1; // Fehlt im Alt-JSON -> migriert einmalig sauber auf v2!
 
     // Feste Bildschirm-Position dieses Tachos fuer diesen Spieler
     public int X { get; set; }
@@ -82,6 +98,9 @@ internal sealed class TachoSetupSlot
     public double ClickOffsetMs { get; set; } = 41.0;
     public double DefaultClickOffsetMs { get; set; } = 41.0;
 
+    // Empirische Master-Kurve fuer 1-Parameter-Phase-Lock (< ±0,5 ms Jitter, 0 ms RemAtTrig-Bias)
+    public TachoTemplateCurve TemplateCurve { get; set; } = new();
+
     public int Samples { get; set; }
     public int BlueHits { get; set; }
     public int GreenHits { get; set; }
@@ -89,8 +108,11 @@ internal sealed class TachoSetupSlot
     public int WhiteHits { get; set; }
     public int TotalClicks { get; set; }
 
-    // Pro Offset gemerkte Treffer-Quoten fuer Rueckkehr zu bewaehrten Parametern
+    // Pro Offset gemerkte Treffer-Quoten fuer Rueckkehr zu bewaehrten Parametern (aktuelle TimingVersion)
     public List<OffsetPerformance> OffsetHistory { get; set; } = new();
+
+    // Archivierte Vor-Zentrierungs-Quoten (TimingVersion < 2), damit Altlasten die neue Engine nicht verzerren
+    public List<OffsetPerformance> LegacyOffsetHistory { get; set; } = new();
 
     // Pro Spieler-Einsatz (DeploymentId: 0 = Altbestand, 1, 2, 3... = fortlaufende Einsatz-Nr.) getaggte Statistik
     // fuer sauberes Umhaengen bei nachtraeglicher Spieler-Korrektur
@@ -105,16 +127,60 @@ internal sealed class TachoSetupSlot
     // True sobald alle 0,05ms-Zwischenwerte zwischen den Top-3 gereift (oder gesperrt) sind -> reine Top-1/2/3-Rotation!
     public bool IsRefinementComplete { get; set; }
 
-    // Laufzeit-Zaehler (nicht zwingend persistent), um bei Fehlversuchen auf bewaehrten Offset zurueckzukehren
+    // Laufzeit-Zaehler & fluechtiger Session-Drift gegen 60Hz-/DWM-Phasenverschiebung (nicht persistent)
     public int ConsecutiveNonBlue { get; set; }
     public int ConsecutiveRed { get; set; }
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public double SessionDriftMs { get; set; } = 0.0;
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public double EffectiveClickOffsetMs => Math.Clamp(Math.Round(ClickOffsetMs + SessionDriftMs, 2), 0.0, 120.0);
 
     public bool HasPosition => X > 0 && Y > 0;
     public double BlueRatePercent => TotalClicks > 0 ? 100.0 * BlueHits / TotalClicks : 0.0;
 
+    public bool MigrateToCurrentTimingVersion()
+    {
+        TemplateCurve ??= new TachoTemplateCurve();
+        TemplateCurve.EnsureArray();
+
+        if (TimingVersion >= CurrentTimingVersion)
+            return false;
+
+        // Bewahre den besten bisherigen Offset als vernuenftigen Startwert fuer die neue v2-Aera
+        var bestOld = GetTopPreset(1) ?? GetBestStartupPreset();
+        if (bestOld != null && bestOld.OffsetMs >= 30.0 && bestOld.OffsetMs <= 80.0)
+        {
+            ClickOffsetMs = bestOld.OffsetMs;
+            DefaultClickOffsetMs = bestOld.OffsetMs;
+        }
+
+        if (OffsetHistory.Count > 0)
+        {
+            LegacyOffsetHistory = new List<OffsetPerformance>(OffsetHistory);
+            OffsetHistory.Clear();
+        }
+        DeploymentHistory.Clear();
+        BlueHits = 0;
+        GreenHits = 0;
+        RedHits = 0;
+        WhiteHits = 0;
+        TotalClicks = 0;
+        IsMeisterTacho = false;
+        IsRefinementActive = false;
+        IsRefinementComplete = false;
+        ConsecutiveNonBlue = 0;
+        ConsecutiveRed = 0;
+        SessionDriftMs = 0.0;
+        TimingVersion = CurrentTimingVersion;
+        return true;
+    }
+
     public void InitFrom(TachoFingerprint fp, double initialOffsetMs, int x, int y)
     {
         HasSignature = true;
+        TimingVersion = CurrentTimingVersion;
         X = x;
         Y = y;
         GreenEndDeg = Math.Round(fp.GreenEndDeg, 1);
@@ -324,11 +390,13 @@ internal sealed class TachoSetupSlot
 
     /// <summary>
     /// Laedt beim Erkennen eines Spielers sofort das Top-1-Preset (falls gereift vorhanden)
-    /// bzw. sonst das Preset mit der bislang besten Erfolgsquote und meidet bekannte schlechte Presets.
+    /// bzw. sonst das Preset mit der bislang besten Erfolgsquote, setzt den Session-Drift zurueck
+    /// und meidet bekannte schlechte Presets.
     /// </summary>
     public (bool Changed, double OldOffsetMs, double NewOffsetMs, OffsetPerformance? ChosenStats) ApplyBestKnownPreset()
     {
         RefreshTopPresets();
+        SessionDriftMs = 0.0;
         double oldOffset = ClickOffsetMs;
         var best = GetTopPreset(1) ?? GetBestStartupPreset();
         if (best != null)
@@ -350,6 +418,70 @@ internal sealed class TachoSetupSlot
         }
 
         return (false, oldOffset, ClickOffsetMs, null);
+    }
+
+    /// <summary>
+    /// Adaptives Bracketing & Intervall-Halbierung (Bisection) zwischen kleinstem sicheren Gruen (G_low)
+    /// und groesstem zu-spaet-Preset (R_high / Vogel-Weiss): findet das schmale blaue Fenster auch auf 470-600°/s Tachos!
+    /// </summary>
+    public bool TryGetBisectionTarget(bool isBird, out double midOffsetMs, out double greenLowMs, out double lateHighMs)
+    {
+        midOffsetMs = 0;
+        greenLowMs = 0;
+        lateHighMs = 0;
+
+        // Nur aktiv, solange noch kein starkes Blau-Preset (>=40% Blau) gefunden wurde
+        var bestBlue = GetBestProvenOffset();
+        if (bestBlue != null && bestBlue.BlueRate >= 0.40)
+            return false;
+
+        var greenLow = OffsetHistory
+            .Where(h => !h.IsKnownBad && h.GreenHits >= 1 && (isBird ? h.WhiteHits == 0 : h.RedHits == 0))
+            .OrderBy(h => h.OffsetMs)
+            .FirstOrDefault();
+
+        if (greenLow == null)
+            return false;
+
+        var lateHigh = OffsetHistory
+            .Where(h => h.OffsetMs < greenLow.OffsetMs - 0.04 &&
+                        (isBird ? (h.RedHits + h.WhiteHits) >= 1 : h.RedHits >= 1))
+            .OrderByDescending(h => h.OffsetMs)
+            .FirstOrDefault();
+
+        if (lateHigh == null)
+            return false;
+
+        double span = greenLow.OffsetMs - lateHigh.OffsetMs;
+        if (span < 0.09 || span > 4.0)
+            return false;
+
+        double mid = SnapToFineMs((greenLow.OffsetMs + lateHigh.OffsetMs) / 2.0);
+        if (mid <= lateHigh.OffsetMs + 0.02 || mid >= greenLow.OffsetMs - 0.02)
+            return false;
+
+        if (IsPresetKnownBad(mid))
+            return false;
+
+        midOffsetMs = mid;
+        greenLowMs = greenLow.OffsetMs;
+        lateHighMs = lateHigh.OffsetMs;
+        return true;
+    }
+
+    private bool TryGetSafeGreenEscape(bool isBird, double currentMs, out double safeGreenMs)
+    {
+        safeGreenMs = 0;
+        var greenAbove = OffsetHistory
+            .Where(h => !h.IsKnownBad && h.GreenHits >= 1 &&
+                        (isBird ? h.WhiteHits == 0 : h.RedHits == 0) &&
+                        h.OffsetMs >= currentMs + 0.04 && h.OffsetMs <= currentMs + 2.5)
+            .OrderBy(h => h.OffsetMs)
+            .FirstOrDefault();
+        if (greenAbove == null)
+            return false;
+        safeGreenMs = greenAbove.OffsetMs;
+        return true;
     }
 
     private (double ResolvedOffsetMs, int SkippedBadCount) FindNextNonBadOffsetUp(double startOffsetMs)
@@ -387,11 +519,11 @@ internal sealed class TachoSetupSlot
         }
     }
 
-    public (double NewOffsetMs, double AppliedDeltaMs, bool RevertedToProven, OffsetPerformance? RevertedStats, int SkippedBadCount, bool BlockedBadCliff)
+    public (double NewOffsetMs, double AppliedDeltaMs, bool RevertedToProven, OffsetPerformance? RevertedStats, int SkippedBadCount, bool BlockedBadCliff, bool UsedBisection)
         RecordOutcomeAndTune(double usedOffsetMs, TachoFeedback fb, bool isFixedPlayer, bool isBird = false, int deploymentId = 0)
     {
         if (fb == TachoFeedback.None)
-            return (ClickOffsetMs, 0.0, false, null, 0, false);
+            return (ClickOffsetMs, 0.0, false, null, 0, false, false);
 
         TotalClicks++;
         double bucketOffset = SnapToFineMs(usedOffsetMs);
@@ -431,7 +563,7 @@ internal sealed class TachoSetupSlot
                 ConsecutiveNonBlue = 0;
                 ConsecutiveRed = 0;
                 RefreshTopPresets();
-                return (ClickOffsetMs, 0.0, false, null, 0, false);
+                return (ClickOffsetMs, 0.0, false, null, 0, false, false);
 
             case TachoFeedback.TooEarlyGreen:
                 GreenHits++;
@@ -469,7 +601,7 @@ internal sealed class TachoSetupSlot
 
         // 0. NOTBREMSE bei >= 2x Rot (bzw. Vogel Nach-Blau-Weiss) in Folge:
         //    Deutlich frueher klicken (+5,0 ms bzw. +8,0 ms ab 3x), damit es garantiert kein 3. Rot in Folge gibt!
-        //    Gilt in ALLEN Modi (Normal, Verfeinerung und Meister-Tacho).
+        //    Gilt in ALLEN Modi (Normal, Bisection, Verfeinerung und Meister-Tacho).
         if (isLateMiss && ConsecutiveRed >= 2)
         {
             double emergencyJump = ConsecutiveRed >= 3 ? +8.0 : +5.0;
@@ -488,14 +620,18 @@ internal sealed class TachoSetupSlot
             ClickOffsetMs = safeTarget;
             ConsecutiveNonBlue = 0;
             // ConsecutiveRed bleibt aktiv, bis wieder Gruen oder Blau getroffen wird!
-            return (ClickOffsetMs, applied, false, null, skippedBad, false);
+            return (ClickOffsetMs, applied, false, null, skippedBad, false, false);
         }
 
         // 0a. REFINEMENT- & MASTER-PHASE bei ROT (bzw. Vogel Nach-Blau-Weiss):
         //     Immer das naechste Top-Preset waehlen, das FRUEHER klickt (hoeherer Offset).
+        //     Zusaetzlich auf gereiftem Top-Preset den fluechtigen SessionDriftMs sanft +1,0 ms nachfuehren.
         //     Falls bereits auf (oder ueber) dem am fruehesten klickenden Top-Preset: trotzdem frueher klicken (+0,75 ms)!
         if (isLateMiss && (IsMeisterTacho || top1 != null))
         {
+            if (stat.TopRank > 0)
+                SessionDriftMs = Math.Clamp(Math.Round(SessionDriftMs + 1.0, 2), -4.0, 8.0);
+
             var earlierTop = new[] { top1, top2, top3 }
                 .Where(t => t != null && t.OffsetMs > ClickOffsetMs + 0.02)
                 .OrderBy(t => t!.OffsetMs)
@@ -506,19 +642,17 @@ internal sealed class TachoSetupSlot
                 double delta = Math.Round(earlierTop.OffsetMs - ClickOffsetMs, 2);
                 ClickOffsetMs = earlierTop.OffsetMs;
                 ConsecutiveNonBlue = 0;
-                // ConsecutiveRed NICHT loeschen -> falls es nochmal Rot gibt, greift sofort die Notbremse!
-                return (ClickOffsetMs, delta, true, earlierTop, 0, false);
+                return (ClickOffsetMs, delta, true, earlierTop, 0, false, false);
             }
 
             if (IsMeisterTacho)
             {
-                // Bereits am fruehesten Top-Preset -> trotzdem frueher klicken (niemals auf ein spaeteres Top-Preset zurueckfallen!)
                 double rawTarget = Math.Clamp(Math.Round(ClickOffsetMs + 0.75, 2), 0.0, 120.0);
                 var (safeTarget, skippedBad) = FindNextNonBadOffsetUp(rawTarget);
                 double applied = Math.Round(safeTarget - ClickOffsetMs, 2);
                 ClickOffsetMs = safeTarget;
                 ConsecutiveNonBlue = 0;
-                return (ClickOffsetMs, applied, false, null, skippedBad, false);
+                return (ClickOffsetMs, applied, false, null, skippedBad, false, false);
             }
         }
 
@@ -534,14 +668,13 @@ internal sealed class TachoSetupSlot
                 ClickOffsetMs = nextFine.Value;
                 ConsecutiveNonBlue = 0;
                 ConsecutiveRed = 0;
-                return (ClickOffsetMs, delta, false, null, 0, false);
+                return (ClickOffsetMs, delta, false, null, 0, false, false);
             }
         }
 
         // 0c. Finaler Meister-Tacho (Verfeinerung abgeschlossen) bei GRUEN / WEISS:
         if (!isLateMiss && IsMeisterTacho && IsRefinementComplete)
         {
-            // Finaler Meister-Tacho (Verfeinerung abgeschlossen): ausschliesslich zwischen Top-1 / Top-2 / Top-3 bleiben!
             if (fb == TachoFeedback.TooEarlyGreen)
             {
                 if (stat.TopRank == 0 && top1 != null)
@@ -550,9 +683,16 @@ internal sealed class TachoSetupSlot
                     ClickOffsetMs = top1.OffsetMs;
                     ConsecutiveNonBlue = 0;
                     ConsecutiveRed = 0;
-                    return (ClickOffsetMs, delta, true, top1, 0, false);
+                    return (ClickOffsetMs, delta, true, top1, 0, false, false);
                 }
-                return (ClickOffsetMs, 0.0, false, null, 0, false);
+
+                // Bei 3x Gruen in Folge auf gereiftem Top-Preset: sanften Session-Drift -0,35 ms zulassen
+                if (stat.TopRank > 0 && ConsecutiveNonBlue >= 3)
+                {
+                    SessionDriftMs = Math.Clamp(Math.Round(SessionDriftMs - 0.35, 2), -4.0, 8.0);
+                    ConsecutiveNonBlue = 0;
+                }
+                return (ClickOffsetMs, 0.0, false, null, 0, false, false);
             }
 
             if (fb == TachoFeedback.WayTooEarlyWhite)
@@ -564,16 +704,14 @@ internal sealed class TachoSetupSlot
                     ClickOffsetMs = nextTop.OffsetMs;
                     ConsecutiveNonBlue = 0;
                     ConsecutiveRed = 0;
-                    return (ClickOffsetMs, delta, true, nextTop, 0, false);
+                    return (ClickOffsetMs, delta, true, nextTop, 0, false, false);
                 }
             }
         }
 
         var bestProven = top1 ?? GetBestProvenOffset();
 
-        // 1. Bei WEISS:
-        //    - Vierbeiner (oder Vogel VOR Gruen): viel zu frueh -> sofort auf bestes Preset (oder beim Vogel Schritt runter)
-        //    - Vogel NACH Blau (isBirdPostBlueLate): zu spaet! Behandeln wie Rot -> Offset erhoehen (frueher klicken)!
+        // 1. Bei WEISS (Vierbeiner oder Vogel VOR Gruen):
         if (fb == TachoFeedback.WayTooEarlyWhite && !isBirdPostBlueLate)
         {
             var target = bestProven ?? GetBestStartupPreset();
@@ -583,7 +721,7 @@ internal sealed class TachoSetupSlot
                 ClickOffsetMs = target.OffsetMs;
                 ConsecutiveNonBlue = 0;
                 ConsecutiveRed = 0;
-                return (ClickOffsetMs, delta, true, target, 0, false);
+                return (ClickOffsetMs, delta, true, target, 0, false, false);
             }
 
             if (isBird)
@@ -594,7 +732,7 @@ internal sealed class TachoSetupSlot
                 ClickOffsetMs = rawTarget;
                 ConsecutiveNonBlue = 0;
                 ConsecutiveRed = 0;
-                return (ClickOffsetMs, applied, false, null, 0, false);
+                return (ClickOffsetMs, applied, false, null, 0, false, false);
             }
 
             double def = DefaultClickOffsetMs > 0 ? DefaultClickOffsetMs : 41.0;
@@ -603,34 +741,28 @@ internal sealed class TachoSetupSlot
             ClickOffsetMs = safeDef;
             ConsecutiveNonBlue = 0;
             ConsecutiveRed = 0;
-            return (ClickOffsetMs, defDelta, false, null, sk, false);
+            return (ClickOffsetMs, defDelta, false, null, sk, false, false);
         }
 
-        // 2. Sofort-Schutz gegen Rot-Serien (bzw. Vogel Post-Blau-Weiss-Serien) & Abdriften in schlechte Presets:
-        if (fb == TachoFeedback.TooLateRed || isBirdPostBlueLate)
+        // 2. Sofort-Schutz gegen Rot-Serien & Bisection-Rueckzug auf sicheres Gruen:
+        if (isLateMiss)
         {
-            // 2a. Aktuelles Preset ist als schlecht markiert oder wir hatten >= 2x zu spaet:
-            //     Sofort auf das beste bewaehrte Preset (bei >= 2x auf diesem Bucket: bestes *anderes* bewaehrtes Preset!) springen!
-            if (ConsecutiveRed >= 2)
+            if (stat.IsKnownBad && bestProven != null && Math.Abs(bestProven.OffsetMs - ClickOffsetMs) >= 0.25)
             {
-                var bestAlt = GetBestProvenOffset(excludeOffsetMs: bucketOffset) ?? bestProven;
-                if (bestAlt != null && Math.Abs(bestAlt.OffsetMs - ClickOffsetMs) >= 0.20)
-                {
-                    double delta = Math.Round(bestAlt.OffsetMs - ClickOffsetMs, 2);
-                    ClickOffsetMs = bestAlt.OffsetMs;
-                    ConsecutiveNonBlue = 0;
-                    ConsecutiveRed = 0;
-                    return (ClickOffsetMs, delta, true, bestAlt, 0, false);
-                }
-            }
-            else if (stat.IsKnownBad && bestProven != null && Math.Abs(bestProven.OffsetMs - ClickOffsetMs) >= 0.25)
-            {
-                // Schon nach 1x zu spaet auf einem bisher erfolglosen Preset sofort zum bewaehrten Champion zurueck!
                 double delta = Math.Round(bestProven.OffsetMs - ClickOffsetMs, 2);
                 ClickOffsetMs = bestProven.OffsetMs;
                 ConsecutiveNonBlue = 0;
-                ConsecutiveRed = 0;
-                return (ClickOffsetMs, delta, true, bestProven, 0, false);
+                return (ClickOffsetMs, delta, true, bestProven, 0, false, false);
+            }
+
+            // Bisection-Schutz: Wenn wir bei der Blau-Suche 1x Rot treffen und knapp darueber ein sicheres Gruen kennen,
+            // sofort sicher auf dieses Gruen zurueckziehen (verhindert 2x Rot, naechste Runde halbiert dann weiter)!
+            if (bestProven == null && TryGetSafeGreenEscape(isBird, ClickOffsetMs, out double safeGreenMs))
+            {
+                double delta = Math.Round(safeGreenMs - ClickOffsetMs, 2);
+                ClickOffsetMs = safeGreenMs;
+                ConsecutiveNonBlue = 0;
+                return (ClickOffsetMs, delta, false, null, 0, false, true);
             }
         }
         else if (fb == TachoFeedback.TooEarlyGreen && bestProven != null && Math.Abs(ClickOffsetMs - bestProven.OffsetMs) >= 1.25)
@@ -644,24 +776,20 @@ internal sealed class TachoSetupSlot
                 ClickOffsetMs = bestProven.OffsetMs;
                 ConsecutiveNonBlue = 0;
                 ConsecutiveRed = 0;
-                return (ClickOffsetMs, delta, true, bestProven, 0, false);
+                return (ClickOffsetMs, delta, true, bestProven, 0, false, false);
             }
         }
 
-        // 3. Regulare Anpassung mit Sperre fuer bekannte schlechte Presets:
-        if (fb == TachoFeedback.TooLateRed || isBirdPostBlueLate)
+        // 3. Regulaere Anpassung bei Rot (bzw. Vogel Nach-Blau-Weiss):
+        if (isLateMiss)
         {
             double redStep;
             if (!isFixedPlayer)
                 redStep = +2.5;
             else if (isBirdPostBlueLate && bestProven == null)
-                redStep = ConsecutiveRed >= 2 ? +2.5 : +1.5; // Vogel: zuegig aus dem Nach-Blau-Weiss ins breite Blau klettern
-            else if (bestProven == null && ConsecutiveRed >= 3)
-                redStep = +3.0;
+                redStep = +1.5;
             else if (bestProven == null && EndSpeedDegPerSec >= 440.0)
                 redStep = +1.5;
-            else if (ConsecutiveRed >= 2)
-                redStep = +1.5; // Auch bei bekanntem Spieler nach 2x zu spaet schneller heraus
             else
                 redStep = +0.75;
 
@@ -669,9 +797,10 @@ internal sealed class TachoSetupSlot
             var (safeTarget, skippedBad) = FindNextNonBadOffsetUp(rawTarget);
             double applied = Math.Round(safeTarget - ClickOffsetMs, 2);
             ClickOffsetMs = safeTarget;
-            return (ClickOffsetMs, applied, false, null, skippedBad, false);
+            return (ClickOffsetMs, applied, false, null, skippedBad, false, false);
         }
 
+        // 4. Regulaere Anpassung bei GRUEN + BISECTION statt "Gruen-Einfrieren":
         if (fb == TachoFeedback.TooEarlyGreen)
         {
             // Auf einem stark bewaehrten Best-Preset (>=8 Klicks, >=50% Blau, <=10% Rot) nicht nach nur 1x Gruen wegdriften!
@@ -682,13 +811,22 @@ internal sealed class TachoSetupSlot
                 bestProven.RedRate <= 0.10 &&
                 ConsecutiveNonBlue < 2)
             {
-                return (ClickOffsetMs, 0.0, false, null, 0, false);
+                return (ClickOffsetMs, 0.0, false, null, 0, false, false);
+            }
+
+            // BISECTION: Wenn zwischen kleinstem sicheren Gruen (G_low) und groesstem Rot (R_high)
+            // noch Platz ist (>= 0,10 ms) und noch kein starkes Blau existiert -> exakt halbieren (bis 0,05 ms)!
+            if (TryGetBisectionTarget(isBird, out double bisectionMid, out _, out _))
+            {
+                double delta = Math.Round(bisectionMid - ClickOffsetMs, 2);
+                ClickOffsetMs = bisectionMid;
+                ConsecutiveNonBlue = 0;
+                return (ClickOffsetMs, delta, false, null, 0, false, true);
             }
 
             double greenStep = isFixedPlayer ? -0.25 : -0.5;
             double rawTarget = Math.Clamp(Math.Round(ClickOffsetMs + greenStep, 2), 0.0, 120.0);
 
-            // Wichtig: Beim Schritt nach UNTEN (spaeter klicken) niemals auf ein bekanntes Rot-Preset treten!
             if (IsPresetKnownBad(rawTarget))
             {
                 if (bestProven != null && Math.Abs(bestProven.OffsetMs - ClickOffsetMs) >= 0.25)
@@ -696,18 +834,18 @@ internal sealed class TachoSetupSlot
                     double delta = Math.Round(bestProven.OffsetMs - ClickOffsetMs, 2);
                     ClickOffsetMs = bestProven.OffsetMs;
                     ConsecutiveNonBlue = 0;
-                    return (ClickOffsetMs, delta, true, bestProven, 1, true);
+                    return (ClickOffsetMs, delta, true, bestProven, 1, true, false);
                 }
 
-                // Lieber auf dem sicheren Gruen-Preset bleiben statt in ein bekannt schlechtes Rot-Preset zu fallen!
-                return (ClickOffsetMs, 0.0, false, null, 1, true);
+                // Kein Zwischenraum >= 0,10 ms mehr -> sicher auf Gruen bleiben
+                return (ClickOffsetMs, 0.0, false, null, 1, true, false);
             }
 
             ClickOffsetMs = rawTarget;
-            return (ClickOffsetMs, greenStep, false, null, 0, false);
+            return (ClickOffsetMs, greenStep, false, null, 0, false, false);
         }
 
-        return (ClickOffsetMs, 0.0, false, null, 0, false);
+        return (ClickOffsetMs, 0.0, false, null, 0, false, false);
     }
 
     public double DistanceTo(TachoFingerprint fp)
@@ -840,15 +978,20 @@ internal sealed class EnemySetupStore
         {
             string json = File.ReadAllText(StorePath);
             var store = JsonSerializer.Deserialize<EnemySetupStore>(json) ?? new EnemySetupStore();
+            int migratedSlots = 0;
             foreach (var s in store.Setups)
             {
                 s.EnsureSlots();
                 foreach (var sl in s.Tachos)
                 {
+                    if (sl.MigrateToCurrentTimingVersion())
+                        migratedSlots++;
                     sl.EnsureDeploymentBackfill();
                     sl.RefreshTopPresets();
                 }
             }
+            if (migratedSlots > 0)
+                Console.WriteLine($"[Timing v2] {migratedSlots} Tacho-Slots sauber in TimingVersion=2 migriert (Alt-Quoten in LegacyOffsetHistory archiviert).");
             if (store.NextId <= store.Setups.Count)
                 store.NextId = (store.Setups.Count > 0 ? store.Setups.Max(s => s.Id) : 0) + 1;
 
