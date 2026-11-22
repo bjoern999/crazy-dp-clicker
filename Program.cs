@@ -402,6 +402,11 @@ internal static class Program
 
                         // 3. Direkt nach dem Klick die Farbe auf den unteren 9x9 Pixeln messen
                         TachoFeedback fb = detectors[cur].MeasureBottomColorAfterClick(cur + 1, curX, curY, cfg);
+                        if (cur == 1 && fb == TachoFeedback.None)
+                        {
+                            fb = TachoFeedback.TooLateRed;
+                            Console.WriteLine($"[Nach-Klick {(activeEnemy?.Name ?? "Standard")} T2] Keine Farbe erkannt -> als ROT (zu spaet) gewertet!");
+                        }
 
                         // 4. Sofort den Offset des erkannten Spieler-Setups (mit Treffer-Quoten & Auto-Revert) anpassen
                         double newOffset = HandleTachoFeedback(cur, usedOffsetMs, fb, detectors[cur], cfg, enemyStore, activeEnemy);
