@@ -655,7 +655,7 @@ internal sealed class TachoDetector : IDisposable
             return LastFeedback;
         }
 
-        if (whiteFrames >= 8)
+        if (whiteFrames >= 3 || lastWhiteCount >= 40)
         {
             LastFeedback = TachoFeedback.WayTooEarlyWhite;
             return LastFeedback;

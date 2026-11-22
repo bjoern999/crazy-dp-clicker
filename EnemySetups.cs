@@ -24,6 +24,7 @@ internal sealed class OffsetPerformance
     public double BlueRate => Total > 0 ? (double)BlueHits / Total : 0.0;
     public double SafeRate => Total > 0 ? (double)(BlueHits + GreenHits) / Total : 0.0;
     public double RedRate => Total > 0 ? (double)RedHits / Total : 0.0;
+    public double BadRate => Total > 0 ? (double)(RedHits + WhiteHits) / Total : 0.0;
 
     /// <summary>
     /// Composite quality score favoring high Blue hit rate while penalizing Red (0 points) & White.
@@ -44,8 +45,8 @@ internal sealed class OffsetPerformance
     /// </summary>
     public bool IsKnownBad =>
         (Total >= 1 && BlueHits == 0 && GreenHits == 0 && (RedHits + WhiteHits) >= 1) ||
-        (Total >= 3 && BlueHits == 0 && RedRate >= 0.50) ||
-        (Total >= 4 && BlueRate < 0.15 && RedRate >= 0.40);
+        (Total >= 3 && BlueHits == 0 && BadRate >= 0.50) ||
+        (Total >= 4 && BlueRate < 0.15 && BadRate >= 0.40);
 }
 
 internal sealed class TachoSetupSlot
@@ -237,7 +238,7 @@ internal sealed class TachoSetupSlot
     }
 
     public (double NewOffsetMs, double AppliedDeltaMs, bool RevertedToProven, OffsetPerformance? RevertedStats, int SkippedBadCount, bool BlockedBadCliff)
-        RecordOutcomeAndTune(double usedOffsetMs, TachoFeedback fb, bool isFixedPlayer)
+        RecordOutcomeAndTune(double usedOffsetMs, TachoFeedback fb, bool isFixedPlayer, bool isBird = false)
     {
         if (fb == TachoFeedback.None)
             return (ClickOffsetMs, 0.0, false, null, 0, false);
@@ -250,6 +251,18 @@ internal sealed class TachoSetupSlot
         {
             stat = new OffsetPerformance { OffsetMs = bucketOffset };
             OffsetHistory.Add(stat);
+        }
+
+        // Bei Spielern vom Typ "Vogel" (z.B. Therizinosaurus) folgt NACH dem blauen Bereich noch ein zweiter
+        // WEISSER Bereich (Runde nicht verloren, aber wenig Impact - gleicher Farbstatus "Weiss" wie vor Gruen!).
+        bool isBirdPostBlueLate = false;
+        if (isBird && fb == TachoFeedback.WayTooEarlyWhite)
+        {
+            var refGood = GetBestProvenOffset() ?? GetBestStartupPreset();
+            if (refGood != null)
+                isBirdPostBlueLate = usedOffsetMs <= refGood.OffsetMs + 8.0;
+            else
+                isBirdPostBlueLate = usedOffsetMs < 72.0;
         }
 
         switch (fb)
@@ -279,14 +292,19 @@ internal sealed class TachoSetupSlot
                 WhiteHits++;
                 stat.WhiteHits++;
                 ConsecutiveNonBlue++;
-                ConsecutiveRed = 0;
+                if (isBirdPostBlueLate)
+                    ConsecutiveRed++;
+                else
+                    ConsecutiveRed = 0;
                 break;
         }
 
         var bestProven = GetBestProvenOffset();
 
-        // 1. Bei WEISS (viel zu frueh): sofort auf das beste bekannte Preset zurueckkehren
-        if (fb == TachoFeedback.WayTooEarlyWhite)
+        // 1. Bei WEISS:
+        //    - Vierbeiner (oder Vogel VOR Gruen): viel zu frueh -> sofort auf bestes Preset (oder beim Vogel Schritt runter)
+        //    - Vogel NACH Blau (isBirdPostBlueLate): zu spaet! Behandeln wie Rot -> Offset erhoehen (frueher klicken)!
+        if (fb == TachoFeedback.WayTooEarlyWhite && !isBirdPostBlueLate)
         {
             var target = bestProven ?? GetBestStartupPreset();
             if (target != null)
@@ -298,6 +316,17 @@ internal sealed class TachoSetupSlot
                 return (ClickOffsetMs, delta, true, target, 0, false);
             }
 
+            if (isBird)
+            {
+                double stepDown = -3.0;
+                double rawTarget = Math.Clamp(Math.Round(ClickOffsetMs + stepDown, 2), 0.0, 120.0);
+                double applied = Math.Round(rawTarget - ClickOffsetMs, 2);
+                ClickOffsetMs = rawTarget;
+                ConsecutiveNonBlue = 0;
+                ConsecutiveRed = 0;
+                return (ClickOffsetMs, applied, false, null, 0, false);
+            }
+
             double def = DefaultClickOffsetMs > 0 ? DefaultClickOffsetMs : 41.0;
             var (safeDef, sk) = FindNextNonBadOffsetUp(def);
             double defDelta = Math.Round(safeDef - ClickOffsetMs, 2);
@@ -307,11 +336,11 @@ internal sealed class TachoSetupSlot
             return (ClickOffsetMs, defDelta, false, null, sk, false);
         }
 
-        // 2. Sofort-Schutz gegen Rot-Serien & Abdriften in schlechte Presets:
-        if (fb == TachoFeedback.TooLateRed)
+        // 2. Sofort-Schutz gegen Rot-Serien (bzw. Vogel Post-Blau-Weiss-Serien) & Abdriften in schlechte Presets:
+        if (fb == TachoFeedback.TooLateRed || isBirdPostBlueLate)
         {
-            // 2a. Aktuelles Preset ist als schlecht markiert oder wir hatten >= 2x Rot:
-            //     Sofort auf das beste bewaehrte Preset (bei >= 2x Rot auf diesem Bucket: bestes *anderes* bewaehrtes Preset!) springen!
+            // 2a. Aktuelles Preset ist als schlecht markiert oder wir hatten >= 2x zu spaet:
+            //     Sofort auf das beste bewaehrte Preset (bei >= 2x auf diesem Bucket: bestes *anderes* bewaehrtes Preset!) springen!
             if (ConsecutiveRed >= 2)
             {
                 var bestAlt = GetBestProvenOffset(excludeOffsetMs: bucketOffset) ?? bestProven;
@@ -326,7 +355,7 @@ internal sealed class TachoSetupSlot
             }
             else if (stat.IsKnownBad && bestProven != null && Math.Abs(bestProven.OffsetMs - ClickOffsetMs) >= 0.25)
             {
-                // Schon nach 1x Rot auf einem bisher erfolglosen Preset sofort zum bewaehrten Champion zurueck!
+                // Schon nach 1x zu spaet auf einem bisher erfolglosen Preset sofort zum bewaehrten Champion zurueck!
                 double delta = Math.Round(bestProven.OffsetMs - ClickOffsetMs, 2);
                 ClickOffsetMs = bestProven.OffsetMs;
                 ConsecutiveNonBlue = 0;
@@ -350,17 +379,19 @@ internal sealed class TachoSetupSlot
         }
 
         // 3. Regulare Anpassung mit Sperre fuer bekannte schlechte Presets:
-        if (fb == TachoFeedback.TooLateRed)
+        if (fb == TachoFeedback.TooLateRed || isBirdPostBlueLate)
         {
             double redStep;
             if (!isFixedPlayer)
                 redStep = +2.5;
+            else if (isBirdPostBlueLate && bestProven == null)
+                redStep = ConsecutiveRed >= 2 ? +2.5 : +1.5; // Vogel: zuegig aus dem Nach-Blau-Weiss ins breite Blau klettern
             else if (bestProven == null && ConsecutiveRed >= 3)
                 redStep = +3.0;
             else if (bestProven == null && EndSpeedDegPerSec >= 440.0)
                 redStep = +1.5;
             else if (ConsecutiveRed >= 2)
-                redStep = +1.5; // Auch bei bekanntem Spieler nach 2x Rot schneller aus dem Roten heraus
+                redStep = +1.5; // Auch bei bekanntem Spieler nach 2x zu spaet schneller heraus
             else
                 redStep = +0.75;
 
@@ -475,11 +506,15 @@ internal sealed class EnemySetup
 {
     public int Id { get; set; }
     public string Name { get; set; } = "";
+    public string DinoType { get; set; } = "Vierbeiner"; // "Vierbeiner" oder "Vogel"
     public bool IsFixed { get; set; }
     public int ProfileSize { get; set; } = 2;
     public DinoVisualFingerprint? Visual { get; set; }
     public List<TachoSetupSlot> Tachos { get; set; } = new();
     public DateTime LastSeenUtc { get; set; } = DateTime.UtcNow;
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsBird => string.Equals(DinoType, "Vogel", StringComparison.OrdinalIgnoreCase);
 
     public bool HasVisual => Visual != null && Visual.IsCurrentVersion;
 

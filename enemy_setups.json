@@ -1143,7 +1143,8 @@
                        "LastSeenUtc":  "2026-11-22T07:28:16.1265015Z",
                        "HasVisual":  true,
                        "TotalBlueHits":  337,
-                       "TotalClicks":  572
+                       "TotalClicks":  572,
+                       "DinoType":  "Vierbeiner"
                    },
                    {
                        "Id":  2,
@@ -2581,7 +2582,8 @@
                        "LastSeenUtc":  "2026-11-21T22:56:19.991803Z",
                        "HasVisual":  true,
                        "TotalBlueHits":  61,
-                       "TotalClicks":  141
+                       "TotalClicks":  141,
+                       "DinoType":  "Vierbeiner"
                    },
                    {
                        "Id":  3,
@@ -3201,7 +3203,8 @@
                        "LastSeenUtc":  "2026-11-22T07:32:47.020141Z",
                        "HasVisual":  false,
                        "TotalBlueHits":  17,
-                       "TotalClicks":  22
+                       "TotalClicks":  22,
+                       "DinoType":  "Vierbeiner"
                    },
                    {
                        "Id":  4,
@@ -4625,7 +4628,8 @@
                        "LastSeenUtc":  "2026-11-22T07:22:13.2243419Z",
                        "HasVisual":  true,
                        "TotalBlueHits":  39,
-                       "TotalClicks":  135
+                       "TotalClicks":  135,
+                       "DinoType":  "Vierbeiner"
                    },
                    {
                        "Id":  5,
@@ -4940,7 +4944,8 @@
                        "LastSeenUtc":  "2026-11-22T06:23:06.6219646Z",
                        "HasVisual":  false,
                        "TotalBlueHits":  30,
-                       "TotalClicks":  62
+                       "TotalClicks":  62,
+                       "DinoType":  "Vierbeiner"
                    },
                    {
                        "Id":  6,
@@ -6000,7 +6005,8 @@
                        "LastSeenUtc":  "2026-11-22T07:31:25.312083Z",
                        "HasVisual":  true,
                        "TotalBlueHits":  82,
-                       "TotalClicks":  198
+                       "TotalClicks":  198,
+                       "DinoType":  "Vierbeiner"
                    },
                    {
                        "Id":  7,
@@ -6710,7 +6716,8 @@
                        "LastSeenUtc":  "2026-11-22T06:56:27.9599548Z",
                        "HasVisual":  true,
                        "TotalBlueHits":  7,
-                       "TotalClicks":  14
+                       "TotalClicks":  14,
+                       "DinoType":  "Vierbeiner"
                    },
                    {
                        "Id":  8,
@@ -7350,7 +7357,8 @@
                        "LastSeenUtc":  "2026-11-22T07:16:36.8733792Z",
                        "HasVisual":  true,
                        "TotalBlueHits":  4,
-                       "TotalClicks":  8
+                       "TotalClicks":  8,
+                       "DinoType":  "Vierbeiner"
                    },
                    {
                        "Id":  9,
@@ -7399,22 +7407,29 @@
                                           "EndSpeedDegPerSec":  248,
                                           "AccelDegPerSec2":  0,
                                           "SpinTimeTo55Ms":  659.8,
-                                          "ClickOffsetMs":  43,
-                                          "DefaultClickOffsetMs":  43,
+                                          "ClickOffsetMs":  46,
+                                          "DefaultClickOffsetMs":  46,
                                           "Samples":  3,
                                           "BlueHits":  0,
                                           "GreenHits":  0,
                                           "RedHits":  0,
-                                          "WhiteHits":  0,
-                                          "TotalClicks":  0,
+                                          "WhiteHits":  3,
+                                          "TotalClicks":  3,
                                           "OffsetHistory":  [
-
+                                                                {
+                                                                    "OffsetMs":  43,
+                                                                    "BlueHits":  0,
+                                                                    "GreenHits":  0,
+                                                                    "RedHits":  0,
+                                                                    "WhiteHits":  3
+                                                                }
                                                             ],
                                           "ConsecutiveNonBlue":  0,
                                           "ConsecutiveRed":  0
                                       }
                                   ],
-                       "LastSeenUtc":  "2026-11-22T07:38:37.8544015Z"
+                       "LastSeenUtc":  "2026-11-22T07:38:37.8544015Z",
+                       "DinoType":  "Vogel"
                    }
                ]
 }

@@ -320,7 +320,7 @@ internal static class Program
                                 int badCnt = slot.CountKnownBadPresets();
                                 string badStr = badCnt > 0 ? $", Gesperrt={badCnt}" : "";
                                 Console.WriteLine(
-                                    $"[Spieler-Setup] {matched.Name} [{tag}{visStr}] | T{cur + 1}: v={fp.EndSpeedDegPerSec:F1}°/s, a={fp.AccelDegPerSec2:F0}°/s², T55={fp.SpinTimeTo55Ms:F0}ms, G={fp.GreenWidthDeg:F0}° -> Offset {enemyOffset:F2} ms{curStatStr}{bestStr}{badStr}");
+                                    $"[Spieler-Setup] {matched.Name} ({matched.DinoType}) [{tag}{visStr}] | T{cur + 1}: v={fp.EndSpeedDegPerSec:F1}°/s, a={fp.AccelDegPerSec2:F0}°/s², T55={fp.SpinTimeTo55Ms:F0}ms, G={fp.GreenWidthDeg:F0}° -> Offset {enemyOffset:F2} ms{curStatStr}{bestStr}{badStr}");
                             }
 
                             return enemyOffset;
@@ -579,7 +579,7 @@ internal static class Program
             ActiveTachoIndex = activeIdx,
             TotalTachos = tachos.Count,
             AllOffsetsSummary = summary,
-            EnemySetupName = activeEnemy?.Name ?? "",
+            EnemySetupName = activeEnemy != null ? $"{activeEnemy.Name} [{activeEnemy.DinoType}]" : "",
             EnemySetupIsFixed = activeEnemy?.IsFixed ?? false,
             EnemySetupIsNew = activeEnemyIsNew,
             EnemyBlueHits = activeEnemy?.TotalBlueHits ?? 0,
@@ -689,7 +689,7 @@ internal static class Program
             activeEnemy.EnsureSlots();
             var slot = activeEnemy.Tachos[tachoIndex];
             (updated, appliedDelta, reverted, revertedStats, skippedBadCount, blockedBadCliff) =
-                slot.RecordOutcomeAndTune(usedOffsetMs, fb, activeEnemy.IsFixed);
+                slot.RecordOutcomeAndTune(usedOffsetMs, fb, activeEnemy.IsFixed, activeEnemy.IsBird);
 
             if (detector.LastFingerprint.EndSpeedDegPerSec > 50.0)
             {
@@ -745,7 +745,17 @@ internal static class Program
                 Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> BLAU (OPTIMAL!) <<< {counts} -> Offset ({updated:F2} ms) bleibt unveraendert.");
                 break;
             case TachoFeedback.WayTooEarlyWhite:
-                Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> WEISS (VIEL ZU FRUEH!) <<< {counts} -> Offset auf Startwert {updated:F2} ms zurueckgesetzt!");
+                if (activeEnemy?.IsBird == true)
+                {
+                    string birdDir = appliedDelta > 0
+                        ? "WEISS (VOGEL: NACH BLAU / ZU SPAET!)"
+                        : "WEISS (VOGEL: VOR GRUEN / ZU FRUEH!)";
+                    Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> {birdDir} <<< {counts} -> Offset {appliedDelta:+0.00;-0.00} ms auf {updated:F2} ms{skipNote}");
+                }
+                else
+                {
+                    Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> WEISS (VIEL ZU FRUEH!) <<< {counts} -> Offset auf Startwert {updated:F2} ms zurueckgesetzt!");
+                }
                 break;
             default:
                 Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] Keine eindeutige Farbe erkannt {counts} -> Offset bleibt {updated:F2} ms.");
