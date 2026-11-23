@@ -25,6 +25,7 @@ internal sealed class OffsetPerformance
     public int Total => BlueHits + GreenHits + RedHits + WhiteHits;
     public bool IsMature => Total >= MatureMinSamples;
     public int TopRank { get; set; } // 1 = Top-1, 2 = Top-2, 3 = Top-3, 0 = nicht in Top-3
+    public bool ManualTop1 { get; set; } // Manuell gesetztes Top-1 (bleibt erhalten, auch wenn N < 30)
     public double BlueRate => Total > 0 ? (double)BlueHits / Total : 0.0;
     public double SafeRate => Total > 0 ? (double)(BlueHits + GreenHits) / Total : 0.0;
     public double RedRate => Total > 0 ? (double)RedHits / Total : 0.0;
@@ -361,9 +362,17 @@ internal sealed class TachoSetupSlot
 
         var assigned = new List<OffsetPerformance>(3);
 
-        for (int i = 0; i < topCandidates.Count; i++)
+        // Manuell gesetztes Top-1 immer zuerst beruecksichtigen (solange nicht Rot-gesperrt / <= Rot-Ende)
+        var manualTop1 = OffsetHistory
+            .FirstOrDefault(h => h.ManualTop1 && !h.IsRedLocked && !IsBlockedByRedFloor(h.OffsetMs));
+        if (manualTop1 != null)
+            assigned.Add(manualTop1);
+
+        for (int i = 0; i < topCandidates.Count && assigned.Count < 3; i++)
         {
             var chosen = topCandidates[i];
+            if (assigned.Contains(chosen))
+                continue;
 
             // Reines Gruen-Top-Preset? -> Staerker in Richtung "riskant" (spaeter klicken) verschieben!
             if (chosen.IsPureGreenOnly)
