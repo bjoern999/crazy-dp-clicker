@@ -126,13 +126,13 @@ internal sealed class TachoSetupSlot
         ClampAboveRedLimit(Math.Clamp(Math.Round(ClickOffsetMs + SessionDriftMs, 2), 0.0, 120.0));
 
     public bool IsBlockedByRedLimit(double offsetMs) =>
-        RedLimitOffsetMs.HasValue && SnapToFineMs(offsetMs) <= RedLimitOffsetMs.Value + 0.01;
+        RedLimitOffsetMs.HasValue && SnapToQuarterMs(offsetMs) <= RedLimitOffsetMs.Value + 0.01;
 
     public double ClampAboveRedLimit(double offsetMs)
     {
         double clamped = Math.Clamp(offsetMs, 0.0, 120.0);
         if (RedLimitOffsetMs.HasValue && clamped <= RedLimitOffsetMs.Value + 0.01)
-            return Math.Clamp(SnapToFineMs(RedLimitOffsetMs.Value + 0.05), 0.0, 120.0);
+            return Math.Clamp(SnapToQuarterMs(RedLimitOffsetMs.Value + 0.25), 0.0, 120.0);
         return clamped;
     }
 
@@ -235,8 +235,8 @@ internal sealed class TachoSetupSlot
     public static double SnapToQuarterMs(double offsetMs) =>
         Math.Clamp(Math.Round(offsetMs * 4.0) / 4.0, 0.0, 120.0);
 
-    public static double SnapToFineMs(double offsetMs) =>
-        Math.Clamp(Math.Round(offsetMs * 20.0) / 20.0, 0.0, 120.0);
+    // Einheitliches 0,25ms-Preset-Raster (alias auf SnapToQuarterMs)
+    public static double SnapToFineMs(double offsetMs) => SnapToQuarterMs(offsetMs);
 
     public OffsetPerformance? FindPresetStats(double offsetMs)
     {
@@ -390,10 +390,10 @@ internal sealed class TachoSetupSlot
             return false;
 
         double span = curGreen - lateHigh.OffsetMs;
-        if (span < 0.09 || span > 2.50)
+        if (span < 0.49 || span > 2.50)
             return false;
 
-        double mid = SnapToFineMs((curGreen + lateHigh.OffsetMs) / 2.0);
+        double mid = SnapToQuarterMs((curGreen + lateHigh.OffsetMs) / 2.0);
         if (mid <= lateHigh.OffsetMs + 0.02 || mid >= curGreen - 0.02 || IsBlockedByRedLimit(mid))
             return false;
 
@@ -751,14 +751,14 @@ internal sealed class TachoSetupSlot
                 };
             }
 
-            double rawTarget = Math.Clamp(Math.Round(ClickOffsetMs + greenStep, 2), 0.0, 120.0);
+            double rawTarget = SnapToQuarterMs(ClickOffsetMs + greenStep);
 
             // Bei schneller Beschleunigung nicht blind ueber ein bekanntes Rot-Preset hinwegspringen:
             if (nearestRedBelow.HasValue && rawTarget <= nearestRedBelow.Value + 0.02)
             {
                 double gap = ClickOffsetMs - nearestRedBelow.Value;
-                if (gap >= 0.10)
-                    rawTarget = SnapToFineMs((ClickOffsetMs + nearestRedBelow.Value) / 2.0);
+                if (gap >= 0.49)
+                    rawTarget = SnapToQuarterMs((ClickOffsetMs + nearestRedBelow.Value) / 2.0);
             }
 
             // Harte Schranke: wenn Rot-Grenze gesetzt ist, niemals <= RedLimitOffsetMs waehlen!
