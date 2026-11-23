@@ -437,7 +437,62 @@ internal sealed class OverlayForm : Form
             g.DrawRectangle(Pens.WhiteSmoke, 12, badgeY, badgeW, 44);
             g.DrawString(line1, badgeFont, Brushes.White, 20, badgeY + 5);
             g.DrawString(line2, infoFont, Brushes.White, 20, badgeY + 24);
+
+            // 5. Ganz unten: Gut sichtbare Reihe der Tachos mit Farbkreisen fuer die aktive Taktik
+            DrawBottomTachoTacticStrip(g, snap, 12, badgeY + 50, badgeW, 38, titleFont, badgeFont, infoFont);
         }
+    }
+
+    private static void DrawBottomTachoTacticStrip(
+        Graphics g, OverlaySnapshot snap, int x, int y, int width, int height,
+        Font titleFont, Font badgeFont, Font infoFont)
+    {
+        using var stripBg = new SolidBrush(Color.FromArgb(30, 34, 42));
+        using var stripBorder = new Pen(Color.FromArgb(95, 108, 130), 1);
+        using var blueCircleBrush = new SolidBrush(Color.FromArgb(28, 130, 235));
+        using var greenCircleBrush = new SolidBrush(Color.FromArgb(38, 195, 72));
+        using var activeRingPen = new Pen(Color.Gold, 3.0f);
+        using var idleRingPen = new Pen(Color.FromArgb(215, 222, 232), 1.5f);
+
+        g.FillRectangle(stripBg, x, y, width, height);
+        g.DrawRectangle(stripBorder, x, y, width, height);
+
+        bool[] plan = snap.TachoAttackPlan != null && snap.TachoAttackPlan.Length > 0
+            ? snap.TachoAttackPlan
+            : BattleTacticHelper.BuildPlan(snap.Tactic, snap.TotalTachos);
+
+        g.DrawString($"TACHO-TAKTIK ({BattleTacticHelper.GetLabel(snap.Tactic)}):", badgeFont, Brushes.White, x + 10, y + 11);
+
+        var prevMode = g.SmoothingMode;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+
+        int circleD = 24;
+        int circleY = y + (height - circleD) / 2;
+        int startX = x + 286;
+        int itemStride = 96;
+
+        for (int i = 0; i < plan.Length; i++)
+        {
+            int cx = startX + i * itemStride;
+            bool isAttack = plan[i];
+            bool isActive = i == snap.ActiveTachoIndex;
+
+            g.FillEllipse(isAttack ? greenCircleBrush : blueCircleBrush, cx, circleY, circleD, circleD);
+            g.DrawEllipse(isActive ? activeRingPen : idleRingPen, cx, circleY, circleD, circleD);
+
+            string num = (i + 1).ToString();
+            g.DrawString(num, titleFont, Brushes.White, cx + 7, circleY + 4);
+
+            string roleTxt = isAttack ? "Angriff" : "Abwehr";
+            Brush roleBrush = isAttack ? Brushes.LimeGreen : Brushes.DeepSkyBlue;
+            g.DrawString(roleTxt, isActive ? badgeFont : infoFont, isActive ? Brushes.Gold : roleBrush, cx + circleD + 6, y + 11);
+        }
+
+        g.SmoothingMode = prevMode;
+
+        string hint = "F1..F4 = Taktik";
+        float hintW = g.MeasureString(hint, infoFont).Width;
+        g.DrawString(hint, infoFont, Brushes.Silver, x + width - hintW - 10, y + 12);
     }
 
     private static void DrawTacticBar(Graphics g, OverlaySnapshot snap, int x, int y, int width, int height, Font badgeFont, Font infoFont)
