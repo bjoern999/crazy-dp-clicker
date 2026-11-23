@@ -820,9 +820,13 @@ internal static class Program
             if (tachoIndex >= 0 && tachoIndex < activeEnemy.Tachos.Count)
             {
                 var slot = activeEnemy.Tachos[tachoIndex];
-                slot.ClickOffsetMs = Math.Clamp(Math.Round(slot.ClickOffsetMs + deltaMs, 2), 0.0, 120.0);
+                double raw = Math.Clamp(Math.Round(slot.ClickOffsetMs + deltaMs, 2), 0.0, 120.0);
+                slot.ClickOffsetMs = slot.ClampAboveRedLimit(raw);
                 store.Save();
-                Console.WriteLine($"[Manuell {activeEnemy.Name} Tacho {tachoIndex + 1}] {deltaMs:+0.0;-0.0} ms -> {slot.ClickOffsetMs:F1} ms");
+                string limitNote = slot.RedLimitOffsetMs.HasValue && raw <= slot.RedLimitOffsetMs.Value + 0.01
+                    ? $" (Rot-Grenze <= {slot.RedLimitOffsetMs.Value:F2} ms aktiv)"
+                    : "";
+                Console.WriteLine($"[Manuell {activeEnemy.Name} Tacho {tachoIndex + 1}] {deltaMs:+0.0;-0.0} ms -> {slot.ClickOffsetMs:F2} ms{limitNote}");
                 return;
             }
         }
@@ -1259,8 +1263,11 @@ internal static class Program
                     statusTag = $"Top-Presets gereift: {topCount}/3";
                 }
 
+                string redLimitTag = slot.RedLimitOffsetMs.HasValue
+                    ? $" | Rot-Grenze: <= {slot.RedLimitOffsetMs.Value:F2} ms"
+                    : "";
                 Console.WriteLine(
-                    $"  Tacho {i + 1} | Aktuell={slot.ClickOffsetMs:F2} ms | Gesamt: {slot.BlueHits}B/{slot.GreenHits}G/{slot.RedHits}R/{slot.WhiteHits}W ({slot.TotalClicks} Klicks) | {statusTag}");
+                    $"  Tacho {i + 1} | Aktuell={slot.ClickOffsetMs:F2} ms | Gesamt: {slot.BlueHits}B/{slot.GreenHits}G/{slot.RedHits}R/{slot.WhiteHits}W ({slot.TotalClicks} Klicks){redLimitTag} | {statusTag}");
 
                 if (slot.OffsetHistory.Count == 0)
                 {
@@ -1277,6 +1284,13 @@ internal static class Program
                     if (h.TopRank > 0) tags.Add($"TOP-{h.TopRank}");
                     if (h.IsSafeGreen) tags.Add("safe-green");
                     if (h.IsMature) tags.Add("MATURE");
+                    if (slot.RedLimitOffsetMs.HasValue)
+                    {
+                        if (Math.Abs(h.OffsetMs - slot.RedLimitOffsetMs.Value) < 0.02)
+                            tags.Add("ROT-GRENZE");
+                        else if (slot.IsBlockedByRedLimit(h.OffsetMs))
+                            tags.Add("< ROT-GRENZE");
+                    }
                     if (Math.Abs(h.OffsetMs - slot.ClickOffsetMs) < 0.02) tags.Add("AKTIV");
                     string tagStr = tags.Count > 0 ? string.Join(", ", tags) : "-";
 
