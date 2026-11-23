@@ -9254,7 +9254,7 @@
                                                                     "WhiteHits":  0,
                                                                     "Total":  115,
                                                                     "IsMature":  true,
-                                                                    "TopRank":  0,
+                                                                    "TopRank":  1,
                                                                     "BlueRate":  0.991304347826087,
                                                                     "SafeRate":  0.991304347826087,
                                                                     "RedRate":  0.008695652173913044,
@@ -9263,7 +9263,7 @@
                                                                     "SmoothedScore":  0.9468845915103506,
                                                                     "IsRedLocked":  false,
                                                                     "IsKnownBad":  false,
-                                                                    "ExcludeFromTop":  true
+                                                                    "ExcludeFromTop":  false
                                                                 }
                                                             ],
                                           "LegacyOffsetHistory":  [
