@@ -255,23 +255,30 @@ internal static class Program
                 {
                     if (NativeMethods.GetCursorPos(out var pt))
                     {
-                        var tachos = cfg.GetActiveTachos();
-                        if (nextTachoIndex >= tachos.Count)
-                            nextTachoIndex = 0;
+                        if (pt.X <= 0 || pt.Y <= 0)
+                        {
+                            Console.WriteLine($"[Kalibrierung] F9 ignoriert: Mauszeiger liegt bei ({pt.X}, {pt.Y}) ausserhalb des Hauptmonitors -> bestehende Tacho-Position bleibt geschuetzt.");
+                        }
+                        else
+                        {
+                            var tachos = cfg.GetActiveTachos();
+                            if (nextTachoIndex >= tachos.Count)
+                                nextTachoIndex = 0;
 
-                        var (cx, cy, dx, dy, centered) = TachoDetector.TryAutoCenterOnRing(pt.X, pt.Y, cfg.TachoBoxSize);
-                        tachos[nextTachoIndex].X = cx;
-                        tachos[nextTachoIndex].Y = cy;
-                        cfg.Save();
-                        detectors[nextTachoIndex].Reset();
+                            var (cx, cy, dx, dy, centered) = TachoDetector.TryAutoCenterOnRing(pt.X, pt.Y, cfg.TachoBoxSize);
+                            tachos[nextTachoIndex].X = cx;
+                            tachos[nextTachoIndex].Y = cy;
+                            cfg.Save();
+                            detectors[nextTachoIndex].Reset();
 
-                        int justSetIndex = nextTachoIndex;
-                        expectedTachoIndex = justSetIndex;
-                        nextTachoIndex = (nextTachoIndex + 1) % tachos.Count;
+                            int justSetIndex = nextTachoIndex;
+                            expectedTachoIndex = justSetIndex;
+                            nextTachoIndex = (nextTachoIndex + 1) % tachos.Count;
 
-                        string centerNote = centered ? $" (auto-zentriert {dx:+0;-0}/{dy:+0;-0} px)" : "";
-                        Console.WriteLine(
-                            $"[Kalibrierung {cfg.ActiveProfile}er-Modus] Tacho {justSetIndex + 1}/{tachos.Count} gesetzt auf: ({cx}, {cy}){centerNote} | Naechster mit F9: Tacho {nextTachoIndex + 1}/{tachos.Count}");
+                            string centerNote = centered ? $" (auto-zentriert {dx:+0;-0}/{dy:+0;-0} px)" : "";
+                            Console.WriteLine(
+                                $"[Kalibrierung {cfg.ActiveProfile}er-Modus] Tacho {justSetIndex + 1}/{tachos.Count} gesetzt auf: ({cx}, {cy}){centerNote} | Naechster mit F9: Tacho {nextTachoIndex + 1}/{tachos.Count}");
+                        }
                     }
                 }
 

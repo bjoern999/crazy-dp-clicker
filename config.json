@@ -1,10 +1,10 @@
 {
-  "ActiveProfile": 2,
+  "ActiveProfile": 3,
   "Profile2": [
     {
       "X": 1685,
       "Y": 1130,
-      "ClickOffsetMs": 43,
+      "ClickOffsetMs": 41,
       "DefaultClickOffsetMs": 41,
       "IsSet": true
     },
@@ -20,13 +20,13 @@
     {
       "X": 1685,
       "Y": 1130,
-      "ClickOffsetMs": 41,
+      "ClickOffsetMs": 37,
       "DefaultClickOffsetMs": 41,
       "IsSet": true
     },
     {
-      "X": 1873,
-      "Y": 1129,
+      "X": 1874,
+      "Y": 1126,
       "ClickOffsetMs": 41,
       "DefaultClickOffsetMs": 41,
       "IsSet": true
