@@ -7,6 +7,9 @@ namespace TachoClicker;
 
 internal static class Program
 {
+    // F6 / F9 / F10 voruebergehend deaktiviert, damit Tacho- und Button-Positionen nicht versehentlich verstellt werden koennen.
+    private static readonly bool CalibrationHotkeysEnabled = false;
+
     private static void Main(string[] args)
     {
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
@@ -253,7 +256,11 @@ internal static class Program
                 }
                 if (NativeMethods.IsKeyJustPressed(NativeMethods.VK_F9, ref f9Prev))
                 {
-                    if (NativeMethods.GetCursorPos(out var pt))
+                    if (!CalibrationHotkeysEnabled)
+                    {
+                        Console.WriteLine("[Sperre] F9 (Tacho-Position) ist voruebergehend deaktiviert.");
+                    }
+                    else if (NativeMethods.GetCursorPos(out var pt))
                     {
                         if (pt.X <= 0 || pt.Y <= 0)
                         {
@@ -284,7 +291,11 @@ internal static class Program
 
                 if (NativeMethods.IsKeyJustPressed(NativeMethods.VK_F10, ref f10Prev))
                 {
-                    if (NativeMethods.GetCursorPos(out var pt))
+                    if (!CalibrationHotkeysEnabled)
+                    {
+                        Console.WriteLine("[Sperre] F10 (Blauer Button) ist voruebergehend deaktiviert.");
+                    }
+                    else if (NativeMethods.GetCursorPos(out var pt))
                     {
                         cfg.BlueButtonX = pt.X;
                         cfg.BlueButtonY = pt.Y;
@@ -315,7 +326,11 @@ internal static class Program
 
                 if (NativeMethods.IsKeyJustPressed(NativeMethods.VK_F6, ref f6Prev))
                 {
-                    if (NativeMethods.GetCursorPos(out var pt))
+                    if (!CalibrationHotkeysEnabled)
+                    {
+                        Console.WriteLine("[Sperre] F6 (Gruener Button) ist voruebergehend deaktiviert.");
+                    }
+                    else if (NativeMethods.GetCursorPos(out var pt))
                     {
                         cfg.GreenButtonX = pt.X;
                         cfg.GreenButtonY = pt.Y;
@@ -1177,12 +1192,13 @@ internal static class Program
         Console.WriteLine("  F2  : Taktik 1x Angriff      (letzter Tacho GRUEN, davor BLAU) [Standard]");
         Console.WriteLine("  F3  : Taktik 2x Angriff      (letzte 2 Tachos GRUEN, davor BLAU)");
         Console.WriteLine("  F4  : Taktik Alle Angriff    (alle Tachos GRUEN / Angriff)");
+        string calLock = CalibrationHotkeysEnabled ? "" : " [DEAKTIVIERT]";
         Console.WriteLine("  F5  : Position des aktiven eigenen Dinos speichern (optional, sonst automatisch ueber T1)");
-        Console.WriteLine("  F6  : Gruenen Schwerter-Button speichern (+ Auto-Start)");
+        Console.WriteLine($"  F6  : Gruenen Schwerter-Button speichern (+ Auto-Start){calLock}");
         Console.WriteLine("  F7  : Debug-Ausgabe An / Aus");
         Console.WriteLine("  F8  : Automatik Start / Pause (+ Preset-Statistik der Session)");
-        Console.WriteLine("  F9  : Naechste Tacho-Mitte speichern (auto-zentriert)");
-        Console.WriteLine("  F10 : Blauen Schild-Button speichern (+ Auto-Start)");
+        Console.WriteLine($"  F9  : Naechste Tacho-Mitte speichern (auto-zentriert){calLock}");
+        Console.WriteLine($"  F10 : Blauen Schild-Button speichern (+ Auto-Start){calLock}");
         Console.WriteLine("  +/- : Zeit-Vorlauf des aktuell aktiven Tachos feinjustieren");
         Console.WriteLine("-----------------------------------------------------------------");
         Console.WriteLine($"Spieltaktik           : {BattleTacticHelper.GetLabel(tactic)} -> {BattleTacticHelper.FormatPlan(tactic, tachos.Count)}");
