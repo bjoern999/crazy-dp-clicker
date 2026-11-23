@@ -18,7 +18,7 @@ internal static class Program
             return;
         }
 
-        Console.Title = "TachoClicker (DXGI Sub-ms | Auto 2/3 Tachos | F5=Dino | F6=Gruen | F7=Debug | F8=Start | F9=Tacho | F10=Blau)";
+        Console.Title = "TachoClicker (F1-F4=Taktik | F5=Dino | F6=Gruen | F7=Debug | F8=Start | F9=Tacho | F10=Blau)";
 
         try { Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.High; } catch { }
         try { Thread.CurrentThread.Priority = ThreadPriority.Highest; } catch { }
@@ -192,6 +192,12 @@ internal static class Program
         double lastDeltaMs = 0;
         double lastResultNewOffsetMs = 0;
 
+        BattleTactic activeTactic = BattleTactic.LastOneAttack; // Standard beim Start (F2: letzter Tacho Angriff, davor Abwehr)
+
+        bool f1Prev = false;
+        bool f2Prev = false;
+        bool f3Prev = false;
+        bool f4Prev = false;
         bool f5Prev = false;
         bool f6Prev = false;
         bool f7Prev = false;
@@ -201,7 +207,7 @@ internal static class Program
         bool plusPrev = false;
         bool minusPrev = false;
 
-        PrintHeader(cfg, enemyStore, screenCapture, running, debugMode);
+        PrintHeader(cfg, enemyStore, screenCapture, running, debugMode, activeTactic);
 
         DateTime lastDebugPrint = DateTime.MinValue;
         DateTime lastOverlayUpdate = DateTime.MinValue;
@@ -210,6 +216,41 @@ internal static class Program
         {
             while (true)
             {
+                BattleTactic? requestedTactic = null;
+                if (NativeMethods.IsKeyJustPressed(NativeMethods.VK_F1, ref f1Prev)) requestedTactic = BattleTactic.AllDefense;
+                else if (NativeMethods.IsKeyJustPressed(NativeMethods.VK_F2, ref f2Prev)) requestedTactic = BattleTactic.LastOneAttack;
+                else if (NativeMethods.IsKeyJustPressed(NativeMethods.VK_F3, ref f3Prev)) requestedTactic = BattleTactic.LastTwoAttack;
+                else if (NativeMethods.IsKeyJustPressed(NativeMethods.VK_F4, ref f4Prev)) requestedTactic = BattleTactic.AllAttack;
+
+                if (requestedTactic.HasValue)
+                {
+                    activeTactic = requestedTactic.Value;
+                    var curTachosForTactic = cfg.GetActiveTachos();
+                    int totalT = curTachosForTactic.Count;
+                    Console.WriteLine(
+                        $"[Taktik] {BattleTacticHelper.GetLabel(activeTactic)} -> {BattleTacticHelper.FormatPlan(activeTactic, totalT)}");
+
+                    if (running && cfg.IsCalibrated && expectedTachoIndex < totalT &&
+                        detectors[expectedTachoIndex].State == DetectorState.Armed)
+                    {
+                        bool atkNow = BattleTacticHelper.IsAttack(activeTactic, expectedTachoIndex, totalT);
+                        NativeMethods.SetCursorPos(
+                            atkNow ? cfg.GreenButtonX : cfg.BlueButtonX,
+                            atkNow ? cfg.GreenButtonY : cfg.BlueButtonY);
+                    }
+
+                    if (overlay != null)
+                    {
+                        lastOverlayUpdate = DateTime.UtcNow;
+                        overlay.UpdateSnapshot(BuildOverlaySnapshot(
+                            cfg, enemyStore, activeEnemy, activeEnemyIsNew,
+                            detectors, expectedTachoIndex, running, activeTactic,
+                            lastClickedTachoNumber, lastFeedback,
+                            lastPatchR, lastPatchG, lastPatchB, lastPatchW,
+                            lastDeltaMs, lastResultNewOffsetMs,
+                            lastDinoPreview, lastDinoVisualInfo));
+                    }
+                }
                 if (NativeMethods.IsKeyJustPressed(NativeMethods.VK_F9, ref f9Prev))
                 {
                     if (NativeMethods.GetCursorPos(out var pt))
@@ -477,9 +518,9 @@ internal static class Program
 
                     if (detectors[cur].JustArmed)
                     {
-                        bool isLast = cur == activeTachos.Count - 1;
-                        int targetX = isLast ? cfg.GreenButtonX : cfg.BlueButtonX;
-                        int targetY = isLast ? cfg.GreenButtonY : cfg.BlueButtonY;
+                        bool isAttack = BattleTacticHelper.IsAttack(activeTactic, cur, activeTachos.Count);
+                        int targetX = isAttack ? cfg.GreenButtonX : cfg.BlueButtonX;
+                        int targetY = isAttack ? cfg.GreenButtonY : cfg.BlueButtonY;
                         NativeMethods.SetCursorPos(targetX, targetY);
                         if (cur == 0)
                         {
@@ -532,17 +573,17 @@ internal static class Program
 
                     if (triggered)
                     {
-                        bool isLastBtn = cur == activeTachos.Count - 1;
+                        bool isAttackBtn = BattleTacticHelper.IsAttack(activeTactic, cur, activeTachos.Count);
                         string checkpointsStr = detectors[cur].FormatCheckpointsSummary();
                         double usedOffsetMs = detectors[cur].LastUsedClickOffsetMs;
 
                         // 1. Button sofort betaetigen
-                        TriggerClick(cur, activeTachos.Count, activeEnemy?.Name ?? "-", detectors[cur], cfg);
+                        TriggerClick(cur, activeTachos.Count, isAttackBtn, activeEnemy?.Name ?? "-", detectors[cur], cfg);
                         lastClickUtc = DateTime.UtcNow;
 
                         // 2. Klick-Moment sofort visualisieren (gelber Button-Blitz + Foto im Klick-Moment)
                         Bitmap? clickMomentSnap = detectors[cur].CaptureClickMomentSnapshot(curX, curY, cfg);
-                        overlay?.FlashButtonClick(isLastBtn, cur + 1, clickMomentSnap);
+                        overlay?.FlashButtonClick(isAttackBtn, cur + 1, clickMomentSnap);
 
                         // 3. Direkt nach dem Klick die Farbe auf den unteren 9x9 Pixeln messen
                         TachoFeedback fb = detectors[cur].MeasureBottomColorAfterClick(cur + 1, curX, curY, cfg);
@@ -593,7 +634,7 @@ internal static class Program
                             lastOverlayUpdate = DateTime.UtcNow;
                             overlay.UpdateSnapshot(BuildOverlaySnapshot(
                                 cfg, enemyStore, activeEnemy, activeEnemyIsNew,
-                                detectors, expectedTachoIndex, running,
+                                detectors, expectedTachoIndex, running, activeTactic,
                                 lastClickedTachoNumber, lastFeedback,
                                 lastPatchR, lastPatchG, lastPatchB, lastPatchW,
                                 lastDeltaMs, lastResultNewOffsetMs,
@@ -644,7 +685,10 @@ internal static class Program
 
                                 expectedTachoIndex = 2;
                                 isArmed = true;
-                                NativeMethods.SetCursorPos(cfg.GreenButtonX, cfg.GreenButtonY);
+                                bool isT3Attack = BattleTacticHelper.IsAttack(activeTactic, 2, 3);
+                                NativeMethods.SetCursorPos(
+                                    isT3Attack ? cfg.GreenButtonX : cfg.BlueButtonX,
+                                    isT3Attack ? cfg.GreenButtonY : cfg.BlueButtonY);
                                 string cNote = centered3 ? $" (zentriert {dx3:+0;-0}/{dy3:+0;-0} px)" : "";
                                 Console.WriteLine(
                                     $"[Auto-3er-Erkennung] 3. Tacho fuer {(activeEnemy?.Name ?? "Neuer Spieler")} bei ({cfg.Profile3[2].X}, {cfg.Profile3[2].Y}){cNote} erkannt! Profil automatisch auf 3 Tachos umgestellt.");
@@ -679,7 +723,10 @@ internal static class Program
                             expectedTachoIndex = 0;
                             roundFingerprints.Clear();
                             isArmed = true;
-                            NativeMethods.SetCursorPos(cfg.BlueButtonX, cfg.BlueButtonY);
+                            bool isT1Attack = BattleTacticHelper.IsAttack(activeTactic, 0, cfg.GetActiveTachos().Count);
+                            NativeMethods.SetCursorPos(
+                                isT1Attack ? cfg.GreenButtonX : cfg.BlueButtonX,
+                                isT1Attack ? cfg.GreenButtonY : cfg.BlueButtonY);
                         }
                     }
 
@@ -712,7 +759,7 @@ internal static class Program
                     lastOverlayUpdate = DateTime.UtcNow;
                     overlay.UpdateSnapshot(BuildOverlaySnapshot(
                         cfg, enemyStore, activeEnemy, activeEnemyIsNew,
-                        detectors, expectedTachoIndex, running,
+                        detectors, expectedTachoIndex, running, activeTactic,
                         lastClickedTachoNumber, lastFeedback,
                         lastPatchR, lastPatchG, lastPatchB, lastPatchW,
                         lastDeltaMs, lastResultNewOffsetMs,
@@ -777,7 +824,7 @@ internal static class Program
 
     private static OverlaySnapshot BuildOverlaySnapshot(
         AppConfig cfg, EnemySetupStore enemyStore, EnemySetup? activeEnemy, bool activeEnemyIsNew,
-        TachoDetector[] detectors, int activeIdx, bool running,
+        TachoDetector[] detectors, int activeIdx, bool running, BattleTactic activeTactic,
         int lastClickedTachoNumber, TachoFeedback lastFeedback,
         int patchR, int patchG, int patchB, int patchW,
         double lastDeltaMs, double lastResultNewOffsetMs,
@@ -829,6 +876,9 @@ internal static class Program
             ActiveTachoIndex = activeIdx,
             TotalTachos = tachos.Count,
             AllOffsetsSummary = summary,
+            Tactic = activeTactic,
+            TachoAttackPlan = BattleTacticHelper.BuildPlan(activeTactic, tachos.Count),
+            IsAttackTacho = BattleTacticHelper.IsAttack(activeTactic, activeIdx, tachos.Count),
             EnemySetupName = activeEnemy != null ? $"{activeEnemy.Name} [{activeEnemy.DinoType} | {activeEnemy.TachoCount}T]" : "",
             EnemySetupIsFixed = activeEnemy?.IsFixed ?? false,
             EnemySetupIsNew = activeEnemyIsNew,
@@ -838,7 +888,6 @@ internal static class Program
             BestProvenInfo = bestProvenInfo,
             CenterX = posX,
             CenterY = posY,
-            IsLastTacho = activeIdx == tachos.Count - 1,
             State = d.State,
             GreenCount = d.LastGreenCount,
             WhiteCount = d.LastWhiteCount,
@@ -1061,12 +1110,11 @@ internal static class Program
         return updated;
     }
 
-    private static void TriggerClick(int tachoIndex, int totalTachos, string enemyName, TachoDetector detector, AppConfig cfg)
+    private static void TriggerClick(int tachoIndex, int totalTachos, bool isAttack, string enemyName, TachoDetector detector, AppConfig cfg)
     {
-        bool isLast = tachoIndex == totalTachos - 1;
-        int targetX = isLast ? cfg.GreenButtonX : cfg.BlueButtonX;
-        int targetY = isLast ? cfg.GreenButtonY : cfg.BlueButtonY;
-        string btnLabel = isLast ? "Gruener Schwerter-Button" : "Blauer Schild-Button";
+        int targetX = isAttack ? cfg.GreenButtonX : cfg.BlueButtonX;
+        int targetY = isAttack ? cfg.GreenButtonY : cfg.BlueButtonY;
+        string btnLabel = isAttack ? "Gruener Schwerter-Button (Angriff)" : "Blauer Schild-Button (Abwehr)";
 
         // Erst klicken (0,0 ms Verzoegerung durch Console.WriteLine!), dann VSync-Phase & Log ausgeben!
         long clickQpc = NativeMethods.ClickAt(targetX, targetY, cfg.ClickHoldMs);
@@ -1102,7 +1150,7 @@ internal static class Program
             d.Reset();
     }
 
-    private static void PrintHeader(AppConfig cfg, EnemySetupStore store, DxgiScreenCapture capture, bool running, bool debugMode)
+    private static void PrintHeader(AppConfig cfg, EnemySetupStore store, DxgiScreenCapture capture, bool running, bool debugMode, BattleTactic tactic)
     {
         var tachos = cfg.GetActiveTachos();
         Console.WriteLine("=================================================================");
@@ -1117,14 +1165,19 @@ internal static class Program
         Console.WriteLine($"Capture-Engine        : {capLine}");
         Console.WriteLine($"Monitor-VSync         : {refreshLine} | Prozess-Prioritaet: High / Highest");
         Console.WriteLine("Hotkeys:");
-        Console.WriteLine("  F9  : Naechste Tacho-Mitte speichern (auto-zentriert)");
-        Console.WriteLine("  F10 : Blauen Schild-Button speichern (+ Auto-Start)");
+        Console.WriteLine("  F1  : Taktik Reine Abwehr    (alle Tachos BLAU / Abwehr)");
+        Console.WriteLine("  F2  : Taktik 1x Angriff      (letzter Tacho GRUEN, davor BLAU) [Standard]");
+        Console.WriteLine("  F3  : Taktik 2x Angriff      (letzte 2 Tachos GRUEN, davor BLAU)");
+        Console.WriteLine("  F4  : Taktik Alle Angriff    (alle Tachos GRUEN / Angriff)");
         Console.WriteLine("  F5  : Position des aktiven eigenen Dinos speichern (optional, sonst automatisch ueber T1)");
         Console.WriteLine("  F6  : Gruenen Schwerter-Button speichern (+ Auto-Start)");
-        Console.WriteLine("  F8  : Automatik Start / Pause (+ Preset-Statistik der Session)");
         Console.WriteLine("  F7  : Debug-Ausgabe An / Aus");
+        Console.WriteLine("  F8  : Automatik Start / Pause (+ Preset-Statistik der Session)");
+        Console.WriteLine("  F9  : Naechste Tacho-Mitte speichern (auto-zentriert)");
+        Console.WriteLine("  F10 : Blauen Schild-Button speichern (+ Auto-Start)");
         Console.WriteLine("  +/- : Zeit-Vorlauf des aktuell aktiven Tachos feinjustieren");
         Console.WriteLine("-----------------------------------------------------------------");
+        Console.WriteLine($"Spieltaktik           : {BattleTacticHelper.GetLabel(tactic)} -> {BattleTacticHelper.FormatPlan(tactic, tachos.Count)}");
         Console.WriteLine($"Aktives Profil        : {cfg.ActiveProfile}er-Konfiguration | Gespeicherte Gegner-Setups: {store.Setups.Count}");
         foreach (var s in store.Setups)
         {

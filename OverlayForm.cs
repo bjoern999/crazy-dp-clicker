@@ -1,7 +1,55 @@
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Windows.Forms;
 
 namespace TachoClicker;
+
+internal enum BattleTactic
+{
+    AllDefense = 1,    // F1: Alle Tachos Abwehr (Blau)
+    LastOneAttack = 2, // F2: Letzter Tacho Angriff (Gruen), davor Abwehr (Blau) [Standard]
+    LastTwoAttack = 3, // F3: Letzte 2 Tachos Angriff (Gruen), davor Abwehr (Blau)
+    AllAttack = 4      // F4: Immer alle Tachos Angriff (Gruen)
+}
+
+internal static class BattleTacticHelper
+{
+    public static bool IsAttack(BattleTactic tactic, int tachoIndex, int totalTachos)
+    {
+        return tactic switch
+        {
+            BattleTactic.AllDefense => false,
+            BattleTactic.LastOneAttack => tachoIndex >= totalTachos - 1,
+            BattleTactic.LastTwoAttack => tachoIndex >= totalTachos - 2,
+            BattleTactic.AllAttack => true,
+            _ => tachoIndex >= totalTachos - 1
+        };
+    }
+
+    public static bool[] BuildPlan(BattleTactic tactic, int totalTachos)
+    {
+        int count = Math.Max(1, totalTachos);
+        var plan = new bool[count];
+        for (int i = 0; i < count; i++)
+            plan[i] = IsAttack(tactic, i, count);
+        return plan;
+    }
+
+    public static string GetLabel(BattleTactic tactic) => tactic switch
+    {
+        BattleTactic.AllDefense => "F1: Reine Abwehr",
+        BattleTactic.LastOneAttack => "F2: Letzter Angriff",
+        BattleTactic.LastTwoAttack => "F3: Letzte 2 Angriff",
+        BattleTactic.AllAttack => "F4: Alle Angriff",
+        _ => "F2: Letzter Angriff"
+    };
+
+    public static string FormatPlan(BattleTactic tactic, int totalTachos)
+    {
+        var plan = BuildPlan(tactic, totalTachos);
+        return "[" + string.Join(", ", plan.Select((atk, i) => $"T{i + 1}:{(atk ? "Angriff/Gruen" : "Abwehr/Blau")}")) + "]";
+    }
+}
 
 internal sealed class OverlaySnapshot
 {
@@ -10,6 +58,11 @@ internal sealed class OverlaySnapshot
     public int ActiveTachoIndex { get; init; }
     public int TotalTachos { get; init; }
     public string AllOffsetsSummary { get; init; } = "";
+
+    // Aktive Spieltaktik (F1..F4)
+    public BattleTactic Tactic { get; init; } = BattleTactic.LastOneAttack;
+    public bool[] TachoAttackPlan { get; init; } = Array.Empty<bool>();
+    public bool IsAttackTacho { get; init; }
 
     // Erkanntes Spieler-Setup
     public string EnemySetupName { get; init; } = "";
@@ -22,7 +75,6 @@ internal sealed class OverlaySnapshot
 
     public int CenterX { get; init; }
     public int CenterY { get; init; }
-    public bool IsLastTacho { get; init; }
     public DetectorState State { get; init; }
     public int GreenCount { get; init; }
     public int WhiteCount { get; init; }
@@ -70,7 +122,7 @@ internal sealed class OverlayForm : Form
         Text = "TachoClicker Live-Inspektor (Dino- & Tacho-Erkennung + Klick-Moment)";
         StartPosition = FormStartPosition.Manual;
         Location = new Point(40, 40);
-        ClientSize = new Size(785, 434);
+        ClientSize = new Size(785, 468);
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         ShowInTaskbar = true;
@@ -254,10 +306,13 @@ internal sealed class OverlayForm : Form
             g.DrawRectangle(hasEnemy ? Pens.Cyan : Pens.Gray, 12, 28, ClientSize.Width - 24, 24);
             g.DrawString(enemyLine, badgeFont, Brushes.White, 18, 32);
 
-            g.DrawString("Links: Live Tacho | Mitte: IM KLICK-MOMENT | Buttons | Rechts: Visuelle Dino-Erkennung (F5=Pos)", infoFont, Brushes.LightGray, 12, 56);
+            // Spieltaktik-Balken mit farbigen Tacho-Kreisen (Blau = Abwehr, Gruen = Angriff)
+            DrawTacticBar(g, snap, 12, 56, ClientSize.Width - 24, 28, badgeFont, infoFont);
+
+            g.DrawString("Links: Live Tacho | Mitte: IM KLICK-MOMENT | Buttons | Rechts: Visuelle Dino-Erkennung (F5=Pos)", infoFont, Brushes.LightGray, 12, 88);
 
             int tileSize = 195;
-            int y = 76;
+            int y = 108;
 
             // 1. Links: Nur der aktuell aktive Tacho (Live)
             int xLive = 12;
@@ -279,7 +334,7 @@ internal sealed class OverlayForm : Form
             }
             g.DrawRectangle(pen, xLive, y, tileSize, tileSize);
 
-            string btnName = snap.IsLastTacho ? "-> GRUEN" : "-> BLAU";
+            string btnName = snap.IsAttackTacho ? "-> GRUEN" : "-> BLAU";
             g.DrawString($"Live T{snap.ActiveTachoIndex + 1} ({btnName}) [{snap.ClickOffsetMs:F1} ms]", titleFont, Brushes.White, xLive, y + tileSize + 6);
             g.DrawString($"Pos: ({snap.CenterX}, {snap.CenterY}) | G={snap.GreenCount} W={snap.WhiteCount}", infoFont, Brushes.Silver, xLive, y + tileSize + 24);
             g.DrawString(
@@ -382,6 +437,72 @@ internal sealed class OverlayForm : Form
             g.DrawRectangle(Pens.WhiteSmoke, 12, badgeY, badgeW, 44);
             g.DrawString(line1, badgeFont, Brushes.White, 20, badgeY + 5);
             g.DrawString(line2, infoFont, Brushes.White, 20, badgeY + 24);
+        }
+    }
+
+    private static void DrawTacticBar(Graphics g, OverlaySnapshot snap, int x, int y, int width, int height, Font badgeFont, Font infoFont)
+    {
+        using var barBg = new SolidBrush(Color.FromArgb(34, 38, 46));
+        using var barBorder = new Pen(Color.FromArgb(80, 90, 108), 1);
+        using var blueCircleBrush = new SolidBrush(Color.FromArgb(28, 130, 235));
+        using var greenCircleBrush = new SolidBrush(Color.FromArgb(38, 195, 72));
+        using var activeRingPen = new Pen(Color.Gold, 2.5f);
+        using var idleRingPen = new Pen(Color.FromArgb(200, 210, 220), 1.2f);
+        using var numFont = new Font("Consolas", 8.5f, FontStyle.Bold);
+
+        g.FillRectangle(barBg, x, y, width, height);
+        g.DrawRectangle(barBorder, x, y, width, height);
+
+        string tacticLabel = $"TAKTIK [{BattleTacticHelper.GetLabel(snap.Tactic)}]";
+        g.DrawString(tacticLabel, badgeFont, Brushes.White, x + 8, y + 6);
+
+        // Reihe kleiner Farbkreise fuer jeden Tacho (Blau = Abwehr, Gruen = Angriff; gelber Ring = aktiver Tacho)
+        bool[] plan = snap.TachoAttackPlan != null && snap.TachoAttackPlan.Length > 0
+            ? snap.TachoAttackPlan
+            : BattleTacticHelper.BuildPlan(snap.Tactic, snap.TotalTachos);
+
+        var prevMode = g.SmoothingMode;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+
+        int circleD = 18;
+        int circleY = y + (height - circleD) / 2;
+        int startX = x + 236;
+        int spacing = 28;
+
+        for (int i = 0; i < plan.Length; i++)
+        {
+            int cx = startX + i * spacing;
+            bool isAttack = plan[i];
+            bool isActive = i == snap.ActiveTachoIndex;
+
+            g.FillEllipse(isAttack ? greenCircleBrush : blueCircleBrush, cx, circleY, circleD, circleD);
+            g.DrawEllipse(isActive ? activeRingPen : idleRingPen, cx, circleY, circleD, circleD);
+
+            string num = (i + 1).ToString();
+            g.DrawString(num, numFont, Brushes.White, cx + 5, circleY + 2);
+        }
+
+        g.SmoothingMode = prevMode;
+
+        // Kompakte Legende rechts im Balken mit Hervorhebung der aktiven F-Taste
+        int legX = startX + Math.Max(3, plan.Length) * spacing + 16;
+        var items = new[]
+        {
+            (BattleTactic.AllDefense, "F1:Abwehr"),
+            (BattleTactic.LastOneAttack, "F2:1xAng"),
+            (BattleTactic.LastTwoAttack, "F3:2xAng"),
+            (BattleTactic.AllAttack, "F4:AlleAng")
+        };
+
+        int curX = legX;
+        for (int i = 0; i < items.Length; i++)
+        {
+            bool selected = snap.Tactic == items[i].Item1;
+            Brush b = selected ? Brushes.Gold : Brushes.Silver;
+            Font f = selected ? badgeFont : infoFont;
+            string txt = items[i].Item2;
+            g.DrawString(txt, f, b, curX, selected ? y + 6 : y + 7);
+            curX += (int)g.MeasureString(txt, f).Width + 10;
         }
     }
 
