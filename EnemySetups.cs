@@ -403,20 +403,60 @@ internal sealed class TachoSetupSlot
         return true;
     }
 
-    private bool TryGetSafeGreenEscape(double currentMs, out double safeGreenMs)
+    /// <summary>
+    /// Sucht nach 1x Rot das naechste wirklich sichere Preset oberhalb des aktuellen Offsets:
+    /// 1. Bewaehrtes Blau-Preset oberhalb (>= 2 Blau, <= 15% Rot)
+    /// 2. safe-green Preset oberhalb (>= 10 Gruen, 0 Rot)
+    /// 3. Mehrfach bestaetigtes sicheres Gruen oberhalb (>= 3 Gruen, 0 Rot/Weiss) + 0,50 ms Puffer
+    /// </summary>
+    private bool TryFindSafeAnchorAbove(double currentMs, out double safeMs, out OffsetPerformance? anchorStats)
     {
-        safeGreenMs = 0;
-        var greenAbove = OffsetHistory
-            .Where(h => !IsBlockedByRedLimit(h.OffsetMs) && h.GreenHits >= 1 &&
-                        h.RedHits == 0 && h.WhiteHits == 0 &&
-                        h.OffsetMs >= currentMs + 0.04 && h.OffsetMs <= currentMs + 2.5)
+        safeMs = 0;
+        anchorStats = null;
+
+        // 1. Bewaehrtes Blau-Preset oberhalb
+        var safeBlue = OffsetHistory
+            .Where(h => !IsBlockedByRedLimit(h.OffsetMs) &&
+                        h.OffsetMs >= currentMs + 0.50 && h.OffsetMs <= currentMs + 10.0 &&
+                        h.BlueHits >= 2 && h.RedRate <= 0.15 && h.WhiteHits == 0)
             .OrderBy(h => h.OffsetMs)
             .FirstOrDefault();
-        if (greenAbove == null)
-            return false;
-        // +0,25 ms zusaetzlicher Sicherheitsabstand weg von der Rot-/Weiss-Kante!
-        safeGreenMs = ClampAboveRedLimit(SnapToFineMs(greenAbove.OffsetMs + 0.25));
-        return true;
+        if (safeBlue != null)
+        {
+            safeMs = safeBlue.OffsetMs;
+            anchorStats = safeBlue;
+            return true;
+        }
+
+        // 2. safe-green (>= 10 Gruen, 0 Rot) oberhalb
+        var safeGreenTag = OffsetHistory
+            .Where(h => !IsBlockedByRedLimit(h.OffsetMs) &&
+                        h.OffsetMs >= currentMs + 0.25 && h.OffsetMs <= currentMs + 10.0 &&
+                        h.IsSafeGreen && h.WhiteHits == 0)
+            .OrderBy(h => h.OffsetMs)
+            .FirstOrDefault();
+        if (safeGreenTag != null)
+        {
+            safeMs = safeGreenTag.OffsetMs;
+            anchorStats = safeGreenTag;
+            return true;
+        }
+
+        // 3. Mehrfach bestaetigtes sicheres Gruen (>= 3 Gruen, 0 Rot/Weiss) oberhalb + 0,50 ms Puffer
+        var solidGreen = OffsetHistory
+            .Where(h => !IsBlockedByRedLimit(h.OffsetMs) &&
+                        h.OffsetMs >= currentMs + 0.10 && h.OffsetMs <= currentMs + 6.0 &&
+                        h.GreenHits >= 3 && h.RedHits == 0 && h.WhiteHits == 0)
+            .OrderBy(h => h.OffsetMs)
+            .FirstOrDefault();
+        if (solidGreen != null)
+        {
+            safeMs = ClampAboveRedLimit(SnapToFineMs(solidGreen.OffsetMs + 0.50));
+            anchorStats = solidGreen;
+            return true;
+        }
+
+        return false;
     }
 
     public void EnsureDeploymentBackfill()
@@ -549,19 +589,25 @@ internal sealed class TachoSetupSlot
         }
 
         // 0a. STABILER MODUS (Top-1 vorhanden) bei 1x ROT / Nach-Blau-Weiss:
-        //     Auf Top-1 sanften SessionDriftMs (+1,0 ms) nachfuehren; falls unterhalb Top-1, sofort auf Top-1 zurueck!
+        //     Basis-Preset Top-1 bleibt unangetastet! Stattdessen sofort +4,0 ms Sicherheits-Drift auf SessionDriftMs
+        //     (verhindert 2. Rot in Folge und baut sich bei Gruen automatisch wieder sanft ab).
         if (isLateMiss && top1 != null)
         {
-            if (stat.TopRank == 1)
-                SessionDriftMs = Math.Clamp(Math.Round(SessionDriftMs + 1.0, 2), -4.0, 24.0);
-
+            double oldEff = EffectiveClickOffsetMs;
             if (top1.OffsetMs > ClickOffsetMs + 0.02)
             {
-                double delta = Math.Round(top1.OffsetMs - ClickOffsetMs, 2);
                 ClickOffsetMs = top1.OffsetMs;
+                SessionDriftMs = Math.Clamp(Math.Max(SessionDriftMs, 2.0), -4.0, 24.0);
+                double delta = Math.Round(EffectiveClickOffsetMs - oldEff, 2);
                 ConsecutiveNonBlue = 0;
-                return (ClickOffsetMs, delta, true, top1, 0, false, false);
+                return (EffectiveClickOffsetMs, delta, true, top1, 0, false, false);
             }
+
+            ClickOffsetMs = top1.OffsetMs;
+            SessionDriftMs = Math.Clamp(Math.Round(SessionDriftMs + 4.0, 2), -4.0, 24.0);
+            double driftApplied = Math.Round(EffectiveClickOffsetMs - oldEff, 2);
+            ConsecutiveNonBlue = 0;
+            return (EffectiveClickOffsetMs, driftApplied, false, null, 0, false, false);
         }
 
         var bestProven = top1 ?? GetBestProvenOffset();
@@ -598,17 +644,17 @@ internal sealed class TachoSetupSlot
             return (ClickOffsetMs, defDelta, false, null, 0, false, false);
         }
 
-        // 2. Sofort-Schutz gegen Rot-Serien & Bisection-Rueckzug auf sicheres Gruen:
+        // 2. Sofort-Schutz nach 1x ROT in der Lernphase:
+        //    Direkt auf das naechste wirklich sichere Preset oberhalb (Blau -> safe-green -> >=3x Gruen +0,50 ms) zurueckspringen!
         if (isLateMiss)
         {
-            // Bisection-Schutz: Wenn wir bei der Blau-Suche 1x Rot treffen und knapp darueber ein sicheres Gruen kennen,
-            // sofort sicher auf dieses Gruen zurueckziehen (verhindert 2x Rot, naechste Runde halbiert dann weiter)!
-            if (bestProven == null && TryGetSafeGreenEscape(ClickOffsetMs, out double safeGreenMs))
+            if (TryFindSafeAnchorAbove(ClickOffsetMs, out double safeAnchorMs, out var anchorStats))
             {
-                double delta = Math.Round(safeGreenMs - ClickOffsetMs, 2);
-                ClickOffsetMs = safeGreenMs;
+                double delta = Math.Round(safeAnchorMs - ClickOffsetMs, 2);
+                ClickOffsetMs = safeAnchorMs;
                 ConsecutiveNonBlue = 0;
-                return (ClickOffsetMs, delta, false, null, 0, false, true);
+                bool revertedToBlue = anchorStats != null && anchorStats.BlueHits >= 2;
+                return (ClickOffsetMs, delta, revertedToBlue, revertedToBlue ? anchorStats : null, 0, false, !revertedToBlue);
             }
         }
         else if (fb == TachoFeedback.TooEarlyGreen && bestProven != null && Math.Abs(ClickOffsetMs - bestProven.OffsetMs) >= 1.25)
@@ -626,34 +672,27 @@ internal sealed class TachoSetupSlot
             }
         }
 
-        // 3. Regulaere Anpassung bei Rot:
+        // 3. Fallback-Rueckzug bei 1x ROT (wenn kein sicherer Anker oberhalb bekannt ist):
+        //    Kraeftiger +4,0 ms Rueckzug, damit direkt der naechste Klick wieder sicher im Gruenen landet!
         if (isLateMiss)
         {
-            double redStep;
-            if (!IsFixed)
-                redStep = +3.0;
-            else if (bestProven == null && EndSpeedDegPerSec >= 440.0)
-                redStep = +2.5;
-            else
-                redStep = +1.5; // 1. Rot: kraeftig genug (+1,5 ms), um aus der Rot-Kante sicher herauszukommen
-
-            double rawTarget = Math.Clamp(Math.Round(ClickOffsetMs + redStep, 2), 0.0, 120.0);
+            double rawTarget = Math.Clamp(Math.Round(ClickOffsetMs + 4.0, 2), 0.0, 120.0);
             double applied = Math.Round(rawTarget - ClickOffsetMs, 2);
             ClickOffsetMs = rawTarget;
+            ConsecutiveNonBlue = 0;
             return (ClickOffsetMs, applied, false, null, 0, false, false);
         }
 
         // 4. Regulaere Anpassung bei GRUEN:
-        //    Niemals lange im gruenen Bereich verharren! Erst evtl. positiven SessionDrift abbauen,
+        //    Niemals lange im gruenen Bereich verharren! Erst evtl. positiven SessionDrift sanft abbauen,
         //    dann zuegig (beschleunigt) in Richtung Blau spaeter klicken!
         if (fb == TachoFeedback.TooEarlyGreen)
         {
-            // Falls noch ein positiver Schutz-Drift aus einem frueheren Notbremse-Sprung aktiv ist:
-            // bei Gruen sofort abbauen, damit T2/T3 nicht kuenstlich im gruenen Bereich haengen bleiben!
+            // Positiven Schutz-Drift nach 1x/2x Rot bei Gruen schrittweise (-2,0 ms) wieder Richtung Top-1 abbauen
             if (SessionDriftMs > 0.05)
             {
                 double oldEff = EffectiveClickOffsetMs;
-                SessionDriftMs = SessionDriftMs <= 4.0 ? 0.0 : Math.Round(SessionDriftMs - 4.0, 2);
+                SessionDriftMs = SessionDriftMs <= 2.0 ? 0.0 : Math.Round(SessionDriftMs - 2.0, 2);
                 double driftDelta = Math.Round(EffectiveClickOffsetMs - oldEff, 2);
                 return (EffectiveClickOffsetMs, driftDelta, false, null, 0, false, false);
             }
