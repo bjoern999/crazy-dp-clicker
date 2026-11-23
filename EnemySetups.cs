@@ -508,7 +508,7 @@ internal sealed class TachoSetupSlot
     /// <summary>
     /// Lokales adaptives Bracketing & Intervall-Halbierung (Bisection) direkt unterhalb des AKTUELLEN Gruen-Offsets:
     /// Springt niemals weit nach unten in veraltete Zonen, sondern halbiert nur lokal (Span 0,09..2,50 ms) zwischen
-    /// aktuellem Gruen (ClickOffsetMs) und dem naechsten bekannten Rot direkt darunter!
+    /// aktuellem Gruen (ClickOffsetMs) und dem naechsten bekannten Rot bzw. Nach-Blau-Weiss direkt darunter!
     /// </summary>
     public bool TryGetBisectionTarget(out double midOffsetMs, out double greenLowMs, out double lateHighMs)
     {
@@ -523,11 +523,11 @@ internal sealed class TachoSetupSlot
 
         double curGreen = SnapToFineMs(ClickOffsetMs);
 
-        // Suche das hoechste Rot-Preset strikt UNTERHALB des aktuellen Gruen-Offsets (max 2,5 ms Abstand!)
+        // Suche das hoechste Rot- oder Nach-Blau-Weiss-Preset strikt UNTERHALB des aktuellen Gruen-Offsets (max 2,5 ms Abstand!)
         var lateHigh = OffsetHistory
             .Where(h => h.OffsetMs < curGreen - 0.04 &&
                         h.OffsetMs >= curGreen - 2.50 &&
-                        h.RedHits >= 1)
+                        (h.RedHits + h.WhiteHits) >= 1)
             .OrderByDescending(h => h.OffsetMs)
             .FirstOrDefault();
 
@@ -553,13 +553,13 @@ internal sealed class TachoSetupSlot
         safeGreenMs = 0;
         var greenAbove = OffsetHistory
             .Where(h => !IsBlockedByRedLimit(h.OffsetMs) && h.GreenHits >= 1 &&
-                        h.RedHits == 0 &&
+                        h.RedHits == 0 && h.WhiteHits == 0 &&
                         h.OffsetMs >= currentMs + 0.04 && h.OffsetMs <= currentMs + 2.5)
             .OrderBy(h => h.OffsetMs)
             .FirstOrDefault();
         if (greenAbove == null)
             return false;
-        // +0,25 ms zusaetzlicher Sicherheitsabstand weg von der Rot-Kante!
+        // +0,25 ms zusaetzlicher Sicherheitsabstand weg von der Rot-/Weiss-Kante!
         safeGreenMs = ClampAboveRedLimit(SnapToFineMs(greenAbove.OffsetMs + 0.25));
         return true;
     }
@@ -585,7 +585,7 @@ internal sealed class TachoSetupSlot
     }
 
     public (double NewOffsetMs, double AppliedDeltaMs, bool RevertedToProven, OffsetPerformance? RevertedStats, int SkippedBadCount, bool BlockedBadCliff, bool UsedBisection)
-        RecordOutcomeAndTune(double usedOffsetMs, TachoFeedback fb, int deploymentId = 0, bool allowEmergencyJump = true)
+        RecordOutcomeAndTune(double usedOffsetMs, TachoFeedback fb, bool isBird = false, int deploymentId = 0, bool allowEmergencyJump = true)
     {
         if (fb == TachoFeedback.None)
             return (ClickOffsetMs, 0.0, false, null, 0, false, false);
@@ -605,6 +605,23 @@ internal sealed class TachoSetupSlot
         {
             depStat = new DeploymentOutcomeRecord { DeploymentId = deploymentId, OffsetMs = bucketOffset };
             DeploymentHistory.Add(depStat);
+        }
+
+        // Manche Tachos (insbesondere bei Voegeln, aber potenziell bei jedem Spieler) haben NACH dem blauen Bereich
+        // kein Rot (=0 Effekt), sondern einen weissen Nach-Blau-Bereich (je spaeter geklickt, desto geringer der Effekt).
+        // Erkennung: Weiss bei einem Offset unterhalb/nahe bekannter Gruen-/Blau-Presets (oder bei Voegeln < 72 ms) = ZU SPAET!
+        bool isPostBlueWhiteLate = false;
+        if (fb == TachoFeedback.WayTooEarlyWhite)
+        {
+            bool hasGoodAbove = OffsetHistory.Any(h =>
+                (h.BlueHits > 0 || h.GreenHits > 0) && h.OffsetMs > usedOffsetMs + 0.02);
+            var refGood = GetBestProvenOffset() ?? GetBestStartupPreset();
+            if (hasGoodAbove)
+                isPostBlueWhiteLate = true;
+            else if (isBird && refGood != null)
+                isPostBlueWhiteLate = usedOffsetMs <= refGood.OffsetMs + 8.0;
+            else if (isBird)
+                isPostBlueWhiteLate = usedOffsetMs < 72.0;
         }
 
         switch (fb)
@@ -639,7 +656,10 @@ internal sealed class TachoSetupSlot
                 stat.WhiteHits++;
                 depStat.WhiteHits++;
                 ConsecutiveNonBlue++;
-                ConsecutiveRed = 0;
+                if (isPostBlueWhiteLate)
+                    ConsecutiveRed++;
+                else
+                    ConsecutiveRed = 0;
                 break;
         }
 
@@ -647,7 +667,7 @@ internal sealed class TachoSetupSlot
         var top1 = GetTopPreset(1);
         var top2 = GetTopPreset(2);
         var top3 = GetTopPreset(3);
-        bool isLateMiss = fb == TachoFeedback.TooLateRed;
+        bool isLateMiss = fb == TachoFeedback.TooLateRed || isPostBlueWhiteLate;
 
         // 0. NOTBREMSE bei >= 2x echtem Rot (bzw. Vogel Nach-Blau-Weiss) in Folge:
         //    Grosse 1-Frame-Kompensation (+14,0 ms bzw. +16,0 ms ab 3x), damit selbst ein kompletter +16,7ms
@@ -762,8 +782,8 @@ internal sealed class TachoSetupSlot
 
         var bestProven = top1 ?? GetBestProvenOffset();
 
-        // 1. Bei WEISS (zu frueh geklickt):
-        if (fb == TachoFeedback.WayTooEarlyWhite)
+        // 1. Bei WEISS vor Gruen (zu frueh geklickt):
+        if (fb == TachoFeedback.WayTooEarlyWhite && !isPostBlueWhiteLate)
         {
             var target = bestProven ?? GetBestStartupPreset();
             if (target != null)
@@ -773,6 +793,17 @@ internal sealed class TachoSetupSlot
                 ConsecutiveNonBlue = 0;
                 ConsecutiveRed = 0;
                 return (ClickOffsetMs, delta, true, target, 0, false, false);
+            }
+
+            if (isBird)
+            {
+                double stepDown = -3.0;
+                double rawTarget = ClampAboveRedLimit(Math.Round(ClickOffsetMs + stepDown, 2));
+                double applied = Math.Round(rawTarget - ClickOffsetMs, 2);
+                ClickOffsetMs = rawTarget;
+                ConsecutiveNonBlue = 0;
+                ConsecutiveRed = 0;
+                return (ClickOffsetMs, applied, false, null, 0, false, false);
             }
 
             double def = ClampAboveRedLimit(DefaultClickOffsetMs > 0 ? DefaultClickOffsetMs : 41.0);
@@ -864,13 +895,13 @@ internal sealed class TachoSetupSlot
                 return (ClickOffsetMs, delta, false, null, 0, false, true);
             }
 
-            // Naechstgelegenes bekanntes Rot (oder gesetzte Rot-Grenze) strikt unterhalb des aktuellen Offsets finden
+            // Naechstgelegenes bekanntes Rot oder Nach-Blau-Weiss (oder gesetzte Rot-Grenze) strikt unterhalb des aktuellen Offsets finden
             double? nearestRedBelow = RedLimitOffsetMs.HasValue && RedLimitOffsetMs.Value < ClickOffsetMs - 0.02
                 ? RedLimitOffsetMs.Value
                 : null;
             foreach (var h in OffsetHistory)
             {
-                if (h.RedHits >= 1 && h.OffsetMs < ClickOffsetMs - 0.02)
+                if ((h.RedHits + h.WhiteHits) >= 1 && h.OffsetMs < ClickOffsetMs - 0.02)
                 {
                     if (!nearestRedBelow.HasValue || h.OffsetMs > nearestRedBelow.Value)
                         nearestRedBelow = h.OffsetMs;

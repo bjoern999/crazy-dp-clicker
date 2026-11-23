@@ -1015,7 +1015,7 @@ internal static class Program
             // 2. Ergebnis unter dem Basis-Preset verbuchen (SessionDriftMs bleibt sauber getrennt!)
             double baseUsedOffset = slot.ClickOffsetMs;
             (updated, appliedDelta, reverted, revertedStats, skippedBadCount, blockedBadCliff, usedBisection) =
-                slot.RecordOutcomeAndTune(baseUsedOffset, fb, deploymentId, allowEmergencyJump);
+                slot.RecordOutcomeAndTune(baseUsedOffset, fb, activeEnemy.IsBird, deploymentId, allowEmergencyJump);
             activeDrift = slot.SessionDriftMs;
 
             // Wenn auf T1 eine grosse 1-Frame-Notbremse (>= +10 ms) gegriffen hat, hat das Spiel/Browser-Buffering
@@ -1098,7 +1098,10 @@ internal static class Program
                 Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> BLAU (OPTIMAL!) <<< {counts} -> Offset ({updated:F2} ms{driftInfo}) bleibt unveraendert.");
                 break;
             case TachoFeedback.WayTooEarlyWhite:
-                Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> WEISS (VIEL ZU FRUEH!) <<< {counts} -> Offset auf Startwert {updated:F2} ms zurueckgesetzt!");
+                if (appliedDelta > 0)
+                    Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> WEISS (NACH BLAU / ZU SPAET!) <<< {counts} -> Offset {appliedDelta:+0.00;-0.00} ms auf {updated:F2} ms{bisectionTag}{driftInfo}");
+                else
+                    Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> WEISS (VOR GRUEN / ZU FRUEH!) <<< {counts} -> Offset {appliedDelta:+0.00;-0.00} ms auf {updated:F2} ms{driftInfo}");
                 break;
             default:
                 Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] Keine eindeutige Farbe erkannt {counts} -> Offset bleibt {updated:F2} ms.");
