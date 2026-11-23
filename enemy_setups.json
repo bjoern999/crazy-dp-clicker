@@ -23436,7 +23436,8 @@
                                           "ConsecutiveNonBlue":  0,
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
-                                          "BlueRatePercent":  0
+                                          "BlueRatePercent":  0,
+                                          "RedLimitOffsetMs":  54.5
                                       }
                                   ],
                        "LastSeenUtc":  "2026-11-23T14:05:02.8149569Z",
