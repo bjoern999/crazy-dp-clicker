@@ -32,6 +32,7 @@ internal sealed class OffsetPerformance
     public double RedRate => Total > 0 ? (double)RedHits / Total : 0.0;
     public double BadRate => Total > 0 ? (double)(RedHits + WhiteHits) / Total : 0.0;
     public bool IsPureGreenOnly => GreenHits > 0 && BlueHits == 0 && RedHits == 0 && WhiteHits == 0;
+    public bool IsSafeGreen => GreenHits >= 10 && RedHits == 0;
 
     /// <summary>
     /// Composite quality score favoring high Blue hit rate and safe Green hits while heavily penalizing Red (round lost!).

@@ -1275,6 +1275,7 @@ internal static class Program
                 {
                     var tags = new List<string>();
                     if (h.TopRank > 0) tags.Add($"TOP-{h.TopRank}");
+                    if (h.IsSafeGreen) tags.Add("safe-green");
                     if (h.IsMature) tags.Add("MATURE");
                     if (h.IsRedLocked) tags.Add("ROT-SPERRE");
                     else if (slot.IsBlockedByRedFloor(h.OffsetMs)) tags.Add("<= ROT-ENDE");
