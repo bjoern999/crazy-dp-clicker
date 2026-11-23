@@ -132,6 +132,9 @@ internal sealed class TachoSetupSlot
     // True sobald 3 gereifte Top-Presets existieren und noch 0,05ms-Zwischenwerte zwischen Top-1..3 verfeinert werden
     public bool IsRefinementActive { get; set; }
 
+    // Manuell aktivierte Verfeinerungsphase (auch schon ab Top-1 im +-0,50ms-Fenster in 0,05ms-Schritten)
+    public bool ManualRefinement { get; set; }
+
     // True sobald alle 0,05ms-Zwischenwerte zwischen den Top-3 gereift (oder gesperrt) sind -> reine Top-1/2/3-Rotation!
     public bool IsRefinementComplete { get; set; }
 
@@ -417,7 +420,7 @@ internal sealed class TachoSetupSlot
 
         // Meister-Tacho nur, wenn 3 echte gereifte Top-Presets existieren und Top-1 kein reines Gruen ist
         IsMeisterTacho = assigned.Count >= 3 && assigned.All(h => h.IsMature) && assigned[0].BlueHits > 0;
-        if (IsMeisterTacho)
+        if (IsMeisterTacho || (ManualRefinement && assigned.Count >= 1 && assigned[0].BlueHits > 0))
         {
             var (_, _, openCount) = GetRefinementInfo();
             IsRefinementActive = openCount > 0;
@@ -440,11 +443,22 @@ internal sealed class TachoSetupSlot
         var t1 = GetTopPreset(1);
         var t2 = GetTopPreset(2);
         var t3 = GetTopPreset(3);
-        if (t1 == null || t2 == null || t3 == null)
+        double minMs, maxMs;
+        if (t1 != null && t2 != null && t3 != null)
+        {
+            minMs = SnapToFineMs(Math.Min(t1.OffsetMs, Math.Min(t2.OffsetMs, t3.OffsetMs)));
+            maxMs = SnapToFineMs(Math.Max(t1.OffsetMs, Math.Max(t2.OffsetMs, t3.OffsetMs)));
+        }
+        else if (ManualRefinement && t1 != null)
+        {
+            // Manuelle Verfeinerung rund um Top-1: feines +-0,50ms-Fenster in 0,05ms-Schritten
+            minMs = SnapToFineMs(Math.Max(0.0, t1.OffsetMs - 0.50));
+            maxMs = SnapToFineMs(Math.Min(120.0, t1.OffsetMs + 0.50));
+        }
+        else
+        {
             return (0.0, 0.0, 0);
-
-        double minMs = SnapToFineMs(Math.Min(t1.OffsetMs, Math.Min(t2.OffsetMs, t3.OffsetMs)));
-        double maxMs = SnapToFineMs(Math.Max(t1.OffsetMs, Math.Max(t2.OffsetMs, t3.OffsetMs)));
+        }
         int open = 0;
 
         for (double v = SnapToFineMs(minMs + 0.05); v < maxMs - 0.02; v = SnapToFineMs(v + 0.05))
@@ -771,7 +785,7 @@ internal sealed class TachoSetupSlot
                 return (ClickOffsetMs, delta, true, earlierTop, 0, false, false);
             }
 
-            if (IsMeisterTacho)
+            if (IsMeisterTacho || ManualRefinement)
             {
                 double rawTarget = Math.Clamp(Math.Round(ClickOffsetMs + 0.75, 2), 0.0, 120.0);
                 var (safeTarget, skippedBad) = FindNextNonBadOffsetUp(rawTarget);
@@ -783,8 +797,8 @@ internal sealed class TachoSetupSlot
         }
 
         // 0b. MODUS "VERFEINERUNG" bei GRUEN / WEISS (zu frueh):
-        //     In 0,05ms-Schritten nach unten zwischen Top-1..3 verfeinern!
-        if (!isLateMiss && IsMeisterTacho && IsRefinementActive)
+        //     In 0,05ms-Schritten nach unten zwischen Top-1..3 (bzw. im +-0,50ms-Fenster um Top-1) verfeinern!
+        if (!isLateMiss && (IsMeisterTacho || ManualRefinement) && IsRefinementActive)
         {
             var (minMs, maxMs, _) = GetRefinementInfo();
             double? nextFine = FindNextRefinementOffset(ClickOffsetMs, -1, minMs, maxMs);
