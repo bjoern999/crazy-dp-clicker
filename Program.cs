@@ -359,13 +359,13 @@ internal static class Program
 
                 if (NativeMethods.IsAnyKeyJustPressed(NativeMethods.VK_OEM_PLUS, NativeMethods.VK_ADD, ref plusPrev))
                 {
-                    double manualStep = (activeEnemy != null && activeEnemy.IsFixed) ? +0.5 : +2.0;
+                    double manualStep = (activeEnemy != null && activeEnemy.IsTachoFixed(expectedTachoIndex)) ? +0.5 : +2.0;
                     AdjustOffsetManually(expectedTachoIndex, manualStep, cfg, enemyStore, activeEnemy);
                 }
 
                 if (NativeMethods.IsAnyKeyJustPressed(NativeMethods.VK_OEM_MINUS, NativeMethods.VK_SUBTRACT, ref minusPrev))
                 {
-                    double manualStep = (activeEnemy != null && activeEnemy.IsFixed) ? -0.5 : -2.0;
+                    double manualStep = (activeEnemy != null && activeEnemy.IsTachoFixed(expectedTachoIndex)) ? -0.5 : -2.0;
                     AdjustOffsetManually(expectedTachoIndex, manualStep, cfg, enemyStore, activeEnemy);
                 }
 
@@ -497,7 +497,7 @@ internal static class Program
 
                             if (changedEnemy || cur == 0 || presetAutoSwitched)
                             {
-                                string tag = isNew ? "NEU ANGELEGT" : (matched.IsFixed ? $"FEST (Dist={dist:F2})" : $"ERKANNT (Dist={dist:F2})");
+                                string tag = isNew ? "NEU ANGELEGT" : (slot.IsFixed ? $"FEST (Dist={dist:F2})" : $"ERKANNT (Dist={dist:F2})");
                                 string visStr = visDist >= 0 ? $", Vis={visDist:F2}{(learnedVisual ? " [NEU]" : "")}" : "";
                                 string lockStr = slot.TemplateCurve.IsReady ? " [LOCK]" : $" [Kurve {slot.TemplateCurve.SampleCount}/2]";
                                 string driftStr = Math.Abs(slot.SessionDriftMs) >= 0.05 ? $" (Drift {slot.SessionDriftMs:+0.00;-0.00}ms)" : "";
@@ -618,7 +618,7 @@ internal static class Program
                         // Bei neuen/unbekannten Spielern (oder Spielern mit gemerktem 3er-Profil im noch unkalibrierten 2er-Modus):
                         // nach Tacho 2 fuer 2,2 s automatisch pruefen, ob ein 3. Tacho erscheint!
                         if (cur == 1 && cfg.ActiveProfile == 2 &&
-                            (activeEnemy == null || !activeEnemy.IsFixed || activeEnemy.TachoCount == 3))
+                            (activeEnemy == null || !activeEnemy.AllTachosFixed || activeEnemy.TachoCount == 3))
                         {
                             probeThirdTacho = true;
                             probeThirdTachoUntilUtc = DateTime.UtcNow.AddMilliseconds(2200.0);
@@ -705,7 +705,7 @@ internal static class Program
                         {
                             // Falls wir im 3er-Modus auf T3 gewartet haben, bei einem neuen Spieler aber direkt wieder T1 erscheint:
                             // automatisch auf 2 Tachos zurueckstufen!
-                            if (cur == 2 && cfg.ActiveProfile == 3 && activeEnemy != null && !activeEnemy.IsFixed &&
+                            if (cur == 2 && cfg.ActiveProfile == 3 && activeEnemy != null && !activeEnemy.AllTachosFixed &&
                                 activeEnemy.Tachos.Count >= 3 && !activeEnemy.Tachos[2].HasSignature)
                             {
                                 activeEnemy.TachoCount = 2;
@@ -781,10 +781,11 @@ internal static class Program
 
     private static (int X, int Y) GetEffectiveTachoPos(int tachoIndex, AppConfig cfg, EnemySetup? activeEnemy)
     {
-        if (activeEnemy != null && activeEnemy.IsFixed && activeEnemy.ProfileSize == cfg.ActiveProfile)
+        if (activeEnemy != null && activeEnemy.ProfileSize == cfg.ActiveProfile)
         {
             activeEnemy.EnsureSlots();
-            if (tachoIndex >= 0 && tachoIndex < activeEnemy.Tachos.Count && activeEnemy.Tachos[tachoIndex].HasPosition)
+            if (tachoIndex >= 0 && tachoIndex < activeEnemy.Tachos.Count &&
+                activeEnemy.Tachos[tachoIndex].IsFixed && activeEnemy.Tachos[tachoIndex].HasPosition)
                 return (activeEnemy.Tachos[tachoIndex].X, activeEnemy.Tachos[tachoIndex].Y);
         }
         var tachos = cfg.GetActiveTachos();
@@ -880,7 +881,7 @@ internal static class Program
             TachoAttackPlan = BattleTacticHelper.BuildPlan(activeTactic, tachos.Count),
             IsAttackTacho = BattleTacticHelper.IsAttack(activeTactic, activeIdx, tachos.Count),
             EnemySetupName = activeEnemy != null ? $"{activeEnemy.Name} [{activeEnemy.DinoType} | {activeEnemy.TachoCount}T]" : "",
-            EnemySetupIsFixed = activeEnemy?.IsFixed ?? false,
+            EnemySetupIsFixed = activeEnemy?.IsTachoFixed(activeIdx) ?? false,
             EnemySetupIsNew = activeEnemyIsNew,
             EnemyBlueHits = activeEnemy?.TotalBlueHits ?? 0,
             EnemyTotalClicks = activeEnemy?.TotalClicks ?? 0,
@@ -1007,7 +1008,7 @@ internal static class Program
             // 2. Ergebnis unter dem Basis-Preset verbuchen (SessionDriftMs bleibt sauber getrennt!)
             double baseUsedOffset = slot.ClickOffsetMs;
             (updated, appliedDelta, reverted, revertedStats, skippedBadCount, blockedBadCliff, usedBisection) =
-                slot.RecordOutcomeAndTune(baseUsedOffset, fb, activeEnemy.IsFixed, activeEnemy.IsBird, deploymentId, allowEmergencyJump);
+                slot.RecordOutcomeAndTune(baseUsedOffset, fb, activeEnemy.IsBird, deploymentId, allowEmergencyJump);
             activeDrift = slot.SessionDriftMs;
 
             // Wenn auf T1 eine grosse 1-Frame-Notbremse (>= +10 ms) gegriffen hat, hat das Spiel/Browser-Buffering
@@ -1025,7 +1026,7 @@ internal static class Program
 
             if (detector.LastFingerprint.EndSpeedDegPerSec > 50.0)
             {
-                slot.UpdateSignatureEma(detector.LastFingerprint, activeEnemy.IsFixed);
+                slot.UpdateSignatureEma(detector.LastFingerprint);
             }
 
             enemyStore.Save();
@@ -1181,7 +1182,7 @@ internal static class Program
         Console.WriteLine($"Aktives Profil        : {cfg.ActiveProfile}er-Konfiguration | Gespeicherte Gegner-Setups: {store.Setups.Count}");
         foreach (var s in store.Setups)
         {
-            string fixedTag = s.IsFixed ? "FEST" : "AUTO";
+            string fixedTag = s.AllTachosFixed ? "FEST" : (s.HasAnyFixedTacho ? "TEIL-FEST" : "AUTO");
             string visTag = s.HasVisual ? "VIS" : "NO-VIS";
             string slotDesc = string.Join(" | ", s.Tachos.Select((sl, i) =>
             {
@@ -1193,9 +1194,10 @@ internal static class Program
                 string mTag = sl.IsRefinementActive
                     ? $",VERFEINERUNG({sl.GetRefinementInfo().OpenCandidates})"
                     : (sl.IsMeisterTacho ? ",MEISTER" : "");
+                string fixSlotTag = (!s.AllTachosFixed && s.HasAnyFixedTacho) ? (sl.IsFixed ? ",FEST" : ",AUTO") : "";
                 int bad = sl.CountKnownBadPresets();
                 string badTxt = bad > 0 ? $",Bad={bad}" : "";
-                return $"T{i + 1}:{sl.ClickOffsetMs:F2}ms{bestTxt}{mTag}{badTxt}";
+                return $"T{i + 1}:{sl.ClickOffsetMs:F2}ms{fixSlotTag}{bestTxt}{mTag}{badTxt}";
             }));
             Console.WriteLine($"  - {s.Name} [{s.DinoType}, {s.TachoCount} Tachos, {fixedTag}, {visTag}]: {slotDesc}");
         }

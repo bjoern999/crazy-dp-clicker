@@ -87,6 +87,7 @@ internal sealed class TachoSetupSlot
     public const int CurrentTimingVersion = 3; // v3 = DXGI/DWM Hardware-VBlank-Zeitstempel + Sub-Grad-Kante + Spin-Wait ClickAt
 
     public bool HasSignature { get; set; }
+    public bool IsFixed { get; set; }
     public int TimingVersion { get; set; } = 1; // Fehlt im Alt-JSON -> migriert einmalig sauber auf v2!
 
     // Feste Bildschirm-Position dieses Tachos fuer diesen Spieler
@@ -218,7 +219,7 @@ internal sealed class TachoSetupSlot
         Samples = 1;
     }
 
-    public void UpdateSignatureEma(TachoFingerprint fp, bool isFixed = false)
+    public void UpdateSignatureEma(TachoFingerprint fp)
     {
         if (!HasSignature)
         {
@@ -226,9 +227,9 @@ internal sealed class TachoSetupSlot
             return;
         }
 
-        // Feste Spieler (Ammonit, Mammut, Oviraptor, ...) frieren ihre kalibrierte Tacho-Signatur ein,
+        // Feste Tachos frieren ihre kalibrierte Tacho-Signatur ein,
         // damit sich aehnliche Tachos niemals gegenseitig per EMA verschmieren koennen!
-        if (isFixed)
+        if (IsFixed)
         {
             if (SpinTimeTo55Ms <= 1.0 && fp.SpinTimeTo55Ms > 100.0)
                 SpinTimeTo55Ms = Math.Round(fp.SpinTimeTo55Ms, 1);
@@ -640,7 +641,7 @@ internal sealed class TachoSetupSlot
     }
 
     public (double NewOffsetMs, double AppliedDeltaMs, bool RevertedToProven, OffsetPerformance? RevertedStats, int SkippedBadCount, bool BlockedBadCliff, bool UsedBisection)
-        RecordOutcomeAndTune(double usedOffsetMs, TachoFeedback fb, bool isFixedPlayer, bool isBird = false, int deploymentId = 0, bool allowEmergencyJump = true)
+        RecordOutcomeAndTune(double usedOffsetMs, TachoFeedback fb, bool isBird = false, int deploymentId = 0, bool allowEmergencyJump = true)
     {
         if (fb == TachoFeedback.None)
             return (ClickOffsetMs, 0.0, false, null, 0, false, false);
@@ -910,7 +911,7 @@ internal sealed class TachoSetupSlot
         if (isLateMiss)
         {
             double redStep;
-            if (!isFixedPlayer)
+            if (!IsFixed)
                 redStep = +3.0;
             else if (isBirdPostBlueLate && bestProven == null)
                 redStep = +2.0;
@@ -1120,7 +1121,6 @@ internal sealed class EnemySetup
     public int Id { get; set; }
     public string Name { get; set; } = "";
     public string DinoType { get; set; } = "Vierbeiner"; // "Vierbeiner" oder "Vogel"
-    public bool IsFixed { get; set; }
     public int ProfileSize { get; set; } = 2;
     public int TachoCount
     {
@@ -1133,6 +1133,15 @@ internal sealed class EnemySetup
 
     [System.Text.Json.Serialization.JsonIgnore]
     public bool IsBird => string.Equals(DinoType, "Vogel", StringComparison.OrdinalIgnoreCase);
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool HasAnyFixedTacho => Tachos.Any(t => t.IsFixed);
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool AllTachosFixed => Tachos.Count > 0 && Tachos.All(t => t.IsFixed);
+
+    public bool IsTachoFixed(int tachoIndex) =>
+        tachoIndex >= 0 && tachoIndex < Tachos.Count && Tachos[tachoIndex].IsFixed;
 
     public bool HasVisual => Visual != null && Visual.IsCurrentVersion;
 
@@ -1304,7 +1313,7 @@ internal sealed class EnemySetupStore
             if (dCurrent <= 1.0)
             {
                 if (!slot.HasPosition && curX > 0 && curY > 0) { slot.X = curX; slot.Y = curY; }
-                slot.UpdateSignatureEma(currentFp, currentRoundSetup.IsFixed);
+                slot.UpdateSignatureEma(currentFp);
 
                 // Neues Dino-Bild erst speichern, sobald der letzte Tacho (T2/T3) den Spieler der Runde bestaetigt hat!
                 bool learnedOnConfirm = false;
@@ -1400,7 +1409,7 @@ internal sealed class EnemySetupStore
             {
                 var matchedSlot = bestJoint.Tachos[tachoIndex];
                 if (!matchedSlot.HasPosition && curX > 0 && curY > 0) { matchedSlot.X = curX; matchedSlot.Y = curY; }
-                matchedSlot.UpdateSignatureEma(currentFp, bestJoint.IsFixed);
+                matchedSlot.UpdateSignatureEma(currentFp);
                 bool learned = false;
                 if (isLastSlot && hasCurVis)
                 {
@@ -1421,8 +1430,8 @@ internal sealed class EnemySetupStore
                 return (bestJoint, false, bestJointDist, bestJointVisDist, learned);
             }
 
-            // Schutz gegen einzelne Frame-Haker bzw. Tacho-Zentrierungs-Shift bei festen Spielern:
-            if (currentRoundSetup.IsFixed && (slot.MatchesGeometryAndSpinTime(currentFp) || (curVisDist >= 0 && curVisDist <= 0.14)))
+            // Schutz gegen einzelne Frame-Haker bzw. Tacho-Zentrierungs-Shift bei festen Tachos:
+            if (slot.IsFixed && (slot.MatchesGeometryAndSpinTime(currentFp) || (curVisDist >= 0 && curVisDist <= 0.14)))
             {
                 bool learnedFallback = false;
                 if (isLastSlot && hasCurVis && !currentRoundSetup.HasVisual)
@@ -1533,7 +1542,7 @@ internal sealed class EnemySetupStore
         {
             var matchedSlot = bestMatch.Tachos[tachoIndex];
             if (!matchedSlot.HasPosition && curX > 0 && curY > 0) { matchedSlot.X = curX; matchedSlot.Y = curY; }
-            if (bestMatch.IsFixed && bestVisDist >= 0 && bestVisDist <= 0.14 && matchedSlot.DistanceTo(currentFp) > 1.0 && currentFp.EndSpeedDegPerSec > 50.0)
+            if (matchedSlot.IsFixed && bestVisDist >= 0 && bestVisDist <= 0.14 && matchedSlot.DistanceTo(currentFp) > 1.0 && currentFp.EndSpeedDegPerSec > 50.0)
             {
                 // Eindeutiger visueller Match nach Tacho-Zentrierung -> Tacho-Signatur automatisch auf zentrierte Werte aktualisieren
                 matchedSlot.GreenEndDeg = Math.Round(currentFp.GreenEndDeg, 1);
@@ -1543,7 +1552,7 @@ internal sealed class EnemySetupStore
                 if (currentFp.SpinTimeTo55Ms > 100.0)
                     matchedSlot.SpinTimeTo55Ms = Math.Round(currentFp.SpinTimeTo55Ms, 1);
             }
-            matchedSlot.UpdateSignatureEma(currentFp, bestMatch.IsFixed);
+            matchedSlot.UpdateSignatureEma(currentFp);
 
             // Bei T1 niemals ein brandneues Visual auf ein NO-VIS-Setup speichern (erst wenn T2 die Runde bestaetigt hat!),
             // damit ein vorlaeufiges T1-Match niemals ein fremdes Setup mit einem falschen Dino-Foto vergiftet!
@@ -1583,7 +1592,6 @@ internal sealed class EnemySetupStore
         {
             Id = id,
             Name = $"Spieler-Setup #{id}",
-            IsFixed = false,
             ProfileSize = profileSize,
             Visual = visualCopy,
             LastSeenUtc = DateTime.UtcNow
