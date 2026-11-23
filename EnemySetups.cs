@@ -26,6 +26,7 @@ internal sealed class OffsetPerformance
     public bool IsMature => Total >= MatureMinSamples;
     public int TopRank { get; set; } // 1 = Top-1, 2 = Top-2, 3 = Top-3, 0 = nicht in Top-3
     public bool ManualTop1 { get; set; } // Manuell gesetztes Top-1 (bleibt erhalten, auch wenn N < 30)
+    public bool ExcludeFromTop { get; set; } // Manuell von automatischen Top-Markierungen ausgenommen
     public double BlueRate => Total > 0 ? (double)BlueHits / Total : 0.0;
     public double SafeRate => Total > 0 ? (double)(BlueHits + GreenHits) / Total : 0.0;
     public double RedRate => Total > 0 ? (double)RedHits / Total : 0.0;
@@ -353,7 +354,7 @@ internal sealed class TachoSetupSlot
             h.TopRank = 0;
 
         var topCandidates = OffsetHistory
-            .Where(h => h.IsMature && !h.IsRedLocked && !IsBlockedByRedFloor(h.OffsetMs))
+            .Where(h => h.IsMature && !h.ExcludeFromTop && !h.IsRedLocked && !IsBlockedByRedFloor(h.OffsetMs))
             .OrderByDescending(h => h.BlueHits > 0 ? 1 : 0) // Blau immer vor reinem Gruen
             .ThenByDescending(h => h.SmoothedScore)
             .ThenByDescending(h => h.BlueRate)
@@ -363,9 +364,9 @@ internal sealed class TachoSetupSlot
 
         var assigned = new List<OffsetPerformance>(3);
 
-        // Manuell gesetztes Top-1 immer zuerst beruecksichtigen (solange nicht Rot-gesperrt / <= Rot-Ende)
+        // Manuell gesetztes Top-1 immer zuerst beruecksichtigen (solange nicht Rot-gesperrt / <= Rot-Ende / ausgenommen)
         var manualTop1 = OffsetHistory
-            .FirstOrDefault(h => h.ManualTop1 && !h.IsRedLocked && !IsBlockedByRedFloor(h.OffsetMs));
+            .FirstOrDefault(h => h.ManualTop1 && !h.ExcludeFromTop && !h.IsRedLocked && !IsBlockedByRedFloor(h.OffsetMs));
         if (manualTop1 != null)
             assigned.Add(manualTop1);
 
@@ -380,7 +381,7 @@ internal sealed class TachoSetupSlot
             {
                 // 1. Bevorzugt: spaeter klickendes Preset mit mindestens 1 Blau-Treffer (und SafeRate >= 50%)
                 var riskierBlue = OffsetHistory
-                    .Where(h => !assigned.Contains(h) && !h.IsRedLocked && !IsBlockedByRedFloor(h.OffsetMs) &&
+                    .Where(h => !assigned.Contains(h) && !h.ExcludeFromTop && !h.IsRedLocked && !IsBlockedByRedFloor(h.OffsetMs) &&
                                 h.OffsetMs < chosen.OffsetMs - 0.02 &&
                                 h.BlueHits > 0 && h.SafeRate >= 0.50)
                     .OrderByDescending(h => h.BlueRate)
@@ -395,7 +396,7 @@ internal sealed class TachoSetupSlot
                 {
                     // 2. Sonst: spaetestes Preset unterhalb davon, das noch ueberwiegend gruen (SafeRate >= 50%) ist
                     var riskierGreen = OffsetHistory
-                        .Where(h => !assigned.Contains(h) && !h.IsRedLocked && !IsBlockedByRedFloor(h.OffsetMs) &&
+                        .Where(h => !assigned.Contains(h) && !h.ExcludeFromTop && !h.IsRedLocked && !IsBlockedByRedFloor(h.OffsetMs) &&
                                     h.OffsetMs < chosen.OffsetMs - 0.02 &&
                                     h.GreenHits > 0 && h.SafeRate >= 0.50)
                         .OrderBy(h => h.OffsetMs) // Kleinster Offset = spaetester / riskantester Klick!
