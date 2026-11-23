@@ -1,6 +1,6 @@
 {
     "NextId":  28,
-    "LastDeploymentId":  238,
+    "LastDeploymentId":  240,
     "Setups":  [
                    {
                        "Id":  1,
@@ -557,8 +557,8 @@
                                           "EndSpeedDegPerSec":  314.8,
                                           "AccelDegPerSec2":  161,
                                           "SpinTimeTo55Ms":  1160.9,
-                                          "ClickOffsetMs":  46,
-                                          "DefaultClickOffsetMs":  45.5,
+                                          "ClickOffsetMs":  44,
+                                          "DefaultClickOffsetMs":  44,
                                           "TemplateCurve":  {
                                                                 "TimeBeforeZeroMs":  [
                                                                                          1020.98,
@@ -580,12 +580,12 @@
                                                                                      ],
                                                                 "SampleCount":  10
                                                             },
-                                          "Samples":  1532,
-                                          "BlueHits":  115,
-                                          "GreenHits":  57,
+                                          "Samples":  1570,
+                                          "BlueHits":  116,
+                                          "GreenHits":  75,
                                           "RedHits":  17,
                                           "WhiteHits":  0,
-                                          "TotalClicks":  189,
+                                          "TotalClicks":  208,
                                           "OffsetHistory":  [
                                                                 {
                                                                     "OffsetMs":  43.75,
@@ -597,14 +597,14 @@
                                                                     "TopRank":  0,
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
-                                                                    "BlueRate":  0.81818181818181823,
-                                                                    "SafeRate":  0.81818181818181823,
+                                                                    "BlueRate":  0.8181818181818182,
+                                                                    "SafeRate":  0.8181818181818182,
                                                                     "RedRate":  0.18181818181818182,
                                                                     "BadRate":  0.18181818181818182,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  0.27272727272727271,
-                                                                    "SmoothedScore":  0.21178312473540409
+                                                                    "QualityScore":  0.2727272727272727,
+                                                                    "SmoothedScore":  0.2117831247354041
                                                                 },
                                                                 {
                                                                     "OffsetMs":  44,
@@ -613,82 +613,82 @@
                                                                     "RedHits":  3,
                                                                     "WhiteHits":  0,
                                                                     "Total":  31,
-                                                                    "TopRank":  0,
-                                                                    "ManualTop1":  false,
+                                                                    "TopRank":  1,
+                                                                    "ManualTop1":  true,
                                                                     "ExcludeFromTop":  false,
-                                                                    "BlueRate":  0.74193548387096775,
-                                                                    "SafeRate":  0.90322580645161288,
+                                                                    "BlueRate":  0.7419354838709677,
+                                                                    "SafeRate":  0.9032258064516129,
                                                                     "RedRate":  0.0967741935483871,
                                                                     "BadRate":  0.0967741935483871,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  0.52419354838709675,
+                                                                    "QualityScore":  0.5241935483870968,
                                                                     "SmoothedScore":  0.47927915914386204
                                                                 },
                                                                 {
                                                                     "OffsetMs":  44.25,
                                                                     "BlueHits":  2,
-                                                                    "GreenHits":  4,
+                                                                    "GreenHits":  6,
                                                                     "RedHits":  0,
                                                                     "WhiteHits":  0,
-                                                                    "Total":  6,
+                                                                    "Total":  8,
                                                                     "TopRank":  0,
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
-                                                                    "BlueRate":  0.33333333333333331,
+                                                                    "BlueRate":  0.25,
                                                                     "SafeRate":  1,
                                                                     "RedRate":  0,
                                                                     "BadRate":  0,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  0.6333333333333333,
-                                                                    "SmoothedScore":  0.47492668621700873
+                                                                    "QualityScore":  0.5875,
+                                                                    "SmoothedScore":  0.4705046480743692
                                                                 },
                                                                 {
                                                                     "OffsetMs":  44.5,
                                                                     "BlueHits":  3,
-                                                                    "GreenHits":  7,
+                                                                    "GreenHits":  9,
                                                                     "RedHits":  0,
                                                                     "WhiteHits":  0,
-                                                                    "Total":  10,
+                                                                    "Total":  12,
                                                                     "TopRank":  0,
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
-                                                                    "BlueRate":  0.3,
+                                                                    "BlueRate":  0.25,
                                                                     "SafeRate":  1,
                                                                     "RedRate":  0,
                                                                     "BadRate":  0,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  0.615,
-                                                                    "SmoothedScore":  0.513228622491064
+                                                                    "QualityScore":  0.5875,
+                                                                    "SmoothedScore":  0.504382583629416
                                                                 },
                                                                 {
                                                                     "OffsetMs":  44.75,
                                                                     "BlueHits":  1,
-                                                                    "GreenHits":  6,
+                                                                    "GreenHits":  8,
                                                                     "RedHits":  0,
                                                                     "WhiteHits":  0,
-                                                                    "Total":  7,
+                                                                    "Total":  9,
                                                                     "TopRank":  0,
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
-                                                                    "BlueRate":  0.14285714285714285,
+                                                                    "BlueRate":  0.1111111111111111,
                                                                     "SafeRate":  1,
                                                                     "RedRate":  0,
                                                                     "BadRate":  0,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  0.52857142857142858,
-                                                                    "SmoothedScore":  0.41139511432158216
+                                                                    "QualityScore":  0.5111111111111111,
+                                                                    "SmoothedScore":  0.418824430194561
                                                                 },
                                                                 {
                                                                     "OffsetMs":  45,
                                                                     "BlueHits":  0,
-                                                                    "GreenHits":  6,
+                                                                    "GreenHits":  9,
                                                                     "RedHits":  0,
                                                                     "WhiteHits":  0,
-                                                                    "Total":  6,
+                                                                    "Total":  9,
                                                                     "TopRank":  0,
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
@@ -698,46 +698,46 @@
                                                                     "BadRate":  0,
                                                                     "IsPureGreenOnly":  true,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  0.45,
-                                                                    "SmoothedScore":  0.33742668621700883
+                                                                    "QualityScore":  0.44999999999999996,
+                                                                    "SmoothedScore":  0.368824430194561
                                                                 },
                                                                 {
                                                                     "OffsetMs":  45.25,
                                                                     "BlueHits":  13,
-                                                                    "GreenHits":  7,
+                                                                    "GreenHits":  10,
                                                                     "RedHits":  3,
                                                                     "WhiteHits":  0,
-                                                                    "Total":  23,
+                                                                    "Total":  26,
                                                                     "TopRank":  0,
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
-                                                                    "BlueRate":  0.56521739130434778,
-                                                                    "SafeRate":  0.86956521739130432,
-                                                                    "RedRate":  0.13043478260869565,
-                                                                    "BadRate":  0.13043478260869565,
+                                                                    "BlueRate":  0.5,
+                                                                    "SafeRate":  0.8846153846153846,
+                                                                    "RedRate":  0.11538461538461539,
+                                                                    "BadRate":  0.11538461538461539,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  0.31086956521739123,
-                                                                    "SmoothedScore":  0.26980888550063242
+                                                                    "QualityScore":  0.3269230769230769,
+                                                                    "SmoothedScore":  0.2886493087699144
                                                                 },
                                                                 {
                                                                     "OffsetMs":  45.5,
-                                                                    "BlueHits":  60,
-                                                                    "GreenHits":  15,
+                                                                    "BlueHits":  61,
+                                                                    "GreenHits":  21,
                                                                     "RedHits":  4,
                                                                     "WhiteHits":  0,
-                                                                    "Total":  79,
-                                                                    "TopRank":  1,
-                                                                    "ManualTop1":  true,
+                                                                    "Total":  86,
+                                                                    "TopRank":  0,
+                                                                    "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
-                                                                    "BlueRate":  0.759493670886076,
-                                                                    "SafeRate":  0.94936708860759489,
-                                                                    "RedRate":  0.050632911392405063,
-                                                                    "BadRate":  0.050632911392405063,
+                                                                    "BlueRate":  0.7093023255813954,
+                                                                    "SafeRate":  0.9534883720930233,
+                                                                    "RedRate":  0.046511627906976744,
+                                                                    "BadRate":  0.046511627906976744,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  0.69303797468354433,
-                                                                    "SmoothedScore":  0.66874246714556662
+                                                                    "QualityScore":  0.6796511627906977,
+                                                                    "SmoothedScore":  0.6575497978626825
                                                                 },
                                                                 {
                                                                     "OffsetMs":  46.25,
@@ -806,13 +806,13 @@
                                                                     "TopRank":  0,
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
-                                                                    "BlueRate":  0.44444444444444442,
-                                                                    "SafeRate":  0.88888888888888884,
+                                                                    "BlueRate":  0.4444444444444444,
+                                                                    "SafeRate":  0.8888888888888888,
                                                                     "RedRate":  0.1111111111111111,
                                                                     "BadRate":  0.1111111111111111,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  0.31111111111111112,
+                                                                    "QualityScore":  0.3111111111111111,
                                                                     "SmoothedScore":  0.24014200002817
                                                                 },
                                                                 {
@@ -832,7 +832,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 }
                                                             ],
                                           "LegacyOffsetHistory":  [
@@ -1352,13 +1352,61 @@
                                                                         "GreenHits":  2,
                                                                         "RedHits":  0,
                                                                         "WhiteHits":  0
+                                                                    },
+                                                                    {
+                                                                        "DeploymentId":  239,
+                                                                        "OffsetMs":  45.5,
+                                                                        "BlueHits":  1,
+                                                                        "GreenHits":  6,
+                                                                        "RedHits":  0,
+                                                                        "WhiteHits":  0
+                                                                    },
+                                                                    {
+                                                                        "DeploymentId":  239,
+                                                                        "OffsetMs":  45.25,
+                                                                        "BlueHits":  0,
+                                                                        "GreenHits":  3,
+                                                                        "RedHits":  0,
+                                                                        "WhiteHits":  0
+                                                                    },
+                                                                    {
+                                                                        "DeploymentId":  239,
+                                                                        "OffsetMs":  45,
+                                                                        "BlueHits":  0,
+                                                                        "GreenHits":  3,
+                                                                        "RedHits":  0,
+                                                                        "WhiteHits":  0
+                                                                    },
+                                                                    {
+                                                                        "DeploymentId":  239,
+                                                                        "OffsetMs":  44.75,
+                                                                        "BlueHits":  0,
+                                                                        "GreenHits":  2,
+                                                                        "RedHits":  0,
+                                                                        "WhiteHits":  0
+                                                                    },
+                                                                    {
+                                                                        "DeploymentId":  239,
+                                                                        "OffsetMs":  44.5,
+                                                                        "BlueHits":  0,
+                                                                        "GreenHits":  2,
+                                                                        "RedHits":  0,
+                                                                        "WhiteHits":  0
+                                                                    },
+                                                                    {
+                                                                        "DeploymentId":  239,
+                                                                        "OffsetMs":  44.25,
+                                                                        "BlueHits":  0,
+                                                                        "GreenHits":  2,
+                                                                        "RedHits":  0,
+                                                                        "WhiteHits":  0
                                                                     }
                                                                 ],
                                           "RedLimitOffsetMs":  null,
-                                          "ConsecutiveNonBlue":  5,
+                                          "ConsecutiveNonBlue":  4,
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
-                                          "BlueRatePercent":  60.84656084656085
+                                          "BlueRatePercent":  55.76923076923077
                                       },
                                       {
                                           "HasSignature":  true,
@@ -1372,8 +1420,8 @@
                                           "EndSpeedDegPerSec":  361,
                                           "AccelDegPerSec2":  211.2,
                                           "SpinTimeTo55Ms":  918.3,
-                                          "ClickOffsetMs":  51,
-                                          "DefaultClickOffsetMs":  51.75,
+                                          "ClickOffsetMs":  50.75,
+                                          "DefaultClickOffsetMs":  50.75,
                                           "TemplateCurve":  {
                                                                 "TimeBeforeZeroMs":  [
                                                                                          890.3,
@@ -1395,12 +1443,12 @@
                                                                                      ],
                                                                 "SampleCount":  10
                                                             },
-                                          "Samples":  1510,
-                                          "BlueHits":  123,
-                                          "GreenHits":  44,
+                                          "Samples":  1548,
+                                          "BlueHits":  131,
+                                          "GreenHits":  55,
                                           "RedHits":  22,
                                           "WhiteHits":  0,
-                                          "TotalClicks":  189,
+                                          "TotalClicks":  208,
                                           "OffsetHistory":  [
                                                                 {
                                                                     "OffsetMs":  46.25,
@@ -1602,14 +1650,14 @@
                                                                     "TopRank":  0,
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  true,
-                                                                    "BlueRate":  0.79629629629629628,
-                                                                    "SafeRate":  0.83333333333333337,
+                                                                    "BlueRate":  0.7962962962962963,
+                                                                    "SafeRate":  0.8333333333333334,
                                                                     "RedRate":  0.16666666666666666,
                                                                     "BadRate":  0.16666666666666666,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  0.31296296296296294,
-                                                                    "SmoothedScore":  0.28641904936760271
+                                                                    "SmoothedScore":  0.2864190493676027
                                                                 },
                                                                 {
                                                                     "OffsetMs":  50.25,
@@ -1640,109 +1688,109 @@
                                                                     "TopRank":  0,
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
-                                                                    "BlueRate":  0.66666666666666663,
-                                                                    "SafeRate":  0.66666666666666663,
-                                                                    "RedRate":  0.33333333333333331,
-                                                                    "BadRate":  0.33333333333333331,
+                                                                    "BlueRate":  0.6666666666666666,
+                                                                    "SafeRate":  0.6666666666666666,
+                                                                    "RedRate":  0.3333333333333333,
+                                                                    "BadRate":  0.3333333333333333,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  -0.33333333333333331,
+                                                                    "QualityScore":  -0.3333333333333333,
                                                                     "SmoothedScore":  -0.20080527677865073
                                                                 },
                                                                 {
                                                                     "OffsetMs":  50.75,
-                                                                    "BlueHits":  5,
-                                                                    "GreenHits":  1,
+                                                                    "BlueHits":  13,
+                                                                    "GreenHits":  7,
                                                                     "RedHits":  0,
                                                                     "WhiteHits":  0,
-                                                                    "Total":  6,
-                                                                    "TopRank":  0,
-                                                                    "ManualTop1":  false,
+                                                                    "Total":  20,
+                                                                    "TopRank":  1,
+                                                                    "ManualTop1":  true,
                                                                     "ExcludeFromTop":  false,
-                                                                    "BlueRate":  0.83333333333333337,
+                                                                    "BlueRate":  0.65,
                                                                     "SafeRate":  1,
                                                                     "RedRate":  0,
                                                                     "BadRate":  0,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  0.90833333333333333,
-                                                                    "SmoothedScore":  0.68117668621700878
+                                                                    "QualityScore":  0.8074999999999999,
+                                                                    "SmoothedScore":  0.734862601166949
                                                                 },
                                                                 {
                                                                     "OffsetMs":  51,
                                                                     "BlueHits":  8,
-                                                                    "GreenHits":  4,
+                                                                    "GreenHits":  5,
                                                                     "RedHits":  0,
                                                                     "WhiteHits":  0,
-                                                                    "Total":  12,
+                                                                    "Total":  13,
                                                                     "TopRank":  0,
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
-                                                                    "BlueRate":  0.66666666666666663,
+                                                                    "BlueRate":  0.6153846153846154,
                                                                     "SafeRate":  1,
                                                                     "RedRate":  0,
                                                                     "BadRate":  0,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  0.81666666666666676,
-                                                                    "SmoothedScore":  0.70081115505798752
+                                                                    "QualityScore":  0.7884615384615384,
+                                                                    "SmoothedScore":  0.6841596531497066
                                                                 },
                                                                 {
                                                                     "OffsetMs":  51.25,
                                                                     "BlueHits":  4,
-                                                                    "GreenHits":  6,
+                                                                    "GreenHits":  7,
                                                                     "RedHits":  0,
                                                                     "WhiteHits":  0,
-                                                                    "Total":  10,
+                                                                    "Total":  11,
                                                                     "TopRank":  0,
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
-                                                                    "BlueRate":  0.4,
+                                                                    "BlueRate":  0.36363636363636365,
                                                                     "SafeRate":  1,
                                                                     "RedRate":  0,
                                                                     "BadRate":  0,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  0.67,
-                                                                    "SmoothedScore":  0.55906195582439733
+                                                                    "QualityScore":  0.65,
+                                                                    "SmoothedScore":  0.550781014149795
                                                                 },
                                                                 {
                                                                     "OffsetMs":  51.5,
                                                                     "BlueHits":  1,
-                                                                    "GreenHits":  7,
+                                                                    "GreenHits":  8,
                                                                     "RedHits":  0,
                                                                     "WhiteHits":  0,
-                                                                    "Total":  8,
+                                                                    "Total":  9,
                                                                     "TopRank":  0,
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
-                                                                    "BlueRate":  0.125,
+                                                                    "BlueRate":  0.1111111111111111,
                                                                     "SafeRate":  1,
                                                                     "RedRate":  0,
                                                                     "BadRate":  0,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  0.51875,
-                                                                    "SmoothedScore":  0.41550464807436915
+                                                                    "QualityScore":  0.5111111111111111,
+                                                                    "SmoothedScore":  0.418824430194561
                                                                 },
                                                                 {
                                                                     "OffsetMs":  51.75,
                                                                     "BlueHits":  30,
-                                                                    "GreenHits":  13,
+                                                                    "GreenHits":  15,
                                                                     "RedHits":  2,
                                                                     "WhiteHits":  0,
-                                                                    "Total":  45,
-                                                                    "TopRank":  1,
-                                                                    "ManualTop1":  true,
+                                                                    "Total":  47,
+                                                                    "TopRank":  0,
+                                                                    "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
-                                                                    "BlueRate":  0.66666666666666663,
-                                                                    "SafeRate":  0.9555555555555556,
-                                                                    "RedRate":  0.044444444444444446,
-                                                                    "BadRate":  0.044444444444444446,
+                                                                    "BlueRate":  0.6382978723404256,
+                                                                    "SafeRate":  0.9574468085106383,
+                                                                    "RedRate":  0.0425531914893617,
+                                                                    "BadRate":  0.0425531914893617,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  0.66333333333333333,
-                                                                    "SmoothedScore":  0.62763769218867738
+                                                                    "QualityScore":  0.6542553191489362,
+                                                                    "SmoothedScore":  0.6203595862883945
                                                                 },
                                                                 {
                                                                     "OffsetMs":  53.25,
@@ -1754,14 +1802,14 @@
                                                                     "TopRank":  0,
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
-                                                                    "BlueRate":  0.92307692307692313,
-                                                                    "SafeRate":  0.92307692307692313,
-                                                                    "RedRate":  0.076923076923076927,
-                                                                    "BadRate":  0.076923076923076927,
+                                                                    "BlueRate":  0.9230769230769231,
+                                                                    "SafeRate":  0.9230769230769231,
+                                                                    "RedRate":  0.07692307692307693,
+                                                                    "BadRate":  0.07692307692307693,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  0.69230769230769229,
-                                                                    "SmoothedScore":  0.58809625919058062
+                                                                    "QualityScore":  0.6923076923076923,
+                                                                    "SmoothedScore":  0.5880962591905806
                                                                 },
                                                                 {
                                                                     "OffsetMs":  54.75,
@@ -1780,7 +1828,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  56.25,
@@ -1799,7 +1847,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  1,
-                                                                    "SmoothedScore":  0.77806178098824885
+                                                                    "SmoothedScore":  0.7780617809882489
                                                                 }
                                                             ],
                                           "LegacyOffsetHistory":  [
@@ -2742,19 +2790,59 @@
                                                                         "GreenHits":  2,
                                                                         "RedHits":  0,
                                                                         "WhiteHits":  0
+                                                                    },
+                                                                    {
+                                                                        "DeploymentId":  239,
+                                                                        "OffsetMs":  51.75,
+                                                                        "BlueHits":  0,
+                                                                        "GreenHits":  2,
+                                                                        "RedHits":  0,
+                                                                        "WhiteHits":  0
+                                                                    },
+                                                                    {
+                                                                        "DeploymentId":  239,
+                                                                        "OffsetMs":  51.5,
+                                                                        "BlueHits":  0,
+                                                                        "GreenHits":  1,
+                                                                        "RedHits":  0,
+                                                                        "WhiteHits":  0
+                                                                    },
+                                                                    {
+                                                                        "DeploymentId":  239,
+                                                                        "OffsetMs":  51.25,
+                                                                        "BlueHits":  0,
+                                                                        "GreenHits":  1,
+                                                                        "RedHits":  0,
+                                                                        "WhiteHits":  0
+                                                                    },
+                                                                    {
+                                                                        "DeploymentId":  239,
+                                                                        "OffsetMs":  51,
+                                                                        "BlueHits":  0,
+                                                                        "GreenHits":  1,
+                                                                        "RedHits":  0,
+                                                                        "WhiteHits":  0
+                                                                    },
+                                                                    {
+                                                                        "DeploymentId":  239,
+                                                                        "OffsetMs":  50.75,
+                                                                        "BlueHits":  8,
+                                                                        "GreenHits":  6,
+                                                                        "RedHits":  0,
+                                                                        "WhiteHits":  0
                                                                     }
                                                                 ],
                                           "RedLimitOffsetMs":  50.5,
-                                          "ConsecutiveNonBlue":  0,
+                                          "ConsecutiveNonBlue":  1,
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
-                                          "BlueRatePercent":  65.07936507936508
+                                          "BlueRatePercent":  62.98076923076923
                                       }
                                   ],
-                       "LastSeenUtc":  "2026-11-23T16:47:00.5860744Z",
+                       "LastSeenUtc":  "2026-11-23T18:28:56.6509753Z",
                        "HasVisual":  true,
-                       "TotalBlueHits":  238,
-                       "TotalClicks":  378
+                       "TotalBlueHits":  247,
+                       "TotalClicks":  416
                    },
                    {
                        "Id":  2,
@@ -3351,14 +3439,14 @@
                                                                     "TopRank":  0,
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
-                                                                    "BlueRate":  0.052631578947368418,
+                                                                    "BlueRate":  0.05263157894736842,
                                                                     "SafeRate":  1,
                                                                     "RedRate":  0,
                                                                     "BadRate":  0,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  true,
-                                                                    "QualityScore":  0.47894736842105262,
-                                                                    "SmoothedScore":  0.43411966228463628
+                                                                    "QualityScore":  0.4789473684210526,
+                                                                    "SmoothedScore":  0.4341196622846363
                                                                 },
                                                                 {
                                                                     "OffsetMs":  54.25,
@@ -3370,14 +3458,14 @@
                                                                     "TopRank":  1,
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
-                                                                    "BlueRate":  0.97777777777777775,
+                                                                    "BlueRate":  0.9777777777777777,
                                                                     "SafeRate":  1,
                                                                     "RedRate":  0,
                                                                     "BadRate":  0,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  0.98777777777777787,
-                                                                    "SmoothedScore":  0.94621519076965532
+                                                                    "QualityScore":  0.9877777777777779,
+                                                                    "SmoothedScore":  0.9462151907696553
                                                                 },
                                                                 {
                                                                     "OffsetMs":  54.5,
@@ -3408,13 +3496,13 @@
                                                                     "TopRank":  0,
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
-                                                                    "BlueRate":  0.66666666666666663,
+                                                                    "BlueRate":  0.6666666666666666,
                                                                     "SafeRate":  1,
                                                                     "RedRate":  0,
                                                                     "BadRate":  0,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  0.81666666666666676,
+                                                                    "QualityScore":  0.8166666666666668,
                                                                     "SmoothedScore":  0.48637116246981726
                                                                 },
                                                                 {
@@ -3453,7 +3541,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  0.89,
-                                                                    "SmoothedScore":  0.74239528915773068
+                                                                    "SmoothedScore":  0.7423952891577307
                                                                 },
                                                                 {
                                                                     "OffsetMs":  55.5,
@@ -3960,7 +4048,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  37.5,
@@ -3979,7 +4067,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  37.75,
@@ -3998,7 +4086,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -2.56875,
-                                                                    "SmoothedScore":  -2.0253706089704271
+                                                                    "SmoothedScore":  -2.025370608970427
                                                                 },
                                                                 {
                                                                     "OffsetMs":  38,
@@ -4016,8 +4104,8 @@
                                                                     "BadRate":  0.4,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  -0.92999999999999994,
-                                                                    "SmoothedScore":  -0.89399857622638734
+                                                                    "QualityScore":  -0.9299999999999999,
+                                                                    "SmoothedScore":  -0.8939985762263873
                                                                 },
                                                                 {
                                                                     "OffsetMs":  38.25,
@@ -4036,7 +4124,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  0.10499999999999998,
-                                                                    "SmoothedScore":  0.073740621828346509
+                                                                    "SmoothedScore":  0.07374062182834651
                                                                 },
                                                                 {
                                                                     "OffsetMs":  38.5,
@@ -4131,7 +4219,7 @@
                                                                     "IsPureGreenOnly":  true,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  0.45,
-                                                                    "SmoothedScore":  0.26637116246981718
+                                                                    "SmoothedScore":  0.2663711624698172
                                                                 },
                                                                 {
                                                                     "OffsetMs":  43.5,
@@ -4169,7 +4257,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  52.5,
@@ -4188,7 +4276,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  59,
@@ -6099,7 +6187,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  1,
-                                                                    "SmoothedScore":  0.59637116246981714
+                                                                    "SmoothedScore":  0.5963711624698171
                                                                 },
                                                                 {
                                                                     "OffsetMs":  40.25,
@@ -6174,8 +6262,8 @@
                                                                     "BadRate":  0,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  0.84285714285714286,
-                                                                    "SmoothedScore":  0.65583955876602662
+                                                                    "QualityScore":  0.8428571428571429,
+                                                                    "SmoothedScore":  0.6558395587660266
                                                                 }
                                                             ],
                                           "LegacyOffsetHistory":  [
@@ -6940,7 +7028,7 @@
                                                                     "BadRate":  0.14285714285714285,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  0.19285714285714281,
+                                                                    "QualityScore":  0.1928571428571428,
                                                                     "SmoothedScore":  0.13458867437043298
                                                                 },
                                                                 {
@@ -7093,7 +7181,7 @@
                                                                     "IsPureGreenOnly":  true,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  0.45,
-                                                                    "SmoothedScore":  0.26637116246981718
+                                                                    "SmoothedScore":  0.2663711624698172
                                                                 },
                                                                 {
                                                                     "OffsetMs":  38.75,
@@ -7143,13 +7231,13 @@
                                                                     "TopRank":  0,
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
-                                                                    "BlueRate":  0.66666666666666663,
+                                                                    "BlueRate":  0.6666666666666666,
                                                                     "SafeRate":  1,
                                                                     "RedRate":  0,
                                                                     "BadRate":  0,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  0.81666666666666676,
+                                                                    "QualityScore":  0.8166666666666668,
                                                                     "SmoothedScore":  0.48637116246981726
                                                                 },
                                                                 {
@@ -7162,7 +7250,7 @@
                                                                     "TopRank":  0,
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
-                                                                    "BlueRate":  0.33333333333333331,
+                                                                    "BlueRate":  0.3333333333333333,
                                                                     "SafeRate":  1,
                                                                     "RedRate":  0,
                                                                     "BadRate":  0,
@@ -7974,7 +8062,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  38.5,
@@ -7993,7 +8081,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  39.5,
@@ -8006,9 +8094,9 @@
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
                                                                     "BlueRate":  0,
-                                                                    "SafeRate":  0.72727272727272729,
-                                                                    "RedRate":  0.27272727272727271,
-                                                                    "BadRate":  0.27272727272727271,
+                                                                    "SafeRate":  0.7272727272727273,
+                                                                    "RedRate":  0.2727272727272727,
+                                                                    "BadRate":  0.2727272727272727,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -0.49090909090909096,
@@ -8050,7 +8138,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  41,
@@ -8088,7 +8176,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  43,
@@ -9367,13 +9455,13 @@
                                                                     "TopRank":  0,
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
-                                                                    "BlueRate":  0.66666666666666663,
+                                                                    "BlueRate":  0.6666666666666666,
                                                                     "SafeRate":  1,
                                                                     "RedRate":  0,
                                                                     "BadRate":  0,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  0.81666666666666676,
+                                                                    "QualityScore":  0.8166666666666668,
                                                                     "SmoothedScore":  0.48637116246981726
                                                                 },
                                                                 {
@@ -9652,14 +9740,14 @@
                                                                     "TopRank":  1,
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
-                                                                    "BlueRate":  0.58333333333333337,
+                                                                    "BlueRate":  0.5833333333333334,
                                                                     "SafeRate":  1,
                                                                     "RedRate":  0,
                                                                     "BadRate":  0,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  0.77083333333333337,
-                                                                    "SmoothedScore":  0.66152544077227315
+                                                                    "QualityScore":  0.7708333333333334,
+                                                                    "SmoothedScore":  0.6615254407722732
                                                                 }
                                                             ],
                                           "LegacyOffsetHistory":  [
@@ -9982,7 +10070,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  52.5,
@@ -10014,9 +10102,9 @@
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
                                                                     "BlueRate":  0,
-                                                                    "SafeRate":  0.33333333333333331,
-                                                                    "RedRate":  0.66666666666666663,
-                                                                    "BadRate":  0.66666666666666663,
+                                                                    "SafeRate":  0.3333333333333333,
+                                                                    "RedRate":  0.6666666666666666,
+                                                                    "BadRate":  0.6666666666666666,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -1.8499999999999999,
@@ -10096,7 +10184,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  54.25,
@@ -11397,14 +11485,14 @@
                                                                     "TopRank":  1,
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
-                                                                    "BlueRate":  0.98918918918918919,
-                                                                    "SafeRate":  0.98918918918918919,
+                                                                    "BlueRate":  0.9891891891891892,
+                                                                    "SafeRate":  0.9891891891891892,
                                                                     "RedRate":  0.010810810810810811,
                                                                     "BadRate":  0.010810810810810811,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  0.95675675675675675,
-                                                                    "SmoothedScore":  0.94452030142352406
+                                                                    "QualityScore":  0.9567567567567568,
+                                                                    "SmoothedScore":  0.9445203014235241
                                                                 },
                                                                 {
                                                                     "OffsetMs":  44.5,
@@ -11423,7 +11511,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 }
                                                             ],
                                           "LegacyOffsetHistory":  [
@@ -11789,7 +11877,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  36.75,
@@ -11808,7 +11896,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  37,
@@ -11827,7 +11915,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  37.5,
@@ -11840,9 +11928,9 @@
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
                                                                     "BlueRate":  0,
-                                                                    "SafeRate":  0.33333333333333331,
-                                                                    "RedRate":  0.66666666666666663,
-                                                                    "BadRate":  0.66666666666666663,
+                                                                    "SafeRate":  0.3333333333333333,
+                                                                    "RedRate":  0.6666666666666666,
+                                                                    "BadRate":  0.6666666666666666,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -1.8499999999999999,
@@ -11859,13 +11947,13 @@
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
                                                                     "BlueRate":  0,
-                                                                    "SafeRate":  0.77777777777777779,
-                                                                    "RedRate":  0.22222222222222221,
-                                                                    "BadRate":  0.22222222222222221,
+                                                                    "SafeRate":  0.7777777777777778,
+                                                                    "RedRate":  0.2222222222222222,
+                                                                    "BadRate":  0.2222222222222222,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -0.31666666666666665,
-                                                                    "SmoothedScore":  -0.30591536428755828
+                                                                    "SmoothedScore":  -0.3059153642875583
                                                                 },
                                                                 {
                                                                     "OffsetMs":  38,
@@ -11897,7 +11985,7 @@
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
                                                                     "BlueRate":  0,
-                                                                    "SafeRate":  0.83333333333333337,
+                                                                    "SafeRate":  0.8333333333333334,
                                                                     "RedRate":  0.16666666666666666,
                                                                     "BadRate":  0.16666666666666666,
                                                                     "IsPureGreenOnly":  false,
@@ -12036,7 +12124,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  53.25,
@@ -12087,13 +12175,13 @@
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
                                                                     "BlueRate":  0,
-                                                                    "SafeRate":  0.66666666666666663,
-                                                                    "RedRate":  0.33333333333333331,
-                                                                    "BadRate":  0.33333333333333331,
+                                                                    "SafeRate":  0.6666666666666666,
+                                                                    "RedRate":  0.3333333333333333,
+                                                                    "BadRate":  0.3333333333333333,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  -0.70000000000000007,
-                                                                    "SmoothedScore":  -0.42080527677865071
+                                                                    "QualityScore":  -0.7000000000000001,
+                                                                    "SmoothedScore":  -0.4208052767786507
                                                                 },
                                                                 {
                                                                     "OffsetMs":  54.25,
@@ -15038,7 +15126,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  0.89,
-                                                                    "SmoothedScore":  0.78612338290446471
+                                                                    "SmoothedScore":  0.7861233829044647
                                                                 }
                                                             ],
                                           "LegacyOffsetHistory":  [
@@ -15258,7 +15346,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  47.5,
@@ -15277,7 +15365,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  48.25,
@@ -16339,7 +16427,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  1,
-                                                                    "SmoothedScore":  0.91380002273935479
+                                                                    "SmoothedScore":  0.9138000227393548
                                                                 }
                                                             ],
                                           "LegacyOffsetHistory":  [
@@ -16446,7 +16534,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  36.75,
@@ -16465,7 +16553,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  37,
@@ -16484,7 +16572,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  37.5,
@@ -18026,7 +18114,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  1,
-                                                                    "SmoothedScore":  0.88971133688114823
+                                                                    "SmoothedScore":  0.8897113368811482
                                                                 },
                                                                 {
                                                                     "OffsetMs":  47.5,
@@ -18942,7 +19030,7 @@
                                                                     "IsPureGreenOnly":  true,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  0.45,
-                                                                    "SmoothedScore":  0.32076059635712562
+                                                                    "SmoothedScore":  0.3207605963571256
                                                                 },
                                                                 {
                                                                     "OffsetMs":  68.75,
@@ -18961,7 +19049,7 @@
                                                                     "IsPureGreenOnly":  true,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  0.45,
-                                                                    "SmoothedScore":  0.32076059635712562
+                                                                    "SmoothedScore":  0.3207605963571256
                                                                 },
                                                                 {
                                                                     "OffsetMs":  69,
@@ -19036,8 +19124,8 @@
                                                                     "BadRate":  0,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  true,
-                                                                    "QualityScore":  0.68157894736842106,
-                                                                    "SmoothedScore":  0.61745299561796962
+                                                                    "QualityScore":  0.6815789473684211,
+                                                                    "SmoothedScore":  0.6174529956179696
                                                                 }
                                                             ],
                                           "LegacyOffsetHistory":  [
@@ -19792,7 +19880,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  53,
@@ -19811,7 +19899,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  53.5,
@@ -19849,7 +19937,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  0.10499999999999998,
-                                                                    "SmoothedScore":  0.073740621828346509
+                                                                    "SmoothedScore":  0.07374062182834651
                                                                 },
                                                                 {
                                                                     "OffsetMs":  54.75,
@@ -19906,7 +19994,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -0.93,
-                                                                    "SmoothedScore":  -0.67282933028467107
+                                                                    "SmoothedScore":  -0.6728293302846711
                                                                 },
                                                                 {
                                                                     "OffsetMs":  55.5,
@@ -19925,7 +20013,7 @@
                                                                     "IsPureGreenOnly":  true,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  0.45,
-                                                                    "SmoothedScore":  0.32076059635712562
+                                                                    "SmoothedScore":  0.3207605963571256
                                                                 },
                                                                 {
                                                                     "OffsetMs":  55.75,
@@ -19944,7 +20032,7 @@
                                                                     "IsPureGreenOnly":  true,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  0.45,
-                                                                    "SmoothedScore":  0.26637116246981718
+                                                                    "SmoothedScore":  0.2663711624698172
                                                                 },
                                                                 {
                                                                     "OffsetMs":  56.5,
@@ -21247,7 +21335,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  37.75,
@@ -21285,7 +21373,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -1.275,
-                                                                    "SmoothedScore":  -0.84433439687408929
+                                                                    "SmoothedScore":  -0.8443343968740893
                                                                 },
                                                                 {
                                                                     "OffsetMs":  38.25,
@@ -21380,7 +21468,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -0.93,
-                                                                    "SmoothedScore":  -0.67282933028467107
+                                                                    "SmoothedScore":  -0.6728293302846711
                                                                 },
                                                                 {
                                                                     "OffsetMs":  40.75,
@@ -21393,13 +21481,13 @@
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
                                                                     "BlueRate":  0,
-                                                                    "SafeRate":  0.66666666666666663,
-                                                                    "RedRate":  0.33333333333333331,
-                                                                    "BadRate":  0.33333333333333331,
+                                                                    "SafeRate":  0.6666666666666666,
+                                                                    "RedRate":  0.3333333333333333,
+                                                                    "BadRate":  0.3333333333333333,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  -0.70000000000000007,
-                                                                    "SmoothedScore":  -0.42080527677865071
+                                                                    "QualityScore":  -0.7000000000000001,
+                                                                    "SmoothedScore":  -0.4208052767786507
                                                                 },
                                                                 {
                                                                     "OffsetMs":  41.25,
@@ -21532,7 +21620,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  52.25,
@@ -21646,7 +21734,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -1.275,
-                                                                    "SmoothedScore":  -0.84433439687408929
+                                                                    "SmoothedScore":  -0.8443343968740893
                                                                 },
                                                                 {
                                                                     "OffsetMs":  54.75,
@@ -21665,7 +21753,7 @@
                                                                     "IsPureGreenOnly":  true,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  0.45,
-                                                                    "SmoothedScore":  0.26637116246981718
+                                                                    "SmoothedScore":  0.2663711624698172
                                                                 },
                                                                 {
                                                                     "OffsetMs":  68,
@@ -22767,7 +22855,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  1,
-                                                                    "SmoothedScore":  0.66496405599697306
+                                                                    "SmoothedScore":  0.6649640559969731
                                                                 },
                                                                 {
                                                                     "OffsetMs":  34.5,
@@ -23836,7 +23924,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  0.8625,
-                                                                    "SmoothedScore":  0.57329738933030638
+                                                                    "SmoothedScore":  0.5732973893303064
                                                                 },
                                                                 {
                                                                     "OffsetMs":  28.5,
@@ -23988,7 +24076,7 @@
                                                                     "IsPureGreenOnly":  true,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  0.45,
-                                                                    "SmoothedScore":  0.26637116246981718
+                                                                    "SmoothedScore":  0.2663711624698172
                                                                 },
                                                                 {
                                                                     "OffsetMs":  38.75,
@@ -24025,8 +24113,8 @@
                                                                     "BadRate":  0,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  0.76428571428571423,
-                                                                    "SmoothedScore":  0.59472844765491539
+                                                                    "QualityScore":  0.7642857142857142,
+                                                                    "SmoothedScore":  0.5947284476549154
                                                                 }
                                                             ],
                                           "LegacyOffsetHistory":  [
@@ -24631,14 +24719,14 @@
                                                                     "TopRank":  1,
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
-                                                                    "BlueRate":  0.83333333333333337,
+                                                                    "BlueRate":  0.8333333333333334,
                                                                     "SafeRate":  1,
                                                                     "RedRate":  0,
                                                                     "BadRate":  0,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  0.90833333333333333,
-                                                                    "SmoothedScore":  0.68117668621700878
+                                                                    "QualityScore":  0.9083333333333333,
+                                                                    "SmoothedScore":  0.6811766862170088
                                                                 },
                                                                 {
                                                                     "OffsetMs":  50,
@@ -24783,13 +24871,13 @@
                                                                     "TopRank":  0,
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
-                                                                    "BlueRate":  0.66666666666666663,
+                                                                    "BlueRate":  0.6666666666666666,
                                                                     "SafeRate":  1,
                                                                     "RedRate":  0,
                                                                     "BadRate":  0,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  0.81666666666666676,
+                                                                    "QualityScore":  0.8166666666666668,
                                                                     "SmoothedScore":  0.48637116246981726
                                                                 }
                                                             ],
@@ -25692,7 +25780,7 @@
                                           "EndSpeedDegPerSec":  292.2,
                                           "AccelDegPerSec2":  129.8,
                                           "SpinTimeTo55Ms":  1166.3,
-                                          "ClickOffsetMs":  40.5,
+                                          "ClickOffsetMs":  41,
                                           "DefaultClickOffsetMs":  40.5,
                                           "TemplateCurve":  {
                                                                 "TimeBeforeZeroMs":  [
@@ -25715,12 +25803,12 @@
                                                                                      ],
                                                                 "SampleCount":  10
                                                             },
-                                          "Samples":  333,
+                                          "Samples":  337,
                                           "BlueHits":  85,
-                                          "GreenHits":  51,
+                                          "GreenHits":  53,
                                           "RedHits":  5,
                                           "WhiteHits":  0,
-                                          "TotalClicks":  141,
+                                          "TotalClicks":  143,
                                           "OffsetHistory":  [
                                                                 {
                                                                     "OffsetMs":  37.75,
@@ -25739,7 +25827,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  1,
-                                                                    "SmoothedScore":  0.31598948857893672
+                                                                    "SmoothedScore":  0.3159894885789367
                                                                 },
                                                                 {
                                                                     "OffsetMs":  38,
@@ -25929,7 +26017,7 @@
                                                                     "IsPureGreenOnly":  true,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  0.45,
-                                                                    "SmoothedScore":  0.32076059635712562
+                                                                    "SmoothedScore":  0.3207605963571256
                                                                 },
                                                                 {
                                                                     "OffsetMs":  40.5,
@@ -25938,17 +26026,17 @@
                                                                     "RedHits":  3,
                                                                     "WhiteHits":  0,
                                                                     "Total":  70,
-                                                                    "TopRank":  0,
+                                                                    "TopRank":  1,
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
-                                                                    "BlueRate":  0.81428571428571428,
-                                                                    "SafeRate":  0.95714285714285718,
-                                                                    "RedRate":  0.042857142857142858,
-                                                                    "BadRate":  0.042857142857142858,
+                                                                    "BlueRate":  0.8142857142857143,
+                                                                    "SafeRate":  0.9571428571428572,
+                                                                    "RedRate":  0.04285714285714286,
+                                                                    "BadRate":  0.04285714285714286,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  0.75,
-                                                                    "SmoothedScore":  0.72251315334341293
+                                                                    "SmoothedScore":  0.7225131533434129
                                                                 },
                                                                 {
                                                                     "OffsetMs":  40.75,
@@ -25966,8 +26054,8 @@
                                                                     "BadRate":  0,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  0.79736842105263162,
-                                                                    "SmoothedScore":  0.72221490037987446
+                                                                    "QualityScore":  0.7973684210526316,
+                                                                    "SmoothedScore":  0.7222149003798745
                                                                 },
                                                                 {
                                                                     "OffsetMs":  41,
@@ -25986,15 +26074,15 @@
                                                                     "IsPureGreenOnly":  true,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  0.45,
-                                                                    "SmoothedScore":  0.32076059635712562
+                                                                    "SmoothedScore":  0.3207605963571256
                                                                 },
                                                                 {
                                                                     "OffsetMs":  41.25,
                                                                     "BlueHits":  0,
-                                                                    "GreenHits":  5,
+                                                                    "GreenHits":  6,
                                                                     "RedHits":  0,
                                                                     "WhiteHits":  0,
-                                                                    "Total":  5,
+                                                                    "Total":  6,
                                                                     "TopRank":  0,
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
@@ -26005,26 +26093,26 @@
                                                                     "IsPureGreenOnly":  true,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  0.45,
-                                                                    "SmoothedScore":  0.32076059635712562
+                                                                    "SmoothedScore":  0.33742668621700883
                                                                 },
                                                                 {
                                                                     "OffsetMs":  41.5,
                                                                     "BlueHits":  13,
-                                                                    "GreenHits":  7,
+                                                                    "GreenHits":  8,
                                                                     "RedHits":  0,
                                                                     "WhiteHits":  0,
-                                                                    "Total":  20,
-                                                                    "TopRank":  1,
+                                                                    "Total":  21,
+                                                                    "TopRank":  0,
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
-                                                                    "BlueRate":  0.65,
+                                                                    "BlueRate":  0.6190476190476191,
                                                                     "SafeRate":  1,
                                                                     "RedRate":  0,
                                                                     "BadRate":  0,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  0.80749999999999988,
-                                                                    "SmoothedScore":  0.734862601166949
+                                                                    "QualityScore":  0.7904761904761906,
+                                                                    "SmoothedScore":  0.7224956749132679
                                                                 },
                                                                 {
                                                                     "OffsetMs":  42,
@@ -26553,13 +26641,29 @@
                                                                         "GreenHits":  1,
                                                                         "RedHits":  0,
                                                                         "WhiteHits":  0
+                                                                    },
+                                                                    {
+                                                                        "DeploymentId":  240,
+                                                                        "OffsetMs":  41.5,
+                                                                        "BlueHits":  0,
+                                                                        "GreenHits":  1,
+                                                                        "RedHits":  0,
+                                                                        "WhiteHits":  0
+                                                                    },
+                                                                    {
+                                                                        "DeploymentId":  240,
+                                                                        "OffsetMs":  41.25,
+                                                                        "BlueHits":  0,
+                                                                        "GreenHits":  1,
+                                                                        "RedHits":  0,
+                                                                        "WhiteHits":  0
                                                                     }
                                                                 ],
                                           "RedLimitOffsetMs":  null,
-                                          "ConsecutiveNonBlue":  1,
+                                          "ConsecutiveNonBlue":  2,
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
-                                          "BlueRatePercent":  60.283687943262414
+                                          "BlueRatePercent":  59.44055944055944
                                       },
                                       {
                                           "HasSignature":  true,
@@ -26570,10 +26674,10 @@
                                           "GreenEndDeg":  295.3,
                                           "GreenWidthDeg":  19.6,
                                           "BlueWidthDeg":  0,
-                                          "EndSpeedDegPerSec":  466.9,
-                                          "AccelDegPerSec2":  359.1,
-                                          "SpinTimeTo55Ms":  713.9,
-                                          "ClickOffsetMs":  53.75,
+                                          "EndSpeedDegPerSec":  465,
+                                          "AccelDegPerSec2":  354.2,
+                                          "SpinTimeTo55Ms":  714.6,
+                                          "ClickOffsetMs":  53.25,
                                           "DefaultClickOffsetMs":  40.5,
                                           "TemplateCurve":  {
                                                                 "TimeBeforeZeroMs":  [
@@ -26596,12 +26700,12 @@
                                                                                      ],
                                                                 "SampleCount":  10
                                                             },
-                                          "Samples":  328,
+                                          "Samples":  332,
                                           "BlueHits":  0,
-                                          "GreenHits":  26,
+                                          "GreenHits":  28,
                                           "RedHits":  12,
                                           "WhiteHits":  0,
-                                          "TotalClicks":  38,
+                                          "TotalClicks":  40,
                                           "OffsetHistory":  [
                                                                 {
                                                                     "OffsetMs":  40,
@@ -26620,7 +26724,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  40.5,
@@ -26633,9 +26737,9 @@
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
                                                                     "BlueRate":  0,
-                                                                    "SafeRate":  0.33333333333333331,
-                                                                    "RedRate":  0.66666666666666663,
-                                                                    "BadRate":  0.66666666666666663,
+                                                                    "SafeRate":  0.3333333333333333,
+                                                                    "RedRate":  0.6666666666666666,
+                                                                    "BadRate":  0.6666666666666666,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -1.8499999999999999,
@@ -26658,7 +26762,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  43.5,
@@ -26696,7 +26800,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  52.25,
@@ -26766,21 +26870,21 @@
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
                                                                     "BlueRate":  0,
-                                                                    "SafeRate":  0.66666666666666663,
-                                                                    "RedRate":  0.33333333333333331,
-                                                                    "BadRate":  0.33333333333333331,
+                                                                    "SafeRate":  0.6666666666666666,
+                                                                    "RedRate":  0.3333333333333333,
+                                                                    "BadRate":  0.3333333333333333,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  -0.70000000000000007,
-                                                                    "SmoothedScore":  -0.42080527677865071
+                                                                    "QualityScore":  -0.7000000000000001,
+                                                                    "SmoothedScore":  -0.4208052767786507
                                                                 },
                                                                 {
                                                                     "OffsetMs":  53.25,
                                                                     "BlueHits":  0,
-                                                                    "GreenHits":  2,
+                                                                    "GreenHits":  4,
                                                                     "RedHits":  0,
                                                                     "WhiteHits":  0,
-                                                                    "Total":  2,
+                                                                    "Total":  4,
                                                                     "TopRank":  0,
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
@@ -26791,7 +26895,7 @@
                                                                     "IsPureGreenOnly":  true,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  0.45,
-                                                                    "SmoothedScore":  0.21739226033421286
+                                                                    "SmoothedScore":  0.2982973893303064
                                                                 },
                                                                 {
                                                                     "OffsetMs":  53.5,
@@ -28852,10 +28956,18 @@
                                                                         "GreenHits":  1,
                                                                         "RedHits":  0,
                                                                         "WhiteHits":  0
+                                                                    },
+                                                                    {
+                                                                        "DeploymentId":  240,
+                                                                        "OffsetMs":  53.25,
+                                                                        "BlueHits":  0,
+                                                                        "GreenHits":  2,
+                                                                        "RedHits":  0,
+                                                                        "WhiteHits":  0
                                                                     }
                                                                 ],
                                           "RedLimitOffsetMs":  53,
-                                          "ConsecutiveNonBlue":  0,
+                                          "ConsecutiveNonBlue":  2,
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  0
@@ -28897,10 +29009,10 @@
                                                             },
                                           "Samples":  193,
                                           "BlueHits":  0,
-                                          "GreenHits":  27,
+                                          "GreenHits":  29,
                                           "RedHits":  6,
                                           "WhiteHits":  1,
-                                          "TotalClicks":  34,
+                                          "TotalClicks":  36,
                                           "OffsetHistory":  [
                                                                 {
                                                                     "OffsetMs":  59.5,
@@ -28919,7 +29031,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  60.5,
@@ -28951,13 +29063,13 @@
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
                                                                     "BlueRate":  0,
-                                                                    "SafeRate":  0.66666666666666663,
-                                                                    "RedRate":  0.33333333333333331,
-                                                                    "BadRate":  0.33333333333333331,
+                                                                    "SafeRate":  0.6666666666666666,
+                                                                    "RedRate":  0.3333333333333333,
+                                                                    "BadRate":  0.3333333333333333,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  -0.70000000000000007,
-                                                                    "SmoothedScore":  -0.42080527677865071
+                                                                    "QualityScore":  -0.7000000000000001,
+                                                                    "SmoothedScore":  -0.4208052767786507
                                                                 },
                                                                 {
                                                                     "OffsetMs":  61,
@@ -28976,7 +29088,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -1.275,
-                                                                    "SmoothedScore":  -0.84433439687408929
+                                                                    "SmoothedScore":  -0.8443343968740893
                                                                 },
                                                                 {
                                                                     "OffsetMs":  61.25,
@@ -29000,21 +29112,21 @@
                                                                 {
                                                                     "OffsetMs":  61.5,
                                                                     "BlueHits":  0,
-                                                                    "GreenHits":  5,
+                                                                    "GreenHits":  7,
                                                                     "RedHits":  0,
                                                                     "WhiteHits":  1,
-                                                                    "Total":  6,
+                                                                    "Total":  8,
                                                                     "TopRank":  0,
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
                                                                     "BlueRate":  0,
-                                                                    "SafeRate":  0.83333333333333337,
+                                                                    "SafeRate":  0.875,
                                                                     "RedRate":  0,
-                                                                    "BadRate":  0.16666666666666666,
+                                                                    "BadRate":  0.125,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  0.125,
-                                                                    "SmoothedScore":  0.078337339192525682
+                                                                    "QualityScore":  0.20625,
+                                                                    "SmoothedScore":  0.15000787708534974
                                                                 },
                                                                 {
                                                                     "OffsetMs":  61.75,
@@ -30701,19 +30813,27 @@
                                                                         "GreenHits":  1,
                                                                         "RedHits":  0,
                                                                         "WhiteHits":  0
+                                                                    },
+                                                                    {
+                                                                        "DeploymentId":  240,
+                                                                        "OffsetMs":  61.5,
+                                                                        "BlueHits":  0,
+                                                                        "GreenHits":  2,
+                                                                        "RedHits":  0,
+                                                                        "WhiteHits":  0
                                                                     }
                                                                 ],
                                           "RedLimitOffsetMs":  61.25,
-                                          "ConsecutiveNonBlue":  0,
+                                          "ConsecutiveNonBlue":  2,
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  0
                                       }
                                   ],
-                       "LastSeenUtc":  "2026-11-23T15:42:23.9826739Z",
+                       "LastSeenUtc":  "2026-11-23T18:29:14.2350981Z",
                        "HasVisual":  true,
                        "TotalBlueHits":  85,
-                       "TotalClicks":  213
+                       "TotalClicks":  219
                    },
                    {
                        "Id":  16,
@@ -31310,13 +31430,13 @@
                                                                     "TopRank":  0,
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
-                                                                    "BlueRate":  0.88888888888888884,
-                                                                    "SafeRate":  0.88888888888888884,
+                                                                    "BlueRate":  0.8888888888888888,
+                                                                    "SafeRate":  0.8888888888888888,
                                                                     "RedRate":  0.1111111111111111,
                                                                     "BadRate":  0.1111111111111111,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  0.55555555555555558,
+                                                                    "QualityScore":  0.5555555555555556,
                                                                     "SmoothedScore":  0.44014200002816994
                                                                 },
                                                                 {
@@ -31330,12 +31450,12 @@
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
                                                                     "BlueRate":  0.8666666666666667,
-                                                                    "SafeRate":  0.93333333333333335,
-                                                                    "RedRate":  0.066666666666666666,
-                                                                    "BadRate":  0.066666666666666666,
+                                                                    "SafeRate":  0.9333333333333333,
+                                                                    "RedRate":  0.06666666666666667,
+                                                                    "BadRate":  0.06666666666666667,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  0.69666666666666666,
+                                                                    "QualityScore":  0.6966666666666667,
                                                                     "SmoothedScore":  0.603862422542991
                                                                 },
                                                                 {
@@ -31348,7 +31468,7 @@
                                                                     "TopRank":  0,
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
-                                                                    "BlueRate":  0.33333333333333331,
+                                                                    "BlueRate":  0.3333333333333333,
                                                                     "SafeRate":  1,
                                                                     "RedRate":  0,
                                                                     "BadRate":  0,
@@ -31367,7 +31487,7 @@
                                                                     "TopRank":  0,
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
-                                                                    "BlueRate":  0.33333333333333331,
+                                                                    "BlueRate":  0.3333333333333333,
                                                                     "SafeRate":  1,
                                                                     "RedRate":  0,
                                                                     "BadRate":  0,
@@ -31386,7 +31506,7 @@
                                                                     "TopRank":  0,
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
-                                                                    "BlueRate":  0.33333333333333331,
+                                                                    "BlueRate":  0.3333333333333333,
                                                                     "SafeRate":  1,
                                                                     "RedRate":  0,
                                                                     "BadRate":  0,
@@ -31424,7 +31544,7 @@
                                                                     "TopRank":  0,
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
-                                                                    "BlueRate":  0.33333333333333331,
+                                                                    "BlueRate":  0.3333333333333333,
                                                                     "SafeRate":  1,
                                                                     "RedRate":  0,
                                                                     "BadRate":  0,
@@ -31443,14 +31563,14 @@
                                                                     "TopRank":  1,
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
-                                                                    "BlueRate":  0.81818181818181823,
-                                                                    "SafeRate":  0.95454545454545459,
+                                                                    "BlueRate":  0.8181818181818182,
+                                                                    "SafeRate":  0.9545454545454546,
                                                                     "RedRate":  0.045454545454545456,
                                                                     "BadRate":  0.045454545454545456,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  0.74318181818181828,
-                                                                    "SmoothedScore":  0.67308770975506449
+                                                                    "QualityScore":  0.7431818181818183,
+                                                                    "SmoothedScore":  0.6730877097550645
                                                                 },
                                                                 {
                                                                     "OffsetMs":  42.25,
@@ -31469,7 +31589,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 }
                                                             ],
                                           "LegacyOffsetHistory":  [
@@ -31856,7 +31976,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  49,
@@ -31869,9 +31989,9 @@
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
                                                                     "BlueRate":  0,
-                                                                    "SafeRate":  0.33333333333333331,
-                                                                    "RedRate":  0.66666666666666663,
-                                                                    "BadRate":  0.66666666666666663,
+                                                                    "SafeRate":  0.3333333333333333,
+                                                                    "RedRate":  0.6666666666666666,
+                                                                    "BadRate":  0.6666666666666666,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -1.8499999999999999,
@@ -31913,7 +32033,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  64.5,
@@ -31932,7 +32052,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  65.5,
@@ -31970,7 +32090,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  66,
@@ -33053,7 +33173,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  42.5,
@@ -33066,9 +33186,9 @@
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
                                                                     "BlueRate":  0,
-                                                                    "SafeRate":  0.33333333333333331,
-                                                                    "RedRate":  0.66666666666666663,
-                                                                    "BadRate":  0.66666666666666663,
+                                                                    "SafeRate":  0.3333333333333333,
+                                                                    "RedRate":  0.6666666666666666,
+                                                                    "BadRate":  0.6666666666666666,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -1.8499999999999999,
@@ -33110,7 +33230,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  57,
@@ -33129,7 +33249,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  73,
@@ -33148,7 +33268,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  87.5,
@@ -34817,8 +34937,8 @@
                                                                     "BadRate":  0.1,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  0.54499999999999993,
-                                                                    "SmoothedScore":  0.44040728849501309
+                                                                    "QualityScore":  0.5449999999999999,
+                                                                    "SmoothedScore":  0.4404072884950131
                                                                 },
                                                                 {
                                                                     "OffsetMs":  39.5,
@@ -34837,7 +34957,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  1,
-                                                                    "SmoothedScore":  0.84693486030364107
+                                                                    "SmoothedScore":  0.8469348603036411
                                                                 }
                                                             ],
                                           "LegacyOffsetHistory":  [
@@ -35093,7 +35213,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  35,
@@ -35112,7 +35232,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  35.25,
@@ -35131,7 +35251,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  35.5,
@@ -35245,7 +35365,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  50.5,
@@ -35264,7 +35384,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  53.5,
@@ -35781,7 +35901,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  41.75,
@@ -35800,7 +35920,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  42,
@@ -35819,7 +35939,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -1.275,
-                                                                    "SmoothedScore":  -0.84433439687408929
+                                                                    "SmoothedScore":  -0.8443343968740893
                                                                 },
                                                                 {
                                                                     "OffsetMs":  42.25,
@@ -35857,7 +35977,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  59.75,
@@ -35876,7 +35996,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  62.75,
@@ -36891,7 +37011,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  1,
-                                                                    "SmoothedScore":  0.66496405599697306
+                                                                    "SmoothedScore":  0.6649640559969731
                                                                 }
                                                             ],
                                           "LegacyOffsetHistory":  [
@@ -37009,7 +37129,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  42.5,
@@ -37028,7 +37148,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  56,
@@ -37208,7 +37328,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  43.75,
@@ -37227,7 +37347,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  -3,
-                                                                    "SmoothedScore":  -0.79999999999999993
+                                                                    "SmoothedScore":  -0.7999999999999999
                                                                 },
                                                                 {
                                                                     "OffsetMs":  57.25,
@@ -37956,7 +38076,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  1,
-                                                                    "SmoothedScore":  0.71361773921426841
+                                                                    "SmoothedScore":  0.7136177392142684
                                                                 },
                                                                 {
                                                                     "OffsetMs":  3,
@@ -38536,7 +38656,7 @@
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
                                                                     "QualityScore":  1,
-                                                                    "SmoothedScore":  0.31598948857893672
+                                                                    "SmoothedScore":  0.3159894885789367
                                                                 },
                                                                 {
                                                                     "OffsetMs":  40,
@@ -38548,14 +38668,14 @@
                                                                     "TopRank":  1,
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
-                                                                    "BlueRate":  0.83333333333333337,
+                                                                    "BlueRate":  0.8333333333333334,
                                                                     "SafeRate":  1,
                                                                     "RedRate":  0,
                                                                     "BadRate":  0,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  0.90833333333333333,
-                                                                    "SmoothedScore":  0.68117668621700878
+                                                                    "QualityScore":  0.9083333333333333,
+                                                                    "SmoothedScore":  0.6811766862170088
                                                                 },
                                                                 {
                                                                     "OffsetMs":  40.5,
@@ -38567,13 +38687,13 @@
                                                                     "TopRank":  0,
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
-                                                                    "BlueRate":  0.66666666666666663,
+                                                                    "BlueRate":  0.6666666666666666,
                                                                     "SafeRate":  1,
                                                                     "RedRate":  0,
                                                                     "BadRate":  0,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  0.81666666666666676,
+                                                                    "QualityScore":  0.8166666666666668,
                                                                     "SmoothedScore":  0.48637116246981726
                                                                 },
                                                                 {
@@ -38681,13 +38801,13 @@
                                                                     "TopRank":  0,
                                                                     "ManualTop1":  false,
                                                                     "ExcludeFromTop":  false,
-                                                                    "BlueRate":  0.46666666666666667,
+                                                                    "BlueRate":  0.4666666666666667,
                                                                     "SafeRate":  1,
                                                                     "RedRate":  0,
                                                                     "BadRate":  0,
                                                                     "IsPureGreenOnly":  false,
                                                                     "IsSafeGreen":  false,
-                                                                    "QualityScore":  0.70666666666666667,
+                                                                    "QualityScore":  0.7066666666666667,
                                                                     "SmoothedScore":  0.6243586770221119
                                                                 },
                                                                 {
