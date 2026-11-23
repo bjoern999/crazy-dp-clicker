@@ -1446,18 +1446,30 @@ internal sealed class EnemySetupStore
                 return (bestJoint, false, bestJointDist, bestJointVisDist, learned);
             }
 
-            // Schutz gegen einzelne Frame-Haker bzw. Tacho-Zentrierungs-Shift bei festen Tachos:
-            if (slot.IsFixed && (slot.MatchesGeometryAndSpinTime(currentFp) || (curVisDist >= 0 && curVisDist <= 0.14)))
+            // Schutz gegen einzelne Frame-Haker bzw. T2/T3-Messausreisser (unabhaengig von IsFixed!):
+            // Wenn der Dino visuell eindeutig derselbe ist (VisDist <= 0.18) ODER Geometrie + Spinzeit passen,
+            // darf niemals ein doppeltes Spieler-Setup abgespalten werden!
+            bool strongVisualMatch = curVisDist >= 0 && curVisDist <= 0.18;
+            bool geoAndSpinMatch = slot.MatchesGeometryAndSpinTime(currentFp) &&
+                                   (curVisDist < 0 || curVisDist <= DinoVisualMatcher.VisualMatchThreshold);
+            if (strongVisualMatch || geoAndSpinMatch)
             {
                 bool learnedFallback = false;
-                if (isLastSlot && hasCurVis && !currentRoundSetup.HasVisual)
+                if (isLastSlot && hasCurVis)
                 {
-                    currentRoundSetup.Visual = new DinoVisualFingerprint();
-                    DinoVisualMatcher.BlendInto(currentRoundSetup.Visual, currentVisual!);
-                    learnedFallback = true;
-                    curVisDist = 0.0;
+                    if (!currentRoundSetup.HasVisual)
+                    {
+                        currentRoundSetup.Visual = new DinoVisualFingerprint();
+                        DinoVisualMatcher.BlendInto(currentRoundSetup.Visual, currentVisual!);
+                        learnedFallback = true;
+                        curVisDist = 0.0;
+                    }
+                    else
+                    {
+                        DinoVisualMatcher.BlendInto(currentRoundSetup.Visual!, currentVisual!);
+                    }
                 }
-                if (curVisDist >= 0 && curVisDist <= 0.14 && dCurrent > 1.0 && currentFp.EndSpeedDegPerSec > 50.0)
+                if (slot.IsFixed && curVisDist >= 0 && curVisDist <= 0.14 && dCurrent > 1.0 && currentFp.EndSpeedDegPerSec > 50.0)
                 {
                     // Eindeutiger visueller Match nach Tacho-Zentrierung -> Tacho-Signatur sauber nachziehen
                     slot.GreenEndDeg = Math.Round(currentFp.GreenEndDeg, 1);
@@ -1466,6 +1478,10 @@ internal sealed class EnemySetupStore
                     slot.AccelDegPerSec2 = Math.Round(currentFp.AccelDegPerSec2, 1);
                     if (currentFp.SpinTimeTo55Ms > 100.0)
                         slot.SpinTimeTo55Ms = Math.Round(currentFp.SpinTimeTo55Ms, 1);
+                }
+                else if (!slot.IsFixed && geoAndSpinMatch)
+                {
+                    slot.UpdateSignatureEma(currentFp);
                 }
                 currentRoundSetup.LastSeenUtc = DateTime.UtcNow;
                 Save();
@@ -1507,11 +1523,11 @@ internal sealed class EnemySetupStore
                 if (visDist > DinoVisualMatcher.VisualMatchThreshold)
                     continue; // Sichtbar ein anderer Dino -> harter Ausschluss!
 
-                // Bei sehr starkem visuellen Match (z.B. VisDist <= 0.14 nach Tacho-Zentrierung, oder VisDist <= 0.22 mit passender Grundgeometrie)
+                // Bei sehr starkem visuellen Match (z.B. VisDist <= 0.18, oder VisDist <= 0.22 mit passender Grundgeometrie)
                 // darf eine leicht verschobene Tacho-Signatur niemals ein doppeltes Setup anlegen!
                 if (tachoDist > 1.0)
                 {
-                    if (visDist <= 0.14)
+                    if (visDist <= 0.18)
                         tachoDist = 0.95;
                     else if (visDist <= 0.22 && candSlot.MatchesGeometryAndSpinTime(currentFp))
                         tachoDist = 1.0;
