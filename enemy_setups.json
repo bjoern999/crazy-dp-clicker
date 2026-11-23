@@ -3287,7 +3287,7 @@
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  65.51724137931035,
-                                          "IsFixed":  true
+                                          "IsFixed":  false
                                       },
                                       {
                                           "HasSignature":  true,
@@ -3922,7 +3922,7 @@
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  0,
-                                          "IsFixed":  true
+                                          "IsFixed":  false
                                       }
                                   ],
                        "LastSeenUtc":  "2026-11-23T10:21:08.7996762Z",
@@ -4618,7 +4618,7 @@
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  0,
-                                          "IsFixed":  true
+                                          "IsFixed":  false
                                       },
                                       {
                                           "HasSignature":  true,
@@ -4717,7 +4717,7 @@
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  100,
-                                          "IsFixed":  true
+                                          "IsFixed":  false
                                       }
                                   ],
                        "LastSeenUtc":  "2026-11-22T21:13:35.2962087Z",
@@ -6231,7 +6231,7 @@
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  14.285714285714286,
-                                          "IsFixed":  true
+                                          "IsFixed":  false
                                       },
                                       {
                                           "HasSignature":  true,
@@ -6804,7 +6804,7 @@
                                           "ConsecutiveRed":  1,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  0,
-                                          "IsFixed":  true
+                                          "IsFixed":  false
                                       }
                                   ],
                        "LastSeenUtc":  "2026-11-23T10:33:11.5147062Z",
@@ -7934,7 +7934,7 @@
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  40,
-                                          "IsFixed":  true
+                                          "IsFixed":  false
                                       },
                                       {
                                           "HasSignature":  true,
@@ -8653,7 +8653,7 @@
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  0,
-                                          "IsFixed":  true
+                                          "IsFixed":  false
                                       }
                                   ],
                        "LastSeenUtc":  "2026-11-23T11:01:53.6402307Z",
@@ -11526,7 +11526,7 @@
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  0,
-                                          "IsFixed":  true
+                                          "IsFixed":  false
                                       }
                                   ],
                        "LastSeenUtc":  "2026-11-23T10:35:31.8707565Z",
@@ -12364,7 +12364,7 @@
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  59.09090909090909,
-                                          "IsFixed":  true
+                                          "IsFixed":  false
                                       },
                                       {
                                           "HasSignature":  true,
@@ -12877,7 +12877,7 @@
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  0,
-                                          "IsFixed":  true
+                                          "IsFixed":  false
                                       }
                                   ],
                        "LastSeenUtc":  "2026-11-23T11:03:18.3276098Z",
@@ -13533,7 +13533,7 @@
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  100,
-                                          "IsFixed":  true
+                                          "IsFixed":  false
                                       },
                                       {
                                           "HasSignature":  true,
@@ -14070,7 +14070,7 @@
                                           "ConsecutiveRed":  1,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  0,
-                                          "IsFixed":  true
+                                          "IsFixed":  false
                                       }
                                   ],
                        "LastSeenUtc":  "2026-11-23T11:18:59.4022092Z",
@@ -14948,7 +14948,7 @@
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  0,
-                                          "IsFixed":  true
+                                          "IsFixed":  false
                                       },
                                       {
                                           "HasSignature":  true,
@@ -15277,7 +15277,7 @@
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  76.92307692307692,
-                                          "IsFixed":  true
+                                          "IsFixed":  false
                                       }
                                   ],
                        "LastSeenUtc":  "2026-11-23T10:30:35.0247447Z",
@@ -16569,7 +16569,7 @@
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  33.333333333333336,
-                                          "IsFixed":  true
+                                          "IsFixed":  false
                                       },
                                       {
                                           "HasSignature":  true,
@@ -17120,7 +17120,7 @@
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  0,
-                                          "IsFixed":  true
+                                          "IsFixed":  false
                                       }
                                   ],
                        "LastSeenUtc":  "2026-11-23T10:37:54.7272314Z",
@@ -18681,7 +18681,7 @@
                                           "ConsecutiveRed":  1,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  0,
-                                          "IsFixed":  true
+                                          "IsFixed":  false
                                       }
                                   ],
                        "LastSeenUtc":  "2026-11-23T10:29:30.8883518Z",
@@ -19377,7 +19377,7 @@
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  0,
-                                          "IsFixed":  true
+                                          "IsFixed":  false
                                       },
                                       {
                                           "HasSignature":  true,
@@ -19524,7 +19524,7 @@
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  0,
-                                          "IsFixed":  true
+                                          "IsFixed":  false
                                       }
                                   ],
                        "LastSeenUtc":  "2026-11-22T20:10:39.9493543Z",
@@ -20274,7 +20274,7 @@
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  0,
-                                          "IsFixed":  true
+                                          "IsFixed":  false
                                       },
                                       {
                                           "HasSignature":  true,
@@ -20475,7 +20475,7 @@
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  0,
-                                          "IsFixed":  true
+                                          "IsFixed":  false
                                       }
                                   ],
                        "LastSeenUtc":  "2026-11-22T20:12:28.2388908Z",
@@ -23856,7 +23856,7 @@
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  0,
-                                          "IsFixed":  true
+                                          "IsFixed":  false
                                       },
                                       {
                                           "HasSignature":  true,
@@ -25505,7 +25505,7 @@
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  0,
-                                          "IsFixed":  true
+                                          "IsFixed":  false
                                       }
                                   ],
                        "LastSeenUtc":  "2026-11-23T10:25:20.6614212Z",
@@ -26543,7 +26543,7 @@
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  70.37037037037037,
-                                          "IsFixed":  true
+                                          "IsFixed":  false
                                       },
                                       {
                                           "HasSignature":  true,
@@ -27548,7 +27548,7 @@
                                           "ConsecutiveRed":  2,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  0,
-                                          "IsFixed":  true
+                                          "IsFixed":  false
                                       },
                                       {
                                           "HasSignature":  true,
@@ -28571,7 +28571,7 @@
                                           "ConsecutiveRed":  1,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  0,
-                                          "IsFixed":  true
+                                          "IsFixed":  false
                                       }
                                   ],
                        "LastSeenUtc":  "2026-11-23T10:11:29.6908895Z",
@@ -29345,7 +29345,7 @@
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  83.33333333333333,
-                                          "IsFixed":  true
+                                          "IsFixed":  false
                                       },
                                       {
                                           "HasSignature":  true,
@@ -29700,7 +29700,7 @@
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  0,
-                                          "IsFixed":  true
+                                          "IsFixed":  false
                                       },
                                       {
                                           "HasSignature":  true,
@@ -30055,7 +30055,7 @@
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  0,
-                                          "IsFixed":  true
+                                          "IsFixed":  false
                                       }
                                   ],
                        "LastSeenUtc":  "2026-11-23T10:28:44.5029578Z",
@@ -30721,7 +30721,7 @@
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  100,
-                                          "IsFixed":  true
+                                          "IsFixed":  false
                                       },
                                       {
                                           "HasSignature":  true,
@@ -30916,7 +30916,7 @@
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  0,
-                                          "IsFixed":  true
+                                          "IsFixed":  false
                                       },
                                       {
                                           "HasSignature":  true,
@@ -31111,7 +31111,7 @@
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  0,
-                                          "IsFixed":  true
+                                          "IsFixed":  false
                                       }
                                   ],
                        "LastSeenUtc":  "2026-11-23T10:36:48.091226Z",
@@ -32013,7 +32013,7 @@
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  38.46153846153846,
-                                          "IsFixed":  true
+                                          "IsFixed":  false
                                       }
                                   ],
                        "LastSeenUtc":  "2026-11-22T20:24:17.5517906Z",
