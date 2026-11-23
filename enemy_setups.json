@@ -557,8 +557,8 @@
                                           "EndSpeedDegPerSec":  314.8,
                                           "AccelDegPerSec2":  161,
                                           "SpinTimeTo55Ms":  1160.9,
-                                          "ClickOffsetMs":  44.3,
-                                          "DefaultClickOffsetMs":  44,
+                                          "ClickOffsetMs":  45.4,
+                                          "DefaultClickOffsetMs":  45.4,
                                           "TemplateCurve":  {
                                                                 "TimeBeforeZeroMs":  [
                                                                                          1020.98,
@@ -757,7 +757,7 @@
                                                                     "WhiteHits":  0,
                                                                     "Total":  16,
                                                                     "IsMature":  false,
-                                                                    "TopRank":  0,
+                                                                    "TopRank":  1,
                                                                     "BlueRate":  0.8125,
                                                                     "SafeRate":  1,
                                                                     "RedRate":  0,
@@ -765,7 +765,8 @@
                                                                     "QualityScore":  0.896875,
                                                                     "SmoothedScore":  0.7980446702144814,
                                                                     "IsRedLocked":  false,
-                                                                    "IsKnownBad":  false
+                                                                    "IsKnownBad":  false,
+                                                                    "ManualTop1":  true
                                                                 },
                                                                 {
                                                                     "OffsetMs":  45.3,
