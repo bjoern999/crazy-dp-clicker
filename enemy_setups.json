@@ -31807,7 +31807,7 @@
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
                                           "BlueRatePercent":  0,
-                                          "IsFixed":  true
+                                          "IsFixed":  false
                                       },
                                       {
                                           "HasSignature":  true,
