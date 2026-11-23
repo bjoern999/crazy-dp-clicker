@@ -2744,7 +2744,7 @@
                                                                         "WhiteHits":  0
                                                                     }
                                                                 ],
-                                          "RedLimitOffsetMs":  null,
+                                          "RedLimitOffsetMs":  50.5,
                                           "ConsecutiveNonBlue":  0,
                                           "ConsecutiveRed":  0,
                                           "HasPosition":  true,
