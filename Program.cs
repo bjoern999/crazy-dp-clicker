@@ -486,12 +486,9 @@ internal static class Program
                                     {
                                         anyPresetChanged = true;
                                         string rankTag = chosen != null && chosen.TopRank > 0 ? $" [TOP-{chosen.TopRank}]" : "";
-                                        string meisterTag = matched.Tachos[sIdx].IsRefinementActive
-                                            ? " [VERFEINERUNG 0,05ms]"
-                                            : (matched.Tachos[sIdx].IsMeisterTacho ? " [MEISTER-TACHO]" : "");
                                         string statInfo = chosen != null
-                                            ? $"{rankTag}{meisterTag} (Blau: {chosen.BlueHits}/{chosen.Total} = {chosen.BlueRate * 100:F0}%, G={chosen.GreenHits}, R={chosen.RedHits})"
-                                            : "(schlechtes Preset gemieden)";
+                                            ? $"{rankTag} (Blau: {chosen.BlueHits}/{chosen.Total} = {chosen.BlueRate * 100:F0}%, G={chosen.GreenHits}, R={chosen.RedHits})"
+                                            : "(oberhalb Rot-Grenze gesetzt)";
                                         Console.WriteLine(
                                             $"[Best-Preset {matched.Name} T{sIdx + 1}] {oldOff:F2} ms -> {newOff:F2} ms {statInfo}");
                                     }
@@ -860,16 +857,13 @@ internal static class Program
             var best = sl.GetTopPreset(1) ?? sl.GetBestStartupPreset();
             string lockTag = sl.TemplateCurve.IsReady ? "[LOCK] " : "";
             string driftTag = Math.Abs(sl.SessionDriftMs) >= 0.05 ? $" Drift{sl.SessionDriftMs:+0.0;-0.0}" : "";
-            string meisterPrefix = lockTag + (sl.IsRefinementActive
-                ? $"[VERFEINERUNG {sl.GetRefinementInfo().OpenCandidates} offen] "
-                : (sl.IsMeisterTacho ? "[MEISTER] " : ""));
             if (best != null)
             {
                 string rankLbl = best.TopRank > 0 ? $"Top-{best.TopRank} " : "Best ";
                 string rateTxt = best.BlueHits > 0
                     ? $"{best.BlueRate * 100:F0}% Blau"
                     : $"{best.GreenHits}G/0R";
-                bestProvenInfo = $"{meisterPrefix}{rankLbl}T{activeIdx + 1}: {best.OffsetMs:F2}ms{driftTag} ({rateTxt})";
+                bestProvenInfo = $"{lockTag}{rankLbl}T{activeIdx + 1}: {best.OffsetMs:F2}ms{driftTag} ({rateTxt})";
             }
             else if (!string.IsNullOrEmpty(lockTag))
             {
@@ -1192,11 +1186,8 @@ internal static class Program
                 string bestTxt = best != null
                     ? (best.TopRank > 0 ? $",Top-1={best.OffsetMs:F2}ms({best.BlueHits}B/{best.Total})" : $",Best={best.OffsetMs:F2}ms({best.BlueHits}B/{best.Total})")
                     : "";
-                string mTag = sl.IsRefinementActive
-                    ? $",VERFEINERUNG({sl.GetRefinementInfo().OpenCandidates})"
-                    : (sl.IsMeisterTacho ? ",MEISTER" : "");
                 string fixSlotTag = (!s.AllTachosFixed && s.HasAnyFixedTacho) ? (sl.IsFixed ? ",FEST" : ",AUTO") : "";
-                return $"T{i + 1}:{sl.ClickOffsetMs:F2}ms{fixSlotTag}{bestTxt}{mTag}";
+                return $"T{i + 1}:{sl.ClickOffsetMs:F2}ms{fixSlotTag}{bestTxt}";
             }));
             Console.WriteLine($"  - {s.Name} [{s.DinoType}, {s.TachoCount} Tachos, {fixedTag}, {visTag}]: {slotDesc}");
         }
@@ -1240,21 +1231,10 @@ internal static class Program
             {
                 var slot = setup.Tachos[i];
                 slot.RefreshTopPresets();
-                int topCount = slot.OffsetHistory.Count(h => h.TopRank > 0);
-                string statusTag;
-                if (slot.IsRefinementActive)
-                {
-                    var (rMin, rMax, rOpen) = slot.GetRefinementInfo();
-                    statusTag = $"*** VERFEINERUNG (0,05ms: {rMin:F2}-{rMax:F2} ms, noch {rOpen} offen) ***";
-                }
-                else if (slot.IsMeisterTacho)
-                {
-                    statusTag = "*** MEISTER-TACHO (verfeinert, nur Top-1/2/3 aktiv) ***";
-                }
-                else
-                {
-                    statusTag = $"Top-Presets gereift: {topCount}/3";
-                }
+                var top1 = slot.GetTopPreset(1);
+                string statusTag = top1 != null
+                    ? $"STABIL (Top-1: {top1.OffsetMs:F2} ms, {top1.BlueHits}B/{top1.Total})"
+                    : "LERNPHASE";
 
                 string redLimitTag = slot.RedLimitOffsetMs.HasValue
                     ? $" | Rot-Grenze: <= {slot.RedLimitOffsetMs.Value:F2} ms"
@@ -1276,7 +1256,6 @@ internal static class Program
                     var tags = new List<string>();
                     if (h.TopRank > 0) tags.Add($"TOP-{h.TopRank}");
                     if (h.IsSafeGreen) tags.Add("safe-green");
-                    if (h.IsMature) tags.Add("MATURE");
                     if (slot.RedLimitOffsetMs.HasValue)
                     {
                         if (Math.Abs(h.OffsetMs - slot.RedLimitOffsetMs.Value) < 0.02)

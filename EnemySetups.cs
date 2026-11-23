@@ -14,8 +14,6 @@ internal readonly struct TachoFingerprint
 
 internal sealed class OffsetPerformance
 {
-    public const int MatureMinSamples = 30;
-
     public double OffsetMs { get; set; }
     public int BlueHits { get; set; }
     public int GreenHits { get; set; }
@@ -23,10 +21,9 @@ internal sealed class OffsetPerformance
     public int WhiteHits { get; set; }
 
     public int Total => BlueHits + GreenHits + RedHits + WhiteHits;
-    public bool IsMature => Total >= MatureMinSamples;
-    public int TopRank { get; set; } // 1 = Top-1, 2 = Top-2, 3 = Top-3, 0 = nicht in Top-3
-    public bool ManualTop1 { get; set; } // Manuell gesetztes Top-1 (bleibt erhalten, auch wenn N < 30)
-    public bool ExcludeFromTop { get; set; } // Manuell von automatischen Top-Markierungen ausgenommen
+    public int TopRank { get; set; } // 1 = Top-1 (Anker-Preset), 0 = normal
+    public bool ManualTop1 { get; set; } // Manuell gesetztes Top-1
+    public bool ExcludeFromTop { get; set; } // Manuell von automatischer Top-1-Markierung ausgenommen
     public double BlueRate => Total > 0 ? (double)BlueHits / Total : 0.0;
     public double SafeRate => Total > 0 ? (double)(BlueHits + GreenHits) / Total : 0.0;
     public double RedRate => Total > 0 ? (double)RedHits / Total : 0.0;
@@ -114,18 +111,6 @@ internal sealed class TachoSetupSlot
     // fuer sauberes Umhaengen bei nachtraeglicher Spieler-Korrektur
     public List<DeploymentOutcomeRecord> DeploymentHistory { get; set; } = new();
 
-    // True sobald 3 gereifte (mature, >=30 Klicks) Top-Presets fuer diesen Tacho feststehen
-    public bool IsMeisterTacho { get; set; }
-
-    // True sobald 3 gereifte Top-Presets existieren und noch 0,05ms-Zwischenwerte zwischen Top-1..3 verfeinert werden
-    public bool IsRefinementActive { get; set; }
-
-    // Manuell aktivierte Verfeinerungsphase (auch schon ab Top-1 im +-0,50ms-Fenster in 0,05ms-Schritten)
-    public bool ManualRefinement { get; set; }
-
-    // True sobald alle 0,05ms-Zwischenwerte zwischen den Top-3 gereift (oder gesperrt) sind -> reine Top-1/2/3-Rotation!
-    public bool IsRefinementComplete { get; set; }
-
     // Optionale manuelle Rot-Grenze fuer diesen Tacho: weder dieses Preset noch ein kleinerer Offset darf jemals gewaehlt werden!
     public double? RedLimitOffsetMs { get; set; }
 
@@ -190,9 +175,6 @@ internal sealed class TachoSetupSlot
         RedHits = 0;
         WhiteHits = 0;
         TotalClicks = 0;
-        IsMeisterTacho = false;
-        IsRefinementActive = false;
-        IsRefinementComplete = false;
         ConsecutiveNonBlue = 0;
         ConsecutiveRed = 0;
         SessionDriftMs = 0.0;
@@ -307,165 +289,38 @@ internal sealed class TachoSetupSlot
     }
 
     /// <summary>
-    /// Aktualisiert die Markierungen "Top-1", "Top-2", "Top-3" fuer gereifte Presets strikt oberhalb der Rot-Grenze.
-    /// Wenn eine Top-Markierung auf einem ausschliesslich gruenen Preset (0 Blau, 0 Rot) liegt, wird sie aktiv
-    /// weiter in Richtung "riskant" (spaeterer Klick / kleinerer Offset) verschoben — auf ein blaues oder noch
-    /// ueberwiegend gruenes Preset mit spaeterem Klickzeitpunkt!
+    /// Aktualisiert die Markierung "Top-1" fuer diesen Tacho und schaltet beim Erreichen eines stabilen
+    /// Blau-Presets (>= 5 Blau-Treffer & >= 50% Blau, strikt oberhalb der Rot-Grenze) oder bei manuellem
+    /// ManualTop1 automatisch in den stabilen Modus (IsFixed = true).
     /// </summary>
     public void RefreshTopPresets()
     {
         foreach (var h in OffsetHistory)
             h.TopRank = 0;
 
-        var topCandidates = OffsetHistory
-            .Where(h => h.IsMature && !h.ExcludeFromTop && !IsBlockedByRedLimit(h.OffsetMs))
-            .OrderByDescending(h => h.BlueHits > 0 ? 1 : 0) // Blau immer vor reinem Gruen
-            .ThenByDescending(h => h.SmoothedScore)
+        // 1. Manuell gesetztes Top-1 hat immer Vorrang (solange nicht ausgenommen oder <= Rot-Grenze)
+        var chosen = OffsetHistory
+            .FirstOrDefault(h => h.ManualTop1 && !h.ExcludeFromTop && !IsBlockedByRedLimit(h.OffsetMs));
+
+        // 2. Sonst: bestes stabiles Blau-Preset (>= 5 Blau & >= 50% Blau, strikt oberhalb Rot-Grenze)
+        chosen ??= OffsetHistory
+            .Where(h => !h.ExcludeFromTop && !IsBlockedByRedLimit(h.OffsetMs) &&
+                        h.BlueHits >= 5 && h.BlueRate >= 0.50)
+            .OrderByDescending(h => h.SmoothedScore)
             .ThenByDescending(h => h.BlueRate)
             .ThenBy(h => h.OffsetMs) // Bei Gleichstand: spaeterer (riskanterer) Klick gewinnt!
-            .Take(3)
-            .ToList();
+            .FirstOrDefault();
 
-        var assigned = new List<OffsetPerformance>(3);
-
-        // Manuell gesetztes Top-1 immer zuerst beruecksichtigen (solange nicht ausgenommen oder <= Rot-Grenze)
-        var manualTop1 = OffsetHistory
-            .FirstOrDefault(h => h.ManualTop1 && !h.ExcludeFromTop && !IsBlockedByRedLimit(h.OffsetMs));
-        if (manualTop1 != null)
-            assigned.Add(manualTop1);
-
-        for (int i = 0; i < topCandidates.Count && assigned.Count < 3; i++)
+        if (chosen != null)
         {
-            var chosen = topCandidates[i];
-            if (assigned.Contains(chosen))
-                continue;
-
-            // Reines Gruen-Top-Preset? -> Staerker in Richtung "riskant" (spaeter klicken) verschieben!
-            if (chosen.IsPureGreenOnly)
-            {
-                // 1. Bevorzugt: spaeter klickendes Preset mit mindestens 1 Blau-Treffer (und SafeRate >= 50%)
-                var riskierBlue = OffsetHistory
-                    .Where(h => !assigned.Contains(h) && !h.ExcludeFromTop && !IsBlockedByRedLimit(h.OffsetMs) &&
-                                h.OffsetMs < chosen.OffsetMs - 0.02 &&
-                                h.BlueHits > 0 && h.SafeRate >= 0.50)
-                    .OrderByDescending(h => h.BlueRate)
-                    .ThenBy(h => h.OffsetMs)
-                    .FirstOrDefault();
-
-                if (riskierBlue != null)
-                {
-                    chosen = riskierBlue;
-                }
-                else
-                {
-                    // 2. Sonst: spaetestes Preset unterhalb davon, das noch ueberwiegend gruen (SafeRate >= 50%) ist
-                    var riskierGreen = OffsetHistory
-                        .Where(h => !assigned.Contains(h) && !h.ExcludeFromTop && !IsBlockedByRedLimit(h.OffsetMs) &&
-                                    h.OffsetMs < chosen.OffsetMs - 0.02 &&
-                                    h.GreenHits > 0 && h.SafeRate >= 0.50)
-                        .OrderBy(h => h.OffsetMs) // Kleinster Offset = spaetester / riskantester Klick!
-                        .FirstOrDefault();
-
-                    if (riskierGreen != null)
-                        chosen = riskierGreen;
-                }
-            }
-
-            if (!assigned.Contains(chosen))
-                assigned.Add(chosen);
-        }
-
-        for (int i = 0; i < assigned.Count; i++)
-            assigned[i].TopRank = i + 1;
-
-        // Meister-Tacho nur, wenn 3 echte gereifte Top-Presets existieren und Top-1 kein reines Gruen ist
-        IsMeisterTacho = assigned.Count >= 3 && assigned.All(h => h.IsMature) && assigned[0].BlueHits > 0;
-        if (IsMeisterTacho || (ManualRefinement && assigned.Count >= 1 && assigned[0].BlueHits > 0))
-        {
-            var (_, _, openCount) = GetRefinementInfo();
-            IsRefinementActive = openCount > 0;
-            IsRefinementComplete = openCount == 0;
-        }
-        else
-        {
-            IsRefinementActive = false;
-            IsRefinementComplete = false;
+            chosen.TopRank = 1;
+            IsFixed = true; // Stabiler Modus erreicht -> Tacho-Signatur einfrieren & feine Schritte aktivieren
         }
     }
 
-    public OffsetPerformance? GetTopPreset(int rank)
+    public OffsetPerformance? GetTopPreset(int rank = 1)
     {
         return OffsetHistory.FirstOrDefault(h => h.TopRank == rank && !IsBlockedByRedLimit(h.OffsetMs));
-    }
-
-    public (double MinMs, double MaxMs, int OpenCandidates) GetRefinementInfo()
-    {
-        var t1 = GetTopPreset(1);
-        var t2 = GetTopPreset(2);
-        var t3 = GetTopPreset(3);
-        double minMs, maxMs;
-        if (t1 != null && t2 != null && t3 != null)
-        {
-            minMs = SnapToFineMs(Math.Min(t1.OffsetMs, Math.Min(t2.OffsetMs, t3.OffsetMs)));
-            maxMs = SnapToFineMs(Math.Max(t1.OffsetMs, Math.Max(t2.OffsetMs, t3.OffsetMs)));
-        }
-        else if (ManualRefinement && t1 != null)
-        {
-            // Manuelle Verfeinerung rund um Top-1: feines +-0,50ms-Fenster in 0,05ms-Schritten
-            minMs = SnapToFineMs(Math.Max(0.0, t1.OffsetMs - 0.50));
-            maxMs = SnapToFineMs(Math.Min(120.0, t1.OffsetMs + 0.50));
-        }
-        else
-        {
-            return (0.0, 0.0, 0);
-        }
-        int open = 0;
-
-        for (double v = SnapToFineMs(minMs + 0.05); v < maxMs - 0.02; v = SnapToFineMs(v + 0.05))
-        {
-            if (IsBlockedByRedLimit(v)) continue;
-            var st = FindPresetStats(v);
-            if (st == null || !st.IsMature)
-                open++;
-        }
-
-        return (minMs, maxMs, open);
-    }
-
-    private double? FindNextRefinementOffset(double currentMs, int direction, double minMs, double maxMs)
-    {
-        double cur = SnapToFineMs(currentMs);
-        double step = direction >= 0 ? 0.05 : -0.05;
-
-        // 1. Zuerst in gewuenschter Korrekturrichtung (+0,05 ms bei Rot, -0,05 ms bei Gruen/Weiss)
-        //    den naechsten 0,05ms-Wert strikt oberhalb der Rot-Grenze im Bereich [minMs, maxMs] suchen.
-        for (double v = SnapToFineMs(cur + step);
-             v >= minMs - 0.001 && v <= maxMs + 0.001;
-             v = SnapToFineMs(v + step))
-        {
-            if (Math.Abs(v - cur) < 0.02 || IsBlockedByRedLimit(v)) continue;
-            return v;
-        }
-
-        // 2. Falls am Rand des Top-3-Intervalls: naechstgelegenen offenen (noch nicht mature) 0,05ms-Kandidaten waehlen
-        double? nearestOpen = null;
-        double bestDist = double.MaxValue;
-        for (double v = SnapToFineMs(minMs + 0.05); v < maxMs - 0.02; v = SnapToFineMs(v + 0.05))
-        {
-            if (Math.Abs(v - cur) < 0.02 || IsBlockedByRedLimit(v)) continue;
-            var st = FindPresetStats(v);
-            if (st == null || !st.IsMature)
-            {
-                double d = Math.Abs(v - cur);
-                if (d < bestDist)
-                {
-                    bestDist = d;
-                    nearestOpen = v;
-                }
-            }
-        }
-
-        return nearestOpen;
     }
 
     /// <summary>
@@ -665,8 +520,6 @@ internal sealed class TachoSetupSlot
 
         RefreshTopPresets();
         var top1 = GetTopPreset(1);
-        var top2 = GetTopPreset(2);
-        var top3 = GetTopPreset(3);
         bool isLateMiss = fb == TachoFeedback.TooLateRed || isPostBlueWhiteLate;
 
         // 0. NOTBREMSE bei >= 2x echtem Rot (bzw. Vogel Nach-Blau-Weiss) in Folge:
@@ -695,88 +548,19 @@ internal sealed class TachoSetupSlot
             return (ClickOffsetMs, appliedRaw, false, null, 0, false, false);
         }
 
-        // 0a. REFINEMENT- & MASTER-PHASE bei ROT (bzw. Vogel Nach-Blau-Weiss):
-        //     Immer das naechste Top-Preset waehlen, das FRUEHER klickt (hoeherer Offset).
-        //     Zusaetzlich auf gereiftem Top-Preset den fluechtigen SessionDriftMs sanft +1,0 ms nachfuehren.
-        //     Falls bereits auf (oder ueber) dem am fruehesten klickenden Top-Preset: trotzdem frueher klicken (+0,75 ms)!
-        if (isLateMiss && (IsMeisterTacho || top1 != null))
+        // 0a. STABILER MODUS (Top-1 vorhanden) bei 1x ROT / Nach-Blau-Weiss:
+        //     Auf Top-1 sanften SessionDriftMs (+1,0 ms) nachfuehren; falls unterhalb Top-1, sofort auf Top-1 zurueck!
+        if (isLateMiss && top1 != null)
         {
-            if (stat.TopRank > 0)
+            if (stat.TopRank == 1)
                 SessionDriftMs = Math.Clamp(Math.Round(SessionDriftMs + 1.0, 2), -4.0, 24.0);
 
-            var earlierTop = new[] { top1, top2, top3 }
-                .Where(t => t != null && t.OffsetMs > ClickOffsetMs + 0.02)
-                .OrderBy(t => t!.OffsetMs)
-                .FirstOrDefault();
-
-            if (earlierTop != null)
+            if (top1.OffsetMs > ClickOffsetMs + 0.02)
             {
-                double delta = Math.Round(earlierTop.OffsetMs - ClickOffsetMs, 2);
-                ClickOffsetMs = earlierTop.OffsetMs;
+                double delta = Math.Round(top1.OffsetMs - ClickOffsetMs, 2);
+                ClickOffsetMs = top1.OffsetMs;
                 ConsecutiveNonBlue = 0;
-                return (ClickOffsetMs, delta, true, earlierTop, 0, false, false);
-            }
-
-            if (IsMeisterTacho || ManualRefinement)
-            {
-                double rawTarget = Math.Clamp(Math.Round(ClickOffsetMs + 0.75, 2), 0.0, 120.0);
-                double applied = Math.Round(rawTarget - ClickOffsetMs, 2);
-                ClickOffsetMs = rawTarget;
-                ConsecutiveNonBlue = 0;
-                return (ClickOffsetMs, applied, false, null, 0, false, false);
-            }
-        }
-
-        // 0b. MODUS "VERFEINERUNG" bei GRUEN / WEISS (zu frueh):
-        //     In 0,05ms-Schritten nach unten zwischen Top-1..3 (bzw. im +-0,50ms-Fenster um Top-1) verfeinern!
-        if (!isLateMiss && (IsMeisterTacho || ManualRefinement) && IsRefinementActive)
-        {
-            var (minMs, maxMs, _) = GetRefinementInfo();
-            double? nextFine = FindNextRefinementOffset(ClickOffsetMs, -1, minMs, maxMs);
-            if (nextFine.HasValue)
-            {
-                double delta = Math.Round(nextFine.Value - ClickOffsetMs, 2);
-                ClickOffsetMs = nextFine.Value;
-                ConsecutiveNonBlue = 0;
-                ConsecutiveRed = 0;
-                return (ClickOffsetMs, delta, false, null, 0, false, false);
-            }
-        }
-
-        // 0c. Finaler Meister-Tacho (Verfeinerung abgeschlossen) bei GRUEN / WEISS:
-        if (!isLateMiss && IsMeisterTacho && IsRefinementComplete)
-        {
-            if (fb == TachoFeedback.TooEarlyGreen)
-            {
-                if (stat.TopRank == 0 && top1 != null)
-                {
-                    double delta = Math.Round(top1.OffsetMs - ClickOffsetMs, 2);
-                    ClickOffsetMs = top1.OffsetMs;
-                    ConsecutiveNonBlue = 0;
-                    ConsecutiveRed = 0;
-                    return (ClickOffsetMs, delta, true, top1, 0, false, false);
-                }
-
-                // Bei 3x Gruen in Folge auf gereiftem Top-Preset: sanften Session-Drift -0,35 ms zulassen
-                if (stat.TopRank > 0 && ConsecutiveNonBlue >= 3)
-                {
-                    SessionDriftMs = Math.Clamp(Math.Round(SessionDriftMs - 0.35, 2), -4.0, 24.0);
-                    ConsecutiveNonBlue = 0;
-                }
-                return (ClickOffsetMs, 0.0, false, null, 0, false, false);
-            }
-
-            if (fb == TachoFeedback.WayTooEarlyWhite)
-            {
-                var nextTop = stat.TopRank switch { 1 => top2 ?? top1, 2 => top3 ?? top1, _ => top1 };
-                if (nextTop != null)
-                {
-                    double delta = Math.Round(nextTop.OffsetMs - ClickOffsetMs, 2);
-                    ClickOffsetMs = nextTop.OffsetMs;
-                    ConsecutiveNonBlue = 0;
-                    ConsecutiveRed = 0;
-                    return (ClickOffsetMs, delta, true, nextTop, 0, false, false);
-                }
+                return (ClickOffsetMs, delta, true, top1, 0, false, false);
             }
         }
 
