@@ -29,6 +29,7 @@ internal sealed class OffsetPerformance
     public double SafeRate => Total > 0 ? (double)(BlueHits + GreenHits) / Total : 0.0;
     public double RedRate => Total > 0 ? (double)RedHits / Total : 0.0;
     public double BadRate => Total > 0 ? (double)(RedHits + WhiteHits) / Total : 0.0;
+    public bool IsPureGreenOnly => GreenHits > 0 && BlueHits == 0 && RedHits == 0 && WhiteHits == 0;
 
     /// <summary>
     /// Composite quality score favoring high Blue hit rate and safe Green hits while heavily penalizing Red (round lost!).
@@ -319,7 +320,8 @@ internal sealed class TachoSetupSlot
     /// <summary>
     /// Waehlt das beste bekannte Preset fuer dieses (Spieler, Tacho)-Paar beim Erkennen des Spielers:
     /// 1. Bestes Blau-Preset (strikt oberhalb des roten Endes).
-    /// 2. Falls noch kein Blau-Preset existiert: knappstes (spaetestes) sicheres Gruen-Preset knapp vor Rot, niemals <= Rot-Ende.
+    /// 2. Falls noch kein Blau-Preset existiert: das spaeteste (riskanteste) ueberwiegend gruene Preset
+    ///    (SafeRate >= 50%, strikt oberhalb des roten Endes).
     /// </summary>
     public OffsetPerformance? GetBestStartupPreset(double? excludeOffsetMs = null)
     {
@@ -331,32 +333,78 @@ internal sealed class TachoSetupSlot
             excludeOffsetMs.HasValue && Math.Abs(h.OffsetMs - SnapToFineMs(excludeOffsetMs.Value)) < 0.02;
 
         return OffsetHistory
-            .Where(h => !h.IsRedLocked && !IsBlockedByRedFloor(h.OffsetMs) && !IsExcluded(h) && h.GreenHits >= 1 && h.RedHits == 0 && h.WhiteHits == 0)
-            .OrderBy(h => h.OffsetMs) // Knappstes (spaetestes) sicheres Gruen direkt vor Blau/Rot
+            .Where(h => !h.IsRedLocked && !IsBlockedByRedFloor(h.OffsetMs) && !IsExcluded(h) &&
+                        h.GreenHits >= 1 && h.SafeRate >= 0.50 && h.WhiteHits == 0)
+            .OrderBy(h => h.OffsetMs) // Spaetestes / riskantestes noch ueberwiegend gruenes Preset!
             .FirstOrDefault();
     }
 
     /// <summary>
-    /// Aktualisiert die Markierungen "Top-1", "Top-2", "Top-3" fuer alle gereiften (mature, >= 30 Klicks) Presets
-    /// strikt oberhalb des roten Endes, setzt IsMeisterTacho = true ab 3 gereiften Top-Presets und steuert die 0,05ms-Verfeinerung.
+    /// Aktualisiert die Markierungen "Top-1", "Top-2", "Top-3" fuer gereifte Presets strikt oberhalb des roten Endes.
+    /// Wenn eine Top-Markierung auf einem ausschliesslich gruenen Preset (0 Blau, 0 Rot) liegt, wird sie aktiv
+    /// weiter in Richtung "riskant" (spaeterer Klick / kleinerer Offset) verschoben — auf ein blaues oder noch
+    /// ueberwiegend gruenes Preset mit spaeterem Klickzeitpunkt!
     /// </summary>
     public void RefreshTopPresets()
     {
         foreach (var h in OffsetHistory)
             h.TopRank = 0;
 
-        var topMature = OffsetHistory
+        var topCandidates = OffsetHistory
             .Where(h => h.IsMature && !h.IsRedLocked && !IsBlockedByRedFloor(h.OffsetMs))
-            .OrderByDescending(h => h.SmoothedScore)
+            .OrderByDescending(h => h.BlueHits > 0 ? 1 : 0) // Blau immer vor reinem Gruen
+            .ThenByDescending(h => h.SmoothedScore)
             .ThenByDescending(h => h.BlueRate)
-            .ThenByDescending(h => h.Total)
+            .ThenBy(h => h.OffsetMs) // Bei Gleichstand: spaeterer (riskanterer) Klick gewinnt!
             .Take(3)
             .ToList();
 
-        for (int i = 0; i < topMature.Count; i++)
-            topMature[i].TopRank = i + 1;
+        var assigned = new List<OffsetPerformance>(3);
 
-        IsMeisterTacho = topMature.Count >= 3;
+        for (int i = 0; i < topCandidates.Count; i++)
+        {
+            var chosen = topCandidates[i];
+
+            // Reines Gruen-Top-Preset? -> Staerker in Richtung "riskant" (spaeter klicken) verschieben!
+            if (chosen.IsPureGreenOnly)
+            {
+                // 1. Bevorzugt: spaeter klickendes Preset mit mindestens 1 Blau-Treffer (und SafeRate >= 50%)
+                var riskierBlue = OffsetHistory
+                    .Where(h => !assigned.Contains(h) && !h.IsRedLocked && !IsBlockedByRedFloor(h.OffsetMs) &&
+                                h.OffsetMs < chosen.OffsetMs - 0.02 &&
+                                h.BlueHits > 0 && h.SafeRate >= 0.50)
+                    .OrderByDescending(h => h.BlueRate)
+                    .ThenBy(h => h.OffsetMs)
+                    .FirstOrDefault();
+
+                if (riskierBlue != null)
+                {
+                    chosen = riskierBlue;
+                }
+                else
+                {
+                    // 2. Sonst: spaetestes Preset unterhalb davon, das noch ueberwiegend gruen (SafeRate >= 50%) ist
+                    var riskierGreen = OffsetHistory
+                        .Where(h => !assigned.Contains(h) && !h.IsRedLocked && !IsBlockedByRedFloor(h.OffsetMs) &&
+                                    h.OffsetMs < chosen.OffsetMs - 0.02 &&
+                                    h.GreenHits > 0 && h.SafeRate >= 0.50)
+                        .OrderBy(h => h.OffsetMs) // Kleinster Offset = spaetester / riskantester Klick!
+                        .FirstOrDefault();
+
+                    if (riskierGreen != null)
+                        chosen = riskierGreen;
+                }
+            }
+
+            if (!assigned.Contains(chosen))
+                assigned.Add(chosen);
+        }
+
+        for (int i = 0; i < assigned.Count; i++)
+            assigned[i].TopRank = i + 1;
+
+        // Meister-Tacho nur, wenn 3 echte gereifte Top-Presets existieren und Top-1 kein reines Gruen ist
+        IsMeisterTacho = assigned.Count >= 3 && assigned.All(h => h.IsMature) && assigned[0].BlueHits > 0;
         if (IsMeisterTacho)
         {
             var (_, _, openCount) = GetRefinementInfo();
@@ -372,7 +420,7 @@ internal sealed class TachoSetupSlot
 
     public OffsetPerformance? GetTopPreset(int rank)
     {
-        return OffsetHistory.FirstOrDefault(h => h.TopRank == rank && h.IsMature && !h.IsRedLocked && !IsBlockedByRedFloor(h.OffsetMs));
+        return OffsetHistory.FirstOrDefault(h => h.TopRank == rank && !h.IsRedLocked && !IsBlockedByRedFloor(h.OffsetMs));
     }
 
     public (double MinMs, double MaxMs, int OpenCandidates) GetRefinementInfo()
@@ -448,6 +496,14 @@ internal sealed class TachoSetupSlot
         var best = GetTopPreset(1) ?? GetBestStartupPreset();
         if (best != null)
         {
+            // Niemals von einem bereits spaeteren (riskanteren), nicht gesperrten Preset zurueck auf ein frueheres reines Gruen-Preset ziehen!
+            if (best.IsPureGreenOnly && !IsPresetKnownBad(ClickOffsetMs) && ClickOffsetMs < best.OffsetMs - 0.02)
+            {
+                ConsecutiveNonBlue = 0;
+                ConsecutiveRed = 0;
+                return (false, oldOffset, ClickOffsetMs, null);
+            }
+
             ClickOffsetMs = best.OffsetMs;
             ConsecutiveNonBlue = 0;
             ConsecutiveRed = 0;
