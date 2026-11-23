@@ -508,9 +508,9 @@ internal sealed class TachoSetupSlot
     /// <summary>
     /// Lokales adaptives Bracketing & Intervall-Halbierung (Bisection) direkt unterhalb des AKTUELLEN Gruen-Offsets:
     /// Springt niemals weit nach unten in veraltete Zonen, sondern halbiert nur lokal (Span 0,09..2,50 ms) zwischen
-    /// aktuellem Gruen (ClickOffsetMs) und dem naechsten bekannten Rot/Vogel-Weiss direkt darunter!
+    /// aktuellem Gruen (ClickOffsetMs) und dem naechsten bekannten Rot direkt darunter!
     /// </summary>
-    public bool TryGetBisectionTarget(bool isBird, out double midOffsetMs, out double greenLowMs, out double lateHighMs)
+    public bool TryGetBisectionTarget(out double midOffsetMs, out double greenLowMs, out double lateHighMs)
     {
         midOffsetMs = 0;
         greenLowMs = 0;
@@ -523,11 +523,11 @@ internal sealed class TachoSetupSlot
 
         double curGreen = SnapToFineMs(ClickOffsetMs);
 
-        // Suche das hoechste Rot/Vogel-Weiss-Preset strikt UNTERHALB des aktuellen Gruen-Offsets (max 2,5 ms Abstand!)
+        // Suche das hoechste Rot-Preset strikt UNTERHALB des aktuellen Gruen-Offsets (max 2,5 ms Abstand!)
         var lateHigh = OffsetHistory
             .Where(h => h.OffsetMs < curGreen - 0.04 &&
                         h.OffsetMs >= curGreen - 2.50 &&
-                        (isBird ? (h.RedHits + h.WhiteHits) >= 1 : h.RedHits >= 1))
+                        h.RedHits >= 1)
             .OrderByDescending(h => h.OffsetMs)
             .FirstOrDefault();
 
@@ -548,12 +548,12 @@ internal sealed class TachoSetupSlot
         return true;
     }
 
-    private bool TryGetSafeGreenEscape(bool isBird, double currentMs, out double safeGreenMs)
+    private bool TryGetSafeGreenEscape(double currentMs, out double safeGreenMs)
     {
         safeGreenMs = 0;
         var greenAbove = OffsetHistory
             .Where(h => !IsBlockedByRedLimit(h.OffsetMs) && h.GreenHits >= 1 &&
-                        (isBird ? h.WhiteHits == 0 : h.RedHits == 0) &&
+                        h.RedHits == 0 &&
                         h.OffsetMs >= currentMs + 0.04 && h.OffsetMs <= currentMs + 2.5)
             .OrderBy(h => h.OffsetMs)
             .FirstOrDefault();
@@ -585,7 +585,7 @@ internal sealed class TachoSetupSlot
     }
 
     public (double NewOffsetMs, double AppliedDeltaMs, bool RevertedToProven, OffsetPerformance? RevertedStats, int SkippedBadCount, bool BlockedBadCliff, bool UsedBisection)
-        RecordOutcomeAndTune(double usedOffsetMs, TachoFeedback fb, bool isBird = false, int deploymentId = 0, bool allowEmergencyJump = true)
+        RecordOutcomeAndTune(double usedOffsetMs, TachoFeedback fb, int deploymentId = 0, bool allowEmergencyJump = true)
     {
         if (fb == TachoFeedback.None)
             return (ClickOffsetMs, 0.0, false, null, 0, false, false);
@@ -605,18 +605,6 @@ internal sealed class TachoSetupSlot
         {
             depStat = new DeploymentOutcomeRecord { DeploymentId = deploymentId, OffsetMs = bucketOffset };
             DeploymentHistory.Add(depStat);
-        }
-
-        // Bei Spielern vom Typ "Vogel" (z.B. Therizinosaurus) folgt NACH dem blauen Bereich noch ein zweiter
-        // WEISSER Bereich (Runde nicht verloren, aber wenig Impact - gleicher Farbstatus "Weiss" wie vor Gruen!).
-        bool isBirdPostBlueLate = false;
-        if (isBird && fb == TachoFeedback.WayTooEarlyWhite)
-        {
-            var refGood = GetBestProvenOffset() ?? GetBestStartupPreset();
-            if (refGood != null)
-                isBirdPostBlueLate = usedOffsetMs <= refGood.OffsetMs + 8.0;
-            else
-                isBirdPostBlueLate = usedOffsetMs < 72.0;
         }
 
         switch (fb)
@@ -651,10 +639,7 @@ internal sealed class TachoSetupSlot
                 stat.WhiteHits++;
                 depStat.WhiteHits++;
                 ConsecutiveNonBlue++;
-                if (isBirdPostBlueLate)
-                    ConsecutiveRed++;
-                else
-                    ConsecutiveRed = 0;
+                ConsecutiveRed = 0;
                 break;
         }
 
@@ -662,7 +647,7 @@ internal sealed class TachoSetupSlot
         var top1 = GetTopPreset(1);
         var top2 = GetTopPreset(2);
         var top3 = GetTopPreset(3);
-        bool isLateMiss = fb == TachoFeedback.TooLateRed || isBirdPostBlueLate;
+        bool isLateMiss = fb == TachoFeedback.TooLateRed;
 
         // 0. NOTBREMSE bei >= 2x echtem Rot (bzw. Vogel Nach-Blau-Weiss) in Folge:
         //    Grosse 1-Frame-Kompensation (+14,0 ms bzw. +16,0 ms ab 3x), damit selbst ein kompletter +16,7ms
@@ -777,8 +762,8 @@ internal sealed class TachoSetupSlot
 
         var bestProven = top1 ?? GetBestProvenOffset();
 
-        // 1. Bei WEISS (Vierbeiner oder Vogel VOR Gruen):
-        if (fb == TachoFeedback.WayTooEarlyWhite && !isBirdPostBlueLate)
+        // 1. Bei WEISS (zu frueh geklickt):
+        if (fb == TachoFeedback.WayTooEarlyWhite)
         {
             var target = bestProven ?? GetBestStartupPreset();
             if (target != null)
@@ -788,17 +773,6 @@ internal sealed class TachoSetupSlot
                 ConsecutiveNonBlue = 0;
                 ConsecutiveRed = 0;
                 return (ClickOffsetMs, delta, true, target, 0, false, false);
-            }
-
-            if (isBird)
-            {
-                double stepDown = -3.0;
-                double rawTarget = ClampAboveRedLimit(Math.Round(ClickOffsetMs + stepDown, 2));
-                double applied = Math.Round(rawTarget - ClickOffsetMs, 2);
-                ClickOffsetMs = rawTarget;
-                ConsecutiveNonBlue = 0;
-                ConsecutiveRed = 0;
-                return (ClickOffsetMs, applied, false, null, 0, false, false);
             }
 
             double def = ClampAboveRedLimit(DefaultClickOffsetMs > 0 ? DefaultClickOffsetMs : 41.0);
@@ -814,7 +788,7 @@ internal sealed class TachoSetupSlot
         {
             // Bisection-Schutz: Wenn wir bei der Blau-Suche 1x Rot treffen und knapp darueber ein sicheres Gruen kennen,
             // sofort sicher auf dieses Gruen zurueckziehen (verhindert 2x Rot, naechste Runde halbiert dann weiter)!
-            if (bestProven == null && TryGetSafeGreenEscape(isBird, ClickOffsetMs, out double safeGreenMs))
+            if (bestProven == null && TryGetSafeGreenEscape(ClickOffsetMs, out double safeGreenMs))
             {
                 double delta = Math.Round(safeGreenMs - ClickOffsetMs, 2);
                 ClickOffsetMs = safeGreenMs;
@@ -837,14 +811,12 @@ internal sealed class TachoSetupSlot
             }
         }
 
-        // 3. Regulaere Anpassung bei Rot (bzw. Vogel Nach-Blau-Weiss):
+        // 3. Regulaere Anpassung bei Rot:
         if (isLateMiss)
         {
             double redStep;
             if (!IsFixed)
                 redStep = +3.0;
-            else if (isBirdPostBlueLate && bestProven == null)
-                redStep = +2.0;
             else if (bestProven == null && EndSpeedDegPerSec >= 440.0)
                 redStep = +2.5;
             else
@@ -884,7 +856,7 @@ internal sealed class TachoSetupSlot
 
             // BISECTION: Wenn zwischen aktuellem Gruen und bekanntem Rot direkt darunter (<= 2,5 ms)
             // noch Platz ist (>= 0,10 ms) und noch kein starkes Blau existiert -> exakt halbieren!
-            if (TryGetBisectionTarget(isBird, out double bisectionMid, out _, out _))
+            if (TryGetBisectionTarget(out double bisectionMid, out _, out _))
             {
                 double delta = Math.Round(bisectionMid - ClickOffsetMs, 2);
                 ClickOffsetMs = bisectionMid;
@@ -898,8 +870,7 @@ internal sealed class TachoSetupSlot
                 : null;
             foreach (var h in OffsetHistory)
             {
-                bool hasLate = isBird ? (h.RedHits + h.WhiteHits) >= 1 : h.RedHits >= 1;
-                if (hasLate && h.OffsetMs < ClickOffsetMs - 0.02)
+                if (h.RedHits >= 1 && h.OffsetMs < ClickOffsetMs - 0.02)
                 {
                     if (!nearestRedBelow.HasValue || h.OffsetMs > nearestRedBelow.Value)
                         nearestRedBelow = h.OffsetMs;

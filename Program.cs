@@ -1015,7 +1015,7 @@ internal static class Program
             // 2. Ergebnis unter dem Basis-Preset verbuchen (SessionDriftMs bleibt sauber getrennt!)
             double baseUsedOffset = slot.ClickOffsetMs;
             (updated, appliedDelta, reverted, revertedStats, skippedBadCount, blockedBadCliff, usedBisection) =
-                slot.RecordOutcomeAndTune(baseUsedOffset, fb, activeEnemy.IsBird, deploymentId, allowEmergencyJump);
+                slot.RecordOutcomeAndTune(baseUsedOffset, fb, deploymentId, allowEmergencyJump);
             activeDrift = slot.SessionDriftMs;
 
             // Wenn auf T1 eine grosse 1-Frame-Notbremse (>= +10 ms) gegriffen hat, hat das Spiel/Browser-Buffering
@@ -1098,17 +1098,7 @@ internal static class Program
                 Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> BLAU (OPTIMAL!) <<< {counts} -> Offset ({updated:F2} ms{driftInfo}) bleibt unveraendert.");
                 break;
             case TachoFeedback.WayTooEarlyWhite:
-                if (activeEnemy?.IsBird == true)
-                {
-                    string birdDir = appliedDelta > 0
-                        ? "WEISS (VOGEL: NACH BLAU / ZU SPAET!)"
-                        : "WEISS (VOGEL: VOR GRUEN / ZU FRUEH!)";
-                    Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> {birdDir} <<< {counts} -> Offset {appliedDelta:+0.00;-0.00} ms auf {updated:F2} ms{skipNote}");
-                }
-                else
-                {
-                    Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> WEISS (VIEL ZU FRUEH!) <<< {counts} -> Offset auf Startwert {updated:F2} ms zurueckgesetzt!");
-                }
+                Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] >>> WEISS (VIEL ZU FRUEH!) <<< {counts} -> Offset auf Startwert {updated:F2} ms zurueckgesetzt!");
                 break;
             default:
                 Console.WriteLine($"[Nach-Klick {setupLabel} T{tachoIndex + 1}] Keine eindeutige Farbe erkannt {counts} -> Offset bleibt {updated:F2} ms.");
