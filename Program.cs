@@ -136,6 +136,7 @@ internal static class Program
     private static void RunLoop()
     {
         AppConfig cfg = AppConfig.Load();
+        cfg.EnsureProfile3PositionsFromProfile2();
         EnemySetupStore enemyStore = EnemySetupStore.Load();
 
         var initTachos = cfg.GetActiveTachos();
@@ -187,6 +188,9 @@ internal static class Program
         var sessionDeployments = new List<(int DeploymentId, int SetupId, string Name)>();
         bool probeThirdTacho = false;
         DateTime probeThirdTachoUntilUtc = DateTime.MinValue;
+        int tachoCountCheckStage = 0; // 0 = JustArmed, 1 = rem<=240°, 2 = rem<=190°
+        bool tachoCountDetectedByShadow = false;
+        bool tachoCountConfirmed3ByShadow = false;
 
         // Letztes Feedback fuer die Anzeige im Live-Inspektor
         int lastClickedTachoNumber = 0;
@@ -364,10 +368,13 @@ internal static class Program
                             sessionPlayedEnemyIds.Clear();
                             sessionDeployments.Clear();
                             probeThirdTacho = false;
+                            tachoCountCheckStage = 0;
+                            tachoCountDetectedByShadow = false;
+                            tachoCountConfirmed3ByShadow = false;
                         }
                         overlay?.EnsureVisibleOnTop();
                         Console.WriteLine(running
-                            ? $"[Status] AKTIV ({cfg.ActiveProfile}er-Modus) - Starte sequenziell bei Tacho 1..."
+                            ? "[Status] AKTIV (Auto 2/3 Tachos) - Starte sequenziell bei Tacho 1..."
                             : "[Status] PAUSIERT.");
                         if (!running)
                         {
@@ -442,20 +449,35 @@ internal static class Program
                             activeEnemyIsNew = isNew;
                             sessionPlayedEnemyIds.Add(matched.Id);
 
-                            // Falls der erkannte Spieler eine andere gemerkte Tacho-Anzahl (2 vs. 3) hat:
-                            // automatisch in den passenden Modus wechseln, sofern dieser bereits kalibriert ist!
-                            if (cur == 0 && matched.TachoCount != cfg.ActiveProfile)
+                            // Live-Schatten-Erkennung beim Start von T1 hat Vorrang vor alten gespeicherten Profilgroessen:
+                            if (cur == 0)
                             {
-                                if (cfg.IsProfileCalibrated(matched.TachoCount))
+                                if (tachoCountConfirmed3ByShadow)
+                                {
+                                    if (cfg.ActiveProfile != 3)
+                                    {
+                                        cfg.ActiveProfile = 3;
+                                        activeTachos = cfg.GetActiveTachos();
+                                    }
+                                    if (matched.TachoCount != 3)
+                                    {
+                                        matched.TachoCount = 3;
+                                        matched.EnsureSlots();
+                                        var (t3PosX, t3PosY) = cfg.GetTacho3ProbePosition();
+                                        if (t3PosX > 0 && t3PosY > 0 && !matched.Tachos[2].HasPosition)
+                                        {
+                                            matched.Tachos[2].X = t3PosX;
+                                            matched.Tachos[2].Y = t3PosY;
+                                        }
+                                        enemyStore.Save();
+                                        Console.WriteLine($"[Tacho-Erkennung] {matched.Name} durch T3-Schatten auf 3 Tachos aktualisiert!");
+                                    }
+                                }
+                                else if (!tachoCountDetectedByShadow && matched.TachoCount != cfg.ActiveProfile && cfg.IsProfileCalibrated(matched.TachoCount))
                                 {
                                     cfg.ActiveProfile = matched.TachoCount;
-                                    cfg.Save();
                                     activeTachos = cfg.GetActiveTachos();
-                                    Console.WriteLine($"[Auto-Modus] {matched.Name} hat {matched.TachoCount} Tachos -> wechsle automatisch in den {matched.TachoCount}er-Modus!");
-                                }
-                                else
-                                {
-                                    Console.WriteLine($"[Hinweis] {matched.Name} hat {matched.TachoCount} Tachos – bitte {matched.TachoCount}er-Modus (F{(matched.TachoCount == 3 ? 3 : 2)} + F9) kalibrieren!");
+                                    Console.WriteLine($"[Auto-Modus] {matched.Name} hat {matched.TachoCount} Tachos -> automatisch auf {matched.TachoCount} Tachos umgestellt.");
                                 }
                             }
                             if (cur == activeTachos.Count - 1)
@@ -528,16 +550,95 @@ internal static class Program
 
                     if (detectors[cur].JustArmed)
                     {
-                        bool isAttack = BattleTacticHelper.IsAttack(activeTactic, cur, activeTachos.Count);
-                        int targetX = isAttack ? cfg.GreenButtonX : cfg.BlueButtonX;
-                        int targetY = isAttack ? cfg.GreenButtonY : cfg.BlueButtonY;
-                        NativeMethods.SetCursorPos(targetX, targetY);
                         if (cur == 0)
                         {
                             dinoCaptureStage = 0;
                             roundDinoSamples.Clear();
                             currentRoundVisual = null;
                             lastRoundVisDist = -1.0;
+
+                            // Sofort beim Loslaufen von Tacho 1 pruefen, ob der Schatten des 3. Tachos sichtbar ist!
+                            tachoCountCheckStage = 1;
+                            tachoCountDetectedByShadow = false;
+                            tachoCountConfirmed3ByShadow = false;
+                            var (t3ProbeX, t3ProbeY) = cfg.GetTacho3ProbePosition();
+                            if (t3ProbeX > 0 && t3ProbeY > 0)
+                            {
+                                var (hasT3Shadow, darkSec, inDiff, outDiff) = TachoDetector.DetectShadowRing(t3ProbeX, t3ProbeY, cfg.TachoBoxSize);
+                                tachoCountDetectedByShadow = true;
+                                tachoCountConfirmed3ByShadow = hasT3Shadow;
+                                int detectedCount = hasT3Shadow ? 3 : 2;
+                                if (cfg.ActiveProfile != detectedCount)
+                                {
+                                    cfg.ActiveProfile = detectedCount;
+                                    activeTachos = cfg.GetActiveTachos();
+                                    Console.WriteLine(
+                                        $"[Tacho-Erkennung] {detectedCount} Tachos beim Start von T1 erkannt (T3-Schatten: {darkSec}/12, dIn={inDiff:F1}, dOut={outDiff:F1}) -> {BattleTacticHelper.FormatPlan(activeTactic, detectedCount)}");
+                                }
+                            }
+                        }
+
+                        bool isAttack = BattleTacticHelper.IsAttack(activeTactic, cur, activeTachos.Count);
+                        int targetX = isAttack ? cfg.GreenButtonX : cfg.BlueButtonX;
+                        int targetY = isAttack ? cfg.GreenButtonY : cfg.BlueButtonY;
+                        NativeMethods.SetCursorPos(targetX, targetY);
+
+                        if (cur == 0 && overlay != null)
+                        {
+                            lastOverlayUpdate = DateTime.UtcNow;
+                            overlay.UpdateSnapshot(BuildOverlaySnapshot(
+                                cfg, enemyStore, activeEnemy, activeEnemyIsNew,
+                                detectors, expectedTachoIndex, running, activeTactic,
+                                lastClickedTachoNumber, lastFeedback,
+                                lastPatchR, lastPatchG, lastPatchB, lastPatchW,
+                                lastDeltaMs, lastResultNewOffsetMs,
+                                lastDinoPreview, lastDinoVisualInfo));
+                        }
+                    }
+
+                    // Fruehe Nachpruefung des 3. Tacho-Schattens (falls Einblend-Animation 1-2 Frames verzoegert ist),
+                    // noch lange vor der Dino-Erkennung (rem <= 240° und rem <= 190°):
+                    if (cur == 0 && !tachoCountConfirmed3ByShadow && tachoCountCheckStage < 3 &&
+                        detectors[0].State == DetectorState.Armed &&
+                        detectors[0].LastRemainingDeg > 175.0)
+                    {
+                        double shadowRemTarget = tachoCountCheckStage == 1 ? 240.0 : 190.0;
+                        if (detectors[0].LastRemainingDeg <= shadowRemTarget)
+                        {
+                            tachoCountCheckStage++;
+                            var (t3ProbeX, t3ProbeY) = cfg.GetTacho3ProbePosition();
+                            if (t3ProbeX > 0 && t3ProbeY > 0)
+                            {
+                                var (hasT3Shadow, darkSec, inDiff, outDiff) = TachoDetector.DetectShadowRing(t3ProbeX, t3ProbeY, cfg.TachoBoxSize);
+                                tachoCountDetectedByShadow = true;
+                                if (hasT3Shadow)
+                                {
+                                    tachoCountConfirmed3ByShadow = true;
+                                    if (cfg.ActiveProfile != 3)
+                                    {
+                                        cfg.ActiveProfile = 3;
+                                        activeTachos = cfg.GetActiveTachos();
+                                        bool isAtkNow = BattleTacticHelper.IsAttack(activeTactic, 0, activeTachos.Count);
+                                        NativeMethods.SetCursorPos(
+                                            isAtkNow ? cfg.GreenButtonX : cfg.BlueButtonX,
+                                            isAtkNow ? cfg.GreenButtonY : cfg.BlueButtonY);
+                                        Console.WriteLine(
+                                            $"[Tacho-Erkennung] 3. Tacho-Schatten frueh bei rem={detectors[0].LastRemainingDeg:F0}° erkannt ({darkSec}/12, dIn={inDiff:F1}, dOut={outDiff:F1}) -> {BattleTacticHelper.FormatPlan(activeTactic, 3)}");
+
+                                        if (overlay != null)
+                                        {
+                                            lastOverlayUpdate = DateTime.UtcNow;
+                                            overlay.UpdateSnapshot(BuildOverlaySnapshot(
+                                                cfg, enemyStore, activeEnemy, activeEnemyIsNew,
+                                                detectors, expectedTachoIndex, running, activeTactic,
+                                                lastClickedTachoNumber, lastFeedback,
+                                                lastPatchR, lastPatchG, lastPatchB, lastPatchW,
+                                                lastDeltaMs, lastResultNewOffsetMs,
+                                                lastDinoPreview, lastDinoVisualInfo));
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -732,6 +833,27 @@ internal static class Program
                             }
                             expectedTachoIndex = 0;
                             roundFingerprints.Clear();
+                            dinoCaptureStage = 0;
+                            roundDinoSamples.Clear();
+                            currentRoundVisual = null;
+                            lastRoundVisDist = -1.0;
+                            tachoCountCheckStage = 1;
+                            tachoCountDetectedByShadow = false;
+                            tachoCountConfirmed3ByShadow = false;
+                            var (t3ResetX, t3ResetY) = cfg.GetTacho3ProbePosition();
+                            if (t3ResetX > 0 && t3ResetY > 0)
+                            {
+                                var (hasT3Reset, darkSecR, inDiffR, outDiffR) = TachoDetector.DetectShadowRing(t3ResetX, t3ResetY, cfg.TachoBoxSize);
+                                tachoCountDetectedByShadow = true;
+                                tachoCountConfirmed3ByShadow = hasT3Reset;
+                                int detCountR = hasT3Reset ? 3 : 2;
+                                if (cfg.ActiveProfile != detCountR)
+                                {
+                                    cfg.ActiveProfile = detCountR;
+                                    Console.WriteLine(
+                                        $"[Tacho-Erkennung] {detCountR} Tachos beim Neustart von T1 erkannt (T3-Schatten: {darkSecR}/12, dIn={inDiffR:F1}, dOut={outDiffR:F1}) -> {BattleTacticHelper.FormatPlan(activeTactic, detCountR)}");
+                                }
+                            }
                             isArmed = true;
                             bool isT1Attack = BattleTacticHelper.IsAttack(activeTactic, 0, cfg.GetActiveTachos().Count);
                             NativeMethods.SetCursorPos(
@@ -1139,7 +1261,7 @@ internal static class Program
         if (cfg.IsCalibrated && !running)
         {
             running = true;
-            Console.WriteLine($"[Status] AKTIV ({cfg.ActiveProfile}er-Modus) - Starte sequenziell bei Tacho 1...");
+            Console.WriteLine("[Status] AKTIV (Auto 2/3 Tachos) - Starte sequenziell bei Tacho 1...");
         }
     }
 
@@ -1178,7 +1300,7 @@ internal static class Program
         Console.WriteLine("  +/- : Zeit-Vorlauf des aktuell aktiven Tachos feinjustieren");
         Console.WriteLine("-----------------------------------------------------------------");
         Console.WriteLine($"Spieltaktik           : {BattleTacticHelper.GetLabel(tactic)} -> {BattleTacticHelper.FormatPlan(tactic, tachos.Count)}");
-        Console.WriteLine($"Aktives Profil        : {cfg.ActiveProfile}er-Konfiguration | Gespeicherte Gegner-Setups: {store.Setups.Count}");
+        Console.WriteLine($"Tacho-Anzahl          : Automatisch (2/3 via Schatten-Erkennung bei T1-Start) | Gespeicherte Gegner-Setups: {store.Setups.Count}");
         foreach (var s in store.Setups)
         {
             string fixedTag = s.AllTachosFixed ? "FEST" : (s.HasAnyFixedTacho ? "TEIL-FEST" : "AUTO");

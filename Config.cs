@@ -16,7 +16,7 @@ internal sealed class TachoPoint
 
 internal sealed class AppConfig
 {
-    // 2 = 2er-Konfiguration, 3 = 3er-Konfiguration
+    // Aktuell automatisch erkannte Tacho-Anzahl (2 oder 3; nicht manuell umschaltbar)
     public int ActiveProfile { get; set; } = 2;
 
     public List<TachoPoint> Profile2 { get; set; } = new()
@@ -112,6 +112,43 @@ internal sealed class AppConfig
         }
 
         return (0, 0);
+    }
+
+    /// <summary>
+    /// Liefert die Bildschirm-Position des 3. Tachos (aus Profile3[2] oder geometrisch aus T1/T2 extrapoliert),
+    /// um beim Loslaufen von Tacho 1 sofort per Schattenring-Scan zwischen 2 und 3 Tachos zu unterscheiden.
+    /// </summary>
+    public (int X, int Y) GetTacho3ProbePosition()
+    {
+        if (Profile3.Count >= 3 && Profile3[2].IsSet)
+            return (Profile3[2].X, Profile3[2].Y);
+
+        var baseList = (Profile2.Count >= 2 && Profile2[0].IsSet && Profile2[1].IsSet) ? Profile2 : Profile3;
+        if (baseList.Count >= 2 && baseList[0].IsSet && baseList[1].IsSet)
+        {
+            return (
+                baseList[1].X + (baseList[1].X - baseList[0].X),
+                baseList[1].Y + (baseList[1].Y - baseList[0].Y));
+        }
+
+        return (0, 0);
+    }
+
+    public void EnsureProfile3PositionsFromProfile2()
+    {
+        while (Profile3.Count < 3)
+            Profile3.Add(new TachoPoint { ClickOffsetMs = 41.0, DefaultClickOffsetMs = 41.0 });
+
+        if (Profile2.Count >= 2)
+        {
+            if (!Profile3[0].IsSet && Profile2[0].IsSet) { Profile3[0].X = Profile2[0].X; Profile3[0].Y = Profile2[0].Y; }
+            if (!Profile3[1].IsSet && Profile2[1].IsSet) { Profile3[1].X = Profile2[1].X; Profile3[1].Y = Profile2[1].Y; }
+            if (!Profile3[2].IsSet && Profile2[0].IsSet && Profile2[1].IsSet)
+            {
+                Profile3[2].X = Profile2[1].X + (Profile2[1].X - Profile2[0].X);
+                Profile3[2].Y = Profile2[1].Y + (Profile2[1].Y - Profile2[0].Y);
+            }
+        }
     }
 
     public bool IsProfileCalibrated(int profileSize)

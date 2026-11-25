@@ -277,7 +277,7 @@ internal sealed class OverlayForm : Form
                 : $"PAUSIERT (F8) | Vorschau T{snap.ActiveTachoIndex + 1}/{snap.TotalTachos}";
             Brush statusBrush = snap.Running ? Brushes.LimeGreen : Brushes.Orange;
 
-            g.DrawString($"{statusText}  ({snap.ActiveProfile}er-Modus)  |  Offsets: {snap.AllOffsetsSummary}", titleFont, statusBrush, 12, 8);
+            g.DrawString($"{statusText}  (Auto: {snap.TotalTachos}T)  |  Offsets: {snap.AllOffsetsSummary}", titleFont, statusBrush, 12, 8);
 
             // Prominenter Gegner-Setup-Balken (Name/Nummer des erkannten Setups)
             using var enemyKnownBg = new SolidBrush(Color.FromArgb(20, 95, 130));

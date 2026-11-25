@@ -885,6 +885,164 @@ internal sealed class TachoDetector : IDisposable
     /// Zentriert eine grob per F9 gesetzte Tacho-Position automatisch auf das geometrische Kreiszentrum
     /// des Tacho-Rings (oder der dunklen Tacho-Scheibe) fuer maximale Winkel-/Geschwindigkeitsgenauigkeit.
     /// </summary>
+    /// <summary>
+    /// Prueft ueber eine 12-Sektoren-Kontrastmessung (Innenloch vs. Ring vs. Aussenrand),
+    /// ob an der angegebenen Position ein halbtransparenter Tacho-Schattenring sichtbar ist.
+    /// Nutzt GDI CopyFromScreen, um keinen DXGI-Frame des aktiven Tachos zu verbrauchen.
+    /// </summary>
+    public static (bool HasShadowRing, int DarkSectors, double AvgInDiff, double AvgOutDiff) DetectShadowRing(
+        int centerX,
+        int centerY,
+        int boxSize)
+    {
+        if (centerX <= 0 || centerY <= 0)
+            return (false, 0, 0.0, 0.0);
+
+        try
+        {
+            int size = Math.Clamp(boxSize, 120, 260);
+            int half = size / 2;
+            int left = Math.Max(0, centerX - half);
+            int top = Math.Max(0, centerY - half);
+
+            using var bmp = new Bitmap(size, size, PixelFormat.Format32bppArgb);
+            using (var g = Graphics.FromImage(bmp))
+                g.CopyFromScreen(left, top, 0, 0, new Size(size, size), CopyPixelOperation.SourceCopy);
+
+            double rInMin = size * 0.06;
+            double rInMax = size * 0.20;
+            double rRingMin = size * 0.24;
+            double rRingMax = size * 0.38;
+            double rOutMin = size * 0.42;
+            double rOutMax = size * 0.49;
+
+            double rInMinSq = rInMin * rInMin;
+            double rInMaxSq = rInMax * rInMax;
+            double rRingMinSq = rRingMin * rRingMin;
+            double rRingMaxSq = rRingMax * rRingMax;
+            double rOutMinSq = rOutMin * rOutMin;
+            double rOutMaxSq = rOutMax * rOutMax;
+
+            Span<double> inSum = stackalloc double[12];
+            Span<int> inCnt = stackalloc int[12];
+            Span<double> ringSum = stackalloc double[12];
+            Span<int> ringCnt = stackalloc int[12];
+            Span<double> outSum = stackalloc double[12];
+            Span<int> outCnt = stackalloc int[12];
+
+            double totalCenterLum = 0.0;
+            int totalCenterCnt = 0;
+
+            var rect = new Rectangle(0, 0, size, size);
+            BitmapData data = bmp.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+            try
+            {
+                unsafe
+                {
+                    byte* basePtr = (byte*)data.Scan0;
+                    int stride = data.Stride;
+
+                    for (int y = 0; y < size; y += 2)
+                    {
+                        double dy = y - half;
+                        double dySq = dy * dy;
+                        byte* row = basePtr + y * stride;
+
+                        for (int x = 0; x < size; x += 2)
+                        {
+                            double dx = x - half;
+                            double dSq = dx * dx + dySq;
+                            if (dSq < rInMinSq || dSq > rOutMaxSq)
+                                continue;
+
+                            int zone;
+                            if (dSq <= rInMaxSq) zone = 1;
+                            else if (dSq >= rRingMinSq && dSq <= rRingMaxSq) zone = 2;
+                            else if (dSq >= rOutMinSq) zone = 3;
+                            else continue;
+
+                            int p = x * 4;
+                            double lum = 0.299 * row[p + 2] + 0.587 * row[p + 1] + 0.114 * row[p];
+
+                            double deg = Math.Atan2(dy, dx) * (180.0 / Math.PI);
+                            if (deg < 0.0) deg += 360.0;
+                            int sector = ((int)(deg / 30.0)) % 12;
+
+                            if (zone == 1)
+                            {
+                                inSum[sector] += lum;
+                                inCnt[sector]++;
+                                totalCenterLum += lum;
+                                totalCenterCnt++;
+                            }
+                            else if (zone == 2)
+                            {
+                                ringSum[sector] += lum;
+                                ringCnt[sector]++;
+                            }
+                            else
+                            {
+                                outSum[sector] += lum;
+                                outCnt[sector]++;
+                            }
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                bmp.UnlockBits(data);
+            }
+
+            if (totalCenterCnt == 0)
+                return (false, 0, 0.0, 0.0);
+
+            double avgCenterLum = totalCenterLum / totalCenterCnt;
+            int darkBothSectors = 0;
+            double diffInTotal = 0.0;
+            double diffOutTotal = 0.0;
+            int validSectors = 0;
+
+            for (int s = 0; s < 12; s++)
+            {
+                if (inCnt[s] == 0 || ringCnt[s] == 0 || outCnt[s] == 0)
+                    continue;
+
+                double avgIn = inSum[s] / inCnt[s];
+                double avgRing = ringSum[s] / ringCnt[s];
+                double avgOut = outSum[s] / outCnt[s];
+
+                double dIn = avgIn - avgRing;
+                double dOut = avgOut - avgRing;
+                diffInTotal += dIn;
+                diffOutTotal += dOut;
+                validSectors++;
+
+                if (dIn >= 5.5 && dOut >= 5.5)
+                    darkBothSectors++;
+            }
+
+            if (validSectors < 10)
+                return (false, darkBothSectors, 0.0, 0.0);
+
+            double avgInDiff = diffInTotal / validSectors;
+            double avgOutDiff = diffOutTotal / validSectors;
+
+            // Ein echter Tacho-Schattenring ist rundherum (typisch 11-12/12 Sektoren, ~17-22 Lum)
+            // deutlich dunkler als sein Innenloch UND sein Aussenrand; leerer Hintergrund liegt bei 0-1/12.
+            bool hasShadow = avgCenterLum < 220.0 &&
+                             darkBothSectors >= 7 &&
+                             avgInDiff >= 7.0 &&
+                             avgOutDiff >= 7.0;
+
+            return (hasShadow, darkBothSectors, avgInDiff, avgOutDiff);
+        }
+        catch
+        {
+            return (false, 0, 0.0, 0.0);
+        }
+    }
+
     public static (int X, int Y, int Dx, int Dy, bool Centered) TryAutoCenterOnRing(int approxX, int approxY, int boxSize)
     {
         try
