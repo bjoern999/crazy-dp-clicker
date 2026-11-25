@@ -7,7 +7,7 @@ namespace TachoClicker;
 
 internal static class Program
 {
-    // F6 / F9 / F10 voruebergehend deaktiviert, damit Tacho- und Button-Positionen nicht versehentlich verstellt werden koennen.
+    // F5 / F6 / F9 / F10 voruebergehend deaktiviert, damit Dino-, Tacho- und Button-Positionen nicht versehentlich verstellt werden koennen.
     private static readonly bool CalibrationHotkeysEnabled = false;
 
     private static void Main(string[] args)
@@ -309,7 +309,11 @@ internal static class Program
 
                 if (NativeMethods.IsKeyJustPressed(NativeMethods.VK_F5, ref f5Prev))
                 {
-                    if (NativeMethods.GetCursorPos(out var pt))
+                    if (!CalibrationHotkeysEnabled)
+                    {
+                        Console.WriteLine("[Sperre] F5 (Dino-Sichtfeld) ist voruebergehend deaktiviert.");
+                    }
+                    else if (NativeMethods.GetCursorPos(out var pt))
                     {
                         cfg.DinoBoxX = pt.X;
                         cfg.DinoBoxY = pt.Y;
@@ -1165,7 +1169,7 @@ internal static class Program
         Console.WriteLine("  F3  : Taktik 2x Angriff      (letzte 2 Tachos GRUEN, davor BLAU)");
         Console.WriteLine("  F4  : Taktik Alle Angriff    (alle Tachos GRUEN / Angriff)");
         string calLock = CalibrationHotkeysEnabled ? "" : " [DEAKTIVIERT]";
-        Console.WriteLine("  F5  : Position des aktiven eigenen Dinos speichern (optional, sonst automatisch ueber T1)");
+        Console.WriteLine($"  F5  : Position des aktiven eigenen Dinos speichern (optional, sonst automatisch ueber T1){calLock}");
         Console.WriteLine($"  F6  : Gruenen Schwerter-Button speichern (+ Auto-Start){calLock}");
         Console.WriteLine("  F7  : Debug-Ausgabe An / Aus");
         Console.WriteLine("  F8  : Automatik Start / Pause (+ Preset-Statistik der Session)");
