@@ -378,6 +378,7 @@ internal static class Program
                             : "[Status] PAUSIERT.");
                         if (!running)
                         {
+                            enemyStore.FlushPendingSaves();
                             PrintSessionPresetStats(enemyStore, sessionPlayedEnemyIds, sessionDeployments);
                         }
                     }
@@ -469,7 +470,7 @@ internal static class Program
                                             matched.Tachos[2].X = t3PosX;
                                             matched.Tachos[2].Y = t3PosY;
                                         }
-                                        enemyStore.Save();
+                                        enemyStore.MarkDirty();
                                         Console.WriteLine($"[Tacho-Erkennung] {matched.Name} durch T3-Schatten auf 3 Tachos aktualisiert!");
                                     }
                                 }
@@ -485,7 +486,14 @@ internal static class Program
 
                             if ((learnedVisual || isNew) && lastDinoPreview != null)
                             {
-                                DinoVisualMatcher.SaveReferenceThumbnail(matched.Id, matched.Name, lastDinoPreview);
+                                int thumbId = matched.Id;
+                                string thumbName = matched.Name;
+                                Bitmap thumbClone = (Bitmap)lastDinoPreview.Clone();
+                                _ = Task.Run(() =>
+                                {
+                                    using (thumbClone)
+                                        DinoVisualMatcher.SaveReferenceThumbnail(thumbId, thumbName, thumbClone);
+                                });
                             }
 
                             if (cur == 0)
@@ -522,7 +530,7 @@ internal static class Program
                                 if (anyPresetChanged)
                                 {
                                     presetAutoSwitched = true;
-                                    enemyStore.Save();
+                                    enemyStore.MarkDirty();
                                 }
                             }
 
@@ -663,9 +671,16 @@ internal static class Program
                                 lastDinoPreview?.Dispose();
                                 lastDinoPreview = visPreview;
 
-                                // Letztes erfasstes Bild immer fuer Diagnose speichern (1 Datei, ueberschrieben)
+                                // Letztes erfasstes Bild immer fuer Diagnose asynchron im Hintergrund speichern (0 ms Blockieren waehrend T1!)
                                 if (dinoCaptureStage == 3 || roundDinoSamples.Count == 1)
-                                    DinoVisualMatcher.SaveLastCapturedPreview(visPreview);
+                                {
+                                    Bitmap previewClone = (Bitmap)visPreview.Clone();
+                                    _ = Task.Run(() =>
+                                    {
+                                        using (previewClone)
+                                            DinoVisualMatcher.SaveLastCapturedPreview(previewClone);
+                                    });
+                                }
 
                                 lastDinoVisualInfo = currentRoundVisual.IsCurrentVersion
                                     ? $"3F({roundDinoSamples.Count}/3) Fg={currentRoundVisual.ForegroundPixels}px AR={currentRoundVisual.AspectRatio:F2}"
@@ -708,6 +723,8 @@ internal static class Program
 
                         // 4. Sofort den Offset des erkannten Spieler-Setups (mit Treffer-Quoten & Auto-Revert) anpassen
                         double newOffset = HandleTachoFeedback(cur, usedOffsetMs, fb, detectors[cur], cfg, enemyStore, activeEnemy, currentDeploymentId, !wasInferredRedFromNone);
+                        if (enemyStore.HasPendingSave)
+                            enemyStore.Save();
 
                         // 5. Vollstaendige Telemetrie schreiben (inkl. VisDist & Dino-Metriken)
                         LogTelemetryClick(cur, activeTachos.Count, usedOffsetMs, newOffset, activeEnemy?.Name ?? "-", fb, detectors[cur], checkpointsStr, lastRoundVisDist, currentRoundVisual);
@@ -901,6 +918,7 @@ internal static class Program
         }
         finally
         {
+            enemyStore.FlushPendingSaves();
             lastDinoPreview?.Dispose();
             if (overlay != null && overlay.IsHandleCreated && !overlay.IsDisposed)
             {
@@ -1031,13 +1049,43 @@ internal static class Program
             PatchWhite = patchW,
             LastDeltaMs = lastDeltaMs,
             LastResultNewOffsetMs = lastResultNewOffsetMs,
-            BlueButtonPreview = CaptureSmallPreview(cfg.BlueButtonX, cfg.BlueButtonY, 70),
-            GreenButtonPreview = CaptureSmallPreview(cfg.GreenButtonX, cfg.GreenButtonY, 70),
+            BlueButtonPreview = GetCachedButtonPreview(true, cfg.BlueButtonX, cfg.BlueButtonY, 70, d.State != DetectorState.Armed),
+            GreenButtonPreview = GetCachedButtonPreview(false, cfg.GreenButtonX, cfg.GreenButtonY, 70, d.State != DetectorState.Armed),
             DinoPreview = lastDinoPreview != null ? (Bitmap)lastDinoPreview.Clone() : null,
             DinoBoxX = dinoX,
             DinoBoxY = dinoY,
             DinoVisualInfo = dinoVisualInfo
         };
+    }
+
+    private static Bitmap? s_cachedBlueBtnPreview;
+    private static Bitmap? s_cachedGreenBtnPreview;
+    private static (int X, int Y) s_cachedBlueBtnPos;
+    private static (int X, int Y) s_cachedGreenBtnPos;
+    private static DateTime s_lastBlueBtnCaptureUtc = DateTime.MinValue;
+    private static DateTime s_lastGreenBtnCaptureUtc = DateTime.MinValue;
+
+    private static Bitmap? GetCachedButtonPreview(bool isBlue, int centerX, int centerY, int size, bool allowRefresh)
+    {
+        if (centerX <= 0 || centerY <= 0)
+            return null;
+
+        ref Bitmap? cache = ref (isBlue ? ref s_cachedBlueBtnPreview : ref s_cachedGreenBtnPreview);
+        ref var cachedPos = ref (isBlue ? ref s_cachedBlueBtnPos : ref s_cachedGreenBtnPos);
+        ref DateTime lastCap = ref (isBlue ? ref s_lastBlueBtnCaptureUtc : ref s_lastGreenBtnCaptureUtc);
+
+        bool posChanged = cachedPos.X != centerX || cachedPos.Y != centerY;
+        bool stale = (DateTime.UtcNow - lastCap).TotalSeconds >= 2.0;
+
+        if (allowRefresh && (cache == null || posChanged || stale))
+        {
+            cache?.Dispose();
+            cache = CaptureSmallPreview(centerX, centerY, size);
+            cachedPos = (centerX, centerY);
+            lastCap = DateTime.UtcNow;
+        }
+
+        return cache != null ? (Bitmap)cache.Clone() : null;
     }
 
     private static Bitmap? CaptureSmallPreview(int centerX, int centerY, int size)

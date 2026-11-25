@@ -986,11 +986,48 @@ internal sealed class EnemySetupStore
         return changed;
     }
 
+    private static readonly JsonSerializerOptions SaveJsonOptions = new() { WriteIndented = true };
+    private readonly object _diskWriteLock = new();
+    private Task _lastWriteTask = Task.CompletedTask;
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool HasPendingSave { get; private set; }
+
+    public void MarkDirty() => HasPendingSave = true;
+
     public void Save()
     {
-        var options = new JsonSerializerOptions { WriteIndented = true };
-        string json = JsonSerializer.Serialize(this, options);
-        File.WriteAllText(StorePath, json);
+        string json = JsonSerializer.Serialize(this, SaveJsonOptions);
+        HasPendingSave = false;
+
+        lock (_diskWriteLock)
+        {
+            _lastWriteTask = _lastWriteTask.ContinueWith(_ => WriteJsonToDisk(json), TaskScheduler.Default);
+        }
+    }
+
+    public void FlushPendingSaves()
+    {
+        if (HasPendingSave)
+            Save();
+
+        Task toWait;
+        lock (_diskWriteLock)
+            toWait = _lastWriteTask;
+
+        try { toWait.Wait(3000); } catch { }
+    }
+
+    private static void WriteJsonToDisk(string json)
+    {
+        try
+        {
+            File.WriteAllText(StorePath, json);
+        }
+        catch
+        {
+            // Ignore transient write errors
+        }
 
         try
         {
@@ -1035,7 +1072,7 @@ internal sealed class EnemySetupStore
             {
                 slot.InitFrom(currentFp, fallbackOffsetMs, curX, curY);
                 currentRoundSetup.LastSeenUtc = DateTime.UtcNow;
-                Save();
+                MarkDirty();
                 return (currentRoundSetup, false, 0.0, curVisDist, false);
             }
 
@@ -1065,7 +1102,7 @@ internal sealed class EnemySetupStore
                 }
 
                 currentRoundSetup.LastSeenUtc = DateTime.UtcNow;
-                Save();
+                MarkDirty();
                 return (currentRoundSetup, false, dCurrent, curVisDist, learnedOnConfirm);
             }
 
@@ -1158,7 +1195,7 @@ internal sealed class EnemySetupStore
                     }
                 }
                 bestJoint.LastSeenUtc = DateTime.UtcNow;
-                Save();
+                MarkDirty();
                 return (bestJoint, false, bestJointDist, bestJointVisDist, learned);
             }
 
@@ -1200,7 +1237,7 @@ internal sealed class EnemySetupStore
                     slot.UpdateSignatureEma(currentFp);
                 }
                 currentRoundSetup.LastSeenUtc = DateTime.UtcNow;
-                Save();
+                MarkDirty();
                 return (currentRoundSetup, false, 0.99, curVisDist, learnedFallback);
             }
 
@@ -1310,7 +1347,7 @@ internal sealed class EnemySetupStore
             }
 
             bestMatch.LastSeenUtc = DateTime.UtcNow;
-            Save();
+            MarkDirty();
             return (bestMatch, false, bestRawDist, bestVisDist, false);
         }
 
@@ -1363,7 +1400,7 @@ internal sealed class EnemySetupStore
         int cy = currentTachoIndex < activePositions.Count ? activePositions[currentTachoIndex].Y : 0;
         setup.Tachos[currentTachoIndex].InitFrom(currentFp, fallbackOffsetMs, cx, cy);
         Setups.Add(setup);
-        Save();
+        MarkDirty();
         return setup;
     }
 }
